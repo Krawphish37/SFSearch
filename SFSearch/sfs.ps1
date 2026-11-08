@@ -37,7 +37,8 @@ if (Test-Path $extDir) {
         $extDll = Join-Path $extDir ($marker.BaseName + '.dll')
         $stale = -not (Test-Path $extDll)
         if (-not $stale) {
-            $extTime = (Get-Item $extDll).LastWriteTimeUtc
+            # The .project file is written on every build of the add-on; the .dll keeps its compile time when copied
+            $extTime = $marker.LastWriteTimeUtc
             $stale = (Get-Item $dll).LastWriteTimeUtc -gt $extTime
             if (-not $stale) {
                 $newer = Get-ChildItem -Path (Split-Path $extProj) -File -Recurse | Where-Object { ($_.Extension -eq '.cs' -or $_.Extension -eq '.csproj') -and $_.FullName -notmatch '\\(bin|obj)\\' -and $_.LastWriteTimeUtc -gt $extTime } | Select-Object -First 1

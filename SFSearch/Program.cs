@@ -142,7 +142,7 @@ namespace SFSearch
             if (host && args[1].Equals("run", StringComparison.OrdinalIgnoreCase)) { Service.ServiceHost.Run(); return; }
             if (host && args.Length >= 4) { Service.ServiceWorker.Run(args[3]); return; }
             // While the service runs, every command goes to it
-            if (!SessionServer.Active && args.Length > 0 && !args[0].Equals("session", StringComparison.OrdinalIgnoreCase) && !args[0].Equals("service", StringComparison.OrdinalIgnoreCase) && SessionServer.IsRunning())
+            if (!SessionServer.Active && args.Length > 0 && !args[0].Equals("service", StringComparison.OrdinalIgnoreCase) && SessionServer.IsRunning())
             {
                 Environment.ExitCode = SessionServer.Client(args.Where(a => !a.Equals("--live", StringComparison.OrdinalIgnoreCase)).ToArray());
                 return;
@@ -164,9 +164,6 @@ namespace SFSearch
                 Sfs.DbFolder = Path.Combine(Path.GetTempPath(), "sfsearch_live", Environment.ProcessId.ToString());
                 AppDomain.CurrentDomain.ProcessExit += (_, _) => { try { Sfs.CloseResolver(); Directory.Delete(Sfs.DbFolder, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } };
             }
-            int quality = 0;
-            string? qOpt = Sfs.TakeOption(argList, "--quality");
-            if (qOpt != null && int.TryParse(qOpt, out int qVal)) quality = qVal;
 
             args = argList.ToArray();
             string command = args[0].ToLowerInvariant();
@@ -187,7 +184,8 @@ namespace SFSearch
                 }
                 else if (command == "buildcache")
                 {
-                    if (args.Length < 2) return;
+                    if (args.Length < 2) { Console.WriteLine("Usage: SFSearch BuildCache <plugin|path>   (a stored database; not needed while the service runs)"); return; }
+                    if (SessionServer.Active) { Console.WriteLine("The service is running: it reads each plugin's record types into its own databases as commands need them, so there is nothing to build. BuildCache is for the stored databases, used when the service isn't running ('sfs.cmd Service stop')."); return; }
                     var targets = TargetResolver(args[1], true);
                     foreach (var t in targets)
                     {
@@ -197,13 +195,13 @@ namespace SFSearch
                 }
                 else if (command == "list")
                 {
-                    if (args.Length < 3) return;
+                    if (args.Length < 3) { Console.WriteLine("Usage: SFSearch List <plugin> <Type|*>"); return; }
                     var targets = TargetResolver(args[1], useLive);
                     foreach (var t in targets) ListRecords(t, NormalizeRecordType(args[2]));
                 }
                 else if (command == "inspect")
                 {
-                    if (args.Length < 3) return;
+                    if (args.Length < 3) { Console.WriteLine("Usage: SFSearch Inspect <plugin> [Type|*] <FormKey|EditorID> [field]"); return; }
                     string sig = args.Length >= 4 ? NormalizeRecordType(args[2]) : "*";
                     string key = args.Length >= 4 ? args[3] : args[2];
                     string field = args.Length >= 5 ? args[4] : "*";
@@ -220,7 +218,7 @@ namespace SFSearch
                 }
                 else if (command == "dump")
                 {
-                    if (args.Length < 3) return;
+                    if (args.Length < 3) { Console.WriteLine("Usage: SFSearch Dump <plugin> [Type|*] <FormKey|EditorID>"); return; }
                     string sig = args.Length >= 4 ? NormalizeRecordType(args[2]) : "*";
                     string key = args.Length >= 4 ? args[3] : args[2];
                     var targets = TargetResolver(args[1], useLive);
@@ -228,24 +226,17 @@ namespace SFSearch
                 }
                 else if (command == "read")
                 {
-                    if (args.Length < 3) return;
+                    if (args.Length < 3) { Console.WriteLine("Usage: SFSearch Read <plugin> [Type|*] <FormKey|EditorID>"); return; }
                     string sig = args.Length >= 4 ? NormalizeRecordType(args[2]) : "*";
                     string key = args.Length >= 4 ? args[3] : args[2];
                     var targets = TargetResolver(args[1], useLive);
                     foreach (var t in targets) ReadRecord(t, sig, key);
                 }
-                else if (command == "report")
+                else if (command == "session")
                 {
-                    if (args.Length < 3)
-                    {
-                        Console.WriteLine("Usage: SFSearch report [--live] [--quality <number>] --weapon|--armor <Target>");
-                        return;
-                    }
-                    bool isWeapon = args[1].Equals("--weapon", StringComparison.OrdinalIgnoreCase);
-                    var targets = TargetResolver(args[2], useLive);
-                    ReportGenerator.GenerateReport(isWeapon, targets, useLive, quality);
+                    Console.WriteLine("Session was renamed Service: use 'sfs.cmd Service " + string.Join(" ", restArgs) + "'.");
                 }
-                else if (command == "session" || command == "service")
+                else if (command == "service")
                 {
                     if (SessionServer.Active && !(restArgs.Count > 0 && restArgs[0].Equals("config", StringComparison.OrdinalIgnoreCase))) { Console.WriteLine("You're already in the service: this command is for starting and stopping it."); return; }
                     SessionServer.Command(restArgs);
@@ -371,10 +362,6 @@ namespace SFSearch
                 {
                     ProfileCommand.Run(restArgs);
                 }
-                else if (command == "calculatepercentiles")
-                {
-                    CalculatePercentiles();
-                }
                 else if (command == "live")
                 {
                     LiveCommand.Run(restArgs);
@@ -382,11 +369,6 @@ namespace SFSearch
                 else if (command == "livescancheck")
                 {
                     LiveCommand.ScanCheck(restArgs);
-                }
-                else if (command == "inspectform")
-                {
-                    if (args.Length < 3) return;
-                    InspectFormDirectly(args[1], args[2]);
                 }
                 else if (command == "extensions")
                 {
@@ -423,7 +405,7 @@ namespace SFSearch
             Console.WriteLine(@"SFSearch - Starfield ESM Reverse-Engineering & SQLite Analysis CLI
 Global flags: --format md|json|csv | --json | --csv | --maxwidth <N> | --raw (disable EditorID annotations)
 For agents: --live (any command) builds only what that command needs from the plugin files and keeps nothing;
-  Service start | stop | restart | status | config (or Session ...) runs SFSearch as a service (settings: sfsearch.json): many commands at once, from many agents
+  Service start | stop | restart | status | config runs SFSearch as a service (settings: sfsearch.json): many commands at once, from many agents
   (the MCP adapter Tools\SFSearch.Mcp is the main way in). While it runs, every command goes to it.
 
 Load order and history:
@@ -449,6 +431,7 @@ Core Commands:
   Inspect <Target> [Sig|*] <FormKey|EDID> [fld] Inspect record fields (annotates FormKeys with EditorIDs)
   Dump <Target> [Sig|*] <FormKey|EDID>          Dump raw JSON of a record
   Read <Target> [Sig|*] <FormKey|EDID>          Format record in xEdit layout
+  List <Target> <Type|*>                        FormKey, type, EditorID and name of every record of a type, sorted
   Diff <T1> <T2> [Sig|*] <K1> [K2] [options]    Compare two records (--summary, --ignore f1,f2, --expect f1,f2)
 
 Reverse-Engineering & Verification Commands:
@@ -464,8 +447,6 @@ Reverse-Engineering & Verification Commands:
   Conflicts <FormKey|EDID> [--in <Target>]      Show full override chain, winner, and modified fields across plugins
   Assets <plugin> [--missing]                   Verify all .nif/.mesh/.mat paths against loose files and BA2 archives
   Add <plugin|path> <Type> ... | --list | --all     Store record types in full, with no rebuild (a rebuild adds them back)
-  VerifyDb <plugin|path> [--report f] [--samples N]  Check a plugin's database against the plugin file
-  LossCheck <plugin|path> ... [--all] [--report f]  Read + save through both readers (temp folder, never Data); list anything lost
   PluginDiff <old> <new> [--detail] [--shifts]  Compare two versions of a plugin (EditorID-matched, FormID-shift-aware)
   Profile <plugin> [--against <plugin>]         A full dossier on a mod before patching it (--against: its overlap with another mod)
   Live <plugin|path> <FormKey|EDID> [--sig T]   Read one record straight from the plugin + its masters (no cache, no load order)
@@ -473,7 +454,6 @@ Reverse-Engineering & Verification Commands:
         [--vs-cache] [--subrecords] [--with p1,p2] Live vs cached fields / raw subrecords / extra plugins loaded after it
   Live <plugin|path> <record> --refs [--with p1,p2]  What points at it, read from the file: also reaches dialogue, navmeshes, statics and other types the cache skips
   Live <plugin|path> --sig T --field ""Path[*].X""   One field from every record of a type, no cache needed ([--filter EDID*] [--value text] [--new] [--empty] [--all])
-  LiveScanCheck <plugin>                        Check Live's header scan (type + cell of every record) against the plugin's cache
 
 Blueprint Research Commands (all take --with p1,p2 and --out report.md):
   MkDiff <plugin> [--sig Armor|Weapon] [--by prefix:N,kind,archetype,bench,none] [--list Field] [--pairs] [--all]
@@ -484,7 +464,18 @@ Blueprint Research Commands (all take --with p1,p2 and --out report.md):
   RecipeCensus <plugin> [--bench kw] [--created Sig] [--filter glob] [--all]
                                                 Classify COBJs by bench + created type; per tier: conditions, perks, filters,
                                                 IFK, sort order, components, GetLevel values, and outliers
-  Version | Databases | BuildCache <Target>
+
+Checks on SFSearch itself:
+  VerifyDb <plugin|path> [--report f] [--samples N]  Check a plugin's database against the plugin file
+  LossCheck <plugin|path> ... [--all] [--report f]  Read + save through both readers (temp folder, never Data); list anything lost
+  LiveScanCheck <plugin>                        Check Live's header scan (type + cell of every record) against the plugin's cache
+
+Stored databases (used when the service isn't running):
+  BuildCache <plugin|path>                      Build a plugin's stored database now (otherwise it is built on first use)
+  Databases                                     List the stored databases: size, schema version, records
+
+Other:
+  Version
   Extensions                                    List the add-ons in the extensions folder and their commands");
             foreach (var line in Extensions.HelpLines()) Console.WriteLine(line);
         }
@@ -1724,26 +1715,17 @@ Blueprint Research Commands (all take --with p1,p2 and --out report.md):
 
         static void ListRecords(string target, string recordType)
         {
-            EnsureCacheUpToDate(target);
-            string dbPath = GetCachePath(target);
-            if (!File.Exists(dbPath)) { Console.WriteLine("Cache not found. Run BuildCache first."); return; }
-
-            using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
-            conn.Open();
+            using var conn = Sfs.OpenCache(target);
             using var cmd = conn.CreateCommand();
-            if (recordType == "*") cmd.CommandText = "SELECT FormKey, Signature, EditorID, Name FROM Records ORDER BY FormKey";
-            else
-            {
-                cmd.CommandText = "SELECT FormKey, Signature, EditorID, Name FROM Records WHERE Signature = @sig";
-                cmd.Parameters.AddWithValue("@sig", recordType);
-            }
+            cmd.CommandText = recordType == "*"
+                ? "SELECT FormKey, Signature, EditorID, Name FROM Records ORDER BY FormKey"
+                : "SELECT FormKey, Signature, EditorID, Name FROM Records WHERE Signature = @sig ORDER BY FormKey";
+            if (recordType != "*") cmd.Parameters.AddWithValue("@sig", recordType);
 
             var t = new Sfs.Table("FormKey", "Signature", "EditorID", "Name");
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
-            {
                 t.Add(reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? "" : reader.GetString(2), reader.IsDBNull(3) ? "" : reader.GetString(3));
-            }
             Sfs.Print(t, annotate: false);
         }
 
@@ -1759,71 +1741,6 @@ Blueprint Research Commands (all take --with p1,p2 and --out report.md):
             var rec = FetchRecord(modName, signature, edid);
             if (rec == null) Console.WriteLine($"Could not find {signature} '{edid}' in {modName}.");
             else Console.WriteLine(xEditFormatter.FormatRecord(rec));
-        }
-
-        static void InspectFormDirectly(string modName, string hexIdsCsv)
-        {
-            string dataFolder = GetDataFolderPath();
-            string esmPath = Path.Combine(dataFolder, modName);
-            if (!File.Exists(esmPath)) { Console.WriteLine($"File not found: {esmPath}"); return; }
-
-            var readParams = new Mutagen.Bethesda.Plugins.Binary.Parameters.BinaryReadParameters
-            {
-                MasterFlagsLookup = new DirectMasterFlagCache(dataFolder),
-                ThrowOnUnknownSubrecord = false
-            };
-            using var mod = StarfieldMod.CreateFromBinaryOverlay(esmPath, StarfieldRelease.Starfield, readParams);
-
-            if (hexIdsCsv == "ALL_DMGT_AVIF")
-            {
-                Console.WriteLine("=== ALL DamageTypes ===");
-                foreach (var dt in mod.DamageTypes)
-                {
-                    var obj = FlattenValue(dt) as JsonObject ?? new JsonObject();
-                    Console.WriteLine($"[DMGT] {dt.FormKey} | {dt.EditorID} | {obj.ToJsonString()}");
-                }
-                Console.WriteLine("=== Matching ActorValues ===");
-                foreach (var av in mod.ActorValueInformation)
-                {
-                    string edid = av.EditorID ?? "";
-                    if (edid.Contains("EM", StringComparison.OrdinalIgnoreCase) ||
-                        edid.Contains("Electro", StringComparison.OrdinalIgnoreCase) ||
-                        edid.Contains("Para", StringComparison.OrdinalIgnoreCase) ||
-                        edid.Contains("Stun", StringComparison.OrdinalIgnoreCase) ||
-                        edid.Contains("Uncon", StringComparison.OrdinalIgnoreCase) ||
-                        edid.Contains("Sleep", StringComparison.OrdinalIgnoreCase) ||
-                        edid.Contains("Resist", StringComparison.OrdinalIgnoreCase) ||
-                        av.FormKey.ID < 0x000400)
-                    {
-                        Console.WriteLine($"[AVIF] {av.FormKey} | {edid} | {av.Name?.String} | Flags: {av.Flags}");
-                    }
-                }
-                return;
-            }
-
-            foreach (var rawHex in hexIdsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                uint id = Convert.ToUInt32(rawHex.Replace("0x", ""), 16);
-                var fk = new FormKey(mod.ModKey, id);
-                IMajorRecordGetter? rec =
-                    (IMajorRecordGetter?)mod.DamageTypes.TryGetValue(fk) ??
-                    (IMajorRecordGetter?)mod.ActorValueInformation.TryGetValue(fk) ??
-                    (IMajorRecordGetter?)mod.Spells.TryGetValue(fk) ??
-                    (IMajorRecordGetter?)mod.MagicEffects.TryGetValue(fk) ??
-                    (IMajorRecordGetter?)mod.Perks.TryGetValue(fk) ??
-                    (IMajorRecordGetter?)mod.ObjectEffects.TryGetValue(fk);
-
-                if (rec != null)
-                {
-                    var obj = FlattenValue(rec) as JsonObject ?? new JsonObject();
-                    Console.WriteLine($"=== [{rec.Registration.Name}] {rec.EditorID} ({rec.FormKey}) ===");
-                    Console.WriteLine(obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-                }
-                else
-                {
-                    Console.WriteLine($"FormKey {fk} not found in checked groups of {modName}.");
-                }
-            }
         }
 
         static void InspectRecord(string target, string recordType, string edid, string field)
@@ -2264,85 +2181,6 @@ Blueprint Research Commands (all take --with p1,p2 and --out report.md):
             }
             foreach (var e in errors) Sfs.ActiveSummary(e);
             if (timing) Console.Error.WriteLine($"[sfs] Total {swTotal.Elapsed.TotalSeconds:0.0}s for {statements.Count} statement(s).");
-        }
-        static void CalculatePercentiles()
-        {
-            Console.WriteLine("Loading Environment...");
-            var env = GameEnvironment.Typical.Starfield(StarfieldRelease.Starfield);
-            var linkCache = env.LinkCache;
-            var weapons = env.LoadOrder.PriorityOrder.Weapon().WinningOverrides().ToList();
-            var groupSdps = new Dictionary<string, List<float>>();
-            
-            foreach (var wpn in weapons)
-            {
-                if (!ItemFilter.IsValidWeapon(wpn, linkCache)) continue;
-                var wGroup = ItemFilter.GetWeaponGroup(wpn);
-                var wClass = ItemFilter.GetWeaponClass(wpn, linkCache);
-                
-                string catName = wGroup.ToString();
-                if (wClass != WeaponClass.Standard) {
-                    catName = wClass.ToString();
-                }
-                
-                float cap = wpn.AmmoCapacity > 0 ? wpn.AmmoCapacity : 1.0f;
-                float attackSeconds = wpn.ShotsPerSecond > 0 ? (1.0f / wpn.ShotsPerSecond) : (wpn.AttackSeconds > 0 ? wpn.AttackSeconds : 0.1f);        
-                float reloadSpeed = wpn.ReloadSpeed > 0 ? wpn.ReloadSpeed : 1.0f;
-                float baseDmg = wpn.AttackDamage;
-                if (wpn.DamageTypes != null) foreach (var dt in wpn.DamageTypes) if (dt.Value > 1f) baseDmg += dt.Value;
-                
-                if (wpn.ObjectTemplates != null) {
-                    var defaultTemplate = wpn.ObjectTemplates.FirstOrDefault(t => t.Default) ?? wpn.ObjectTemplates.FirstOrDefault();
-                    if (defaultTemplate != null && defaultTemplate.Includes != null) {
-                        foreach (var inc in defaultTemplate.Includes) {
-                            if (linkCache.TryResolve<IObjectModificationGetter>(inc.Mod.FormKey, out var defaultOmod) && defaultOmod.Properties != null) {
-                                foreach (var prop in defaultOmod.Properties) {
-                                    if (prop is ObjectModFormLinkFloatProperty<Mutagen.Bethesda.Starfield.Weapon.Property> dtProp && dtProp.Property == Mutagen.Bethesda.Starfield.Weapon.Property.DamageTypeValue && dtProp.FunctionType == ObjectModProperty.FloatFunctionType.Add && dtProp.Value > 1f)
-                                        baseDmg += dtProp.Value;
-                                    else if (prop is ObjectModFloatProperty<Mutagen.Bethesda.Starfield.Weapon.Property> fProp && fProp.Property == Mutagen.Bethesda.Starfield.Weapon.Property.DamagePhysical && fProp.FunctionType == ObjectModProperty.FloatFunctionType.Add && fProp.Value > 1f)
-                                        baseDmg += fProp.Value;
-                                    else if (prop is ObjectModFloatProperty<Mutagen.Bethesda.Starfield.Weapon.Property> atkProp && atkProp.Property == Mutagen.Bethesda.Starfield.Weapon.Property.AttackSeconds && atkProp.FunctionType == ObjectModProperty.FloatFunctionType.Set)
-                                        attackSeconds = atkProp.Value;
-                                    else if (prop is ObjectModFloatProperty<Mutagen.Bethesda.Starfield.Weapon.Property> spsProp && spsProp.Property == Mutagen.Bethesda.Starfield.Weapon.Property.ShotsperSecond) {
-                                        if (spsProp.FunctionType == ObjectModProperty.FloatFunctionType.Set && spsProp.Value > 0) attackSeconds = 1.0f / spsProp.Value;
-                                        else if (spsProp.FunctionType == ObjectModProperty.FloatFunctionType.Add && wpn.ShotsPerSecond + spsProp.Value > 0) attackSeconds = 1.0f / (wpn.ShotsPerSecond + spsProp.Value);
-                                    }
-                                    else if (prop is ObjectModIntProperty<Mutagen.Bethesda.Starfield.Weapon.Property> capProp && capProp.Property == Mutagen.Bethesda.Starfield.Weapon.Property.AmmoCapacity) {
-                                        if (capProp.FunctionType.ToString() == "Set") cap = capProp.Value;
-                                        else if (capProp.FunctionType.ToString() == "Add") cap += capProp.Value;
-                                    }
-                                    else if (prop is ObjectModFloatProperty<Mutagen.Bethesda.Starfield.Weapon.Property> rldProp && rldProp.Property == Mutagen.Bethesda.Starfield.Weapon.Property.ReloadSpeed) {
-                                        if (rldProp.FunctionType == ObjectModProperty.FloatFunctionType.Set) reloadSpeed = rldProp.Value;
-                                        else if (rldProp.FunctionType == ObjectModProperty.FloatFunctionType.Add) reloadSpeed += rldProp.Value;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                int projectiles = wpn.ProjectilesCount > 0 ? (int)wpn.ProjectilesCount : 1;
-                float totalBaseDmg = (baseDmg > 0 ? baseDmg : 1.0f) * projectiles;
-                
-                float sdps = 0;
-                if (wGroup == WeaponGroup.Melee) {
-                    sdps = totalBaseDmg / attackSeconds;
-                } else {
-                    sdps = (cap * totalBaseDmg) / ((cap * attackSeconds) + (1.0f / reloadSpeed));
-                }
-                
-                if (!groupSdps.ContainsKey(catName)) groupSdps[catName] = new List<float>();
-                groupSdps[catName].Add(sdps);
-            }
-            
-            Console.WriteLine("\n--- 80th Percentile BASE SDPS by Group ---");
-            foreach (var kvp in groupSdps.OrderBy(x => x.Key))
-            {
-                var sorted = kvp.Value.OrderBy(x => x).ToList();
-                if (sorted.Count == 0) continue;
-                int index = (int)Math.Floor(0.80 * (sorted.Count - 1));
-                float p80 = sorted[index];
-                Console.WriteLine($"            {{ \"{kvp.Key}\", {p80:F2}f }}, // {sorted.Count} weapons");
-            }
         }
     }
 

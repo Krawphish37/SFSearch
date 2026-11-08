@@ -44,7 +44,7 @@ SFSearch is our own tool for reading Starfield plugins. It turns each `.esm` int
 - **Warm-up:** after 30 s with no agent command it reads, in the background and only while no agent is waiting, the load-order index and the common types (weapons, armor, recipes, OMODs, keywords, lists) of the base game files (Starfield.esm, ShatteredSpace.esm) and the 15 plugins agents asked about most recently. Nothing is tied to one mod list, so it suits any load order. After a game or mod update it reads the changed files again. `Service status` shows how far it got.
 - **Settings: `SFSearch\sfsearch.json`**, every line explained inside. It covers the warm-up (on or off, what to read: plugin names, patterns such as `SFBGS*.esm`, `@base`, `@official`, `@recent`, `@loaded`; which types; after updates) the service's limits (workers, time limit, memory, queue, data cap), the **item filter** (`itemFilter`: how weapons and armor are sorted into groups and what counts as junk; defaults are the built-in rules (the All-in-One Patcher's `UniversalItemFilter`), and a database built with different rules is rebuilt by itself), and `champollion` (the path to `Champollion.exe` for `Scripts`; otherwise `SFSEARCH_CHAMPOLLION`, `tools\champollion\` in the home folder). Saved edits apply without a restart. `sfs.cmd Service config` (or `sfs_run ["Service","config"]`) shows what's in effect. The user owns this file: change it only when asked.
 - **Which Data folder:** `SFSEARCH_DATA`, then `Cache\DataPath.txt`, then the Steam or Xbox install found by itself. `sfs.cmd SetData "<path to Data>"` writes `DataPath.txt`.
-- `sfs.cmd Service status | stop | restart | start` (`Session` is the same command). **After SFSearch is rebuilt, `Service status` says the service runs the old build: `Service restart`.** Its log is `Service\logs\service-<date>.log`.
+- `sfs.cmd Service status | stop | restart | start`. **After SFSearch is rebuilt, `Service status` says the service runs the old build: `Service restart`.** Its log is `Service\logs\service-<date>.log`.
 
 ### Other ways to get the data (same commands, same answers)
 | Way | How | When |
@@ -85,6 +85,7 @@ The load-order index (`Cache\_loadorder.db`), the history (`Cache\History.db`) a
 | How are its recipes built? | `RecipeCensus <plugin> [--bench <keyword>] [--filter <glob>]` |
 | FormLists, scripts, APPR, keywords, templates, recipes, OMODs (with their mesh), armor meshes | `Q flst` / `vmad` / `appr` / `kw` / `templates` / `cobj` / `omod` / `arma` `<plugin> [filter]` |
 | Only the new, or only the override, records | `Q new` / `Q overrides <plugin> [Signature]` |
+| Every record of one type, quickly | `List <plugin> <Type\|*>`: FormKey, type, EditorID and name, sorted by FormKey |
 | Which JSON paths does this type have? | `Fields <plugin> <Type> [--filter text]`: every path in `Data` (arrays as `[*]`), how many records have it, a sample value |
 | Anything else | `Query <plugins> "<SQL>"` or `Query <plugins> --file x.sql` |
 

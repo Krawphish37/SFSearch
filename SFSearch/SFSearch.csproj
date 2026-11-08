@@ -5,6 +5,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- The first number is the add-on API: raise it only when ISfsExtension or the helpers add-ons use change in a breaking way (DEVELOPING.md) -->
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

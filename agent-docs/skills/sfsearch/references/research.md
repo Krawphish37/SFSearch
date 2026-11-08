@@ -46,14 +46,16 @@ sfs RecipeCensus DarkStar_Manufacturing.esm --out rc.md
 sfs RecipeCensus DarkStar_Manufacturing.esm --bench WorkbenchArmorKeyword --filter "co_qmod_*" --exclude "*ForceArmor*"
 ```
 
-## `Profile <plugin> [--against darkstar.esm] [--out dossier.md]`
-A 6-part dossier on a mod before patching it:
+## `Profile <plugin> [--against <plugin>] [--out dossier.md]`
+A dossier on a mod before patching it:
 1. Header flags, Light/Medium room left, masters, and the file counts of its `.ba2` archives (`.nif`/`.mesh`, `.mat`, `.dds`, `.pex`).
 2. Record census and the most common EditorID prefixes.
 3. What its overrides change (Mesh/Visual, Stats, List, Keywords/APPR, Templates/Quality, ITM).
 4. Playable equipment and how the mod hands it out.
 5. Asset check across loose files, mod BA2s and vanilla BA2s.
-6. Conflicts and patch work against darkstar.esm: direct FormKey collisions, DarkStar Mk.II counterparts of the vanilla items it overrides, and new equipment that needs a Mk.II.
+6. Only with `--against`: its overlap with that plugin (records both change, and what each changes) and its new playable equipment, which a patch for that plugin would need to cover.
+
+An add-on can build on it: `ProfileCommand.GenerateDossier` prints sections 1 to 6, and the add-on adds its mod's own sections.
 
 ## Lookup and compare commands
 - **`Inspect` / `Read` / `Dump <plugin> [Sig|*] <record>`:** fields with FormKeys labelled, xEdit layout, raw JSON. The record type is optional.

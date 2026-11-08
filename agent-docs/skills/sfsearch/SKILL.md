@@ -78,7 +78,8 @@ The load-order index (`Cache\_loadorder.db`), the history (`Cache\History.db`) a
 | Would a Mutagen read and save lose anything in this plugin? | `LossCheck <plugin or path> ... [--all] [--report file] [--samples N]` saves to a temp folder through both readers, never Data. LOST, CHANGED and ADDED are listed, and NOTE for a deleted record saved as its header only; order, FormID style and empty groups aren't counted. |
 | A type isn't in the database and I need more than `Live` gives (SQL, `Refs`, many records) | `Add <plugin> <Type> ...` stores it in full, with no rebuild. `Add <plugin> --list` shows what's missing, with row counts. `--all` gives the whole plugin. Safe to stop and run again; a rebuild adds the types back. |
 | Is this plugin's database right? | `VerifyDb <plugin> [--report file] [--samples N]` checks the rows in the database against the plugin file: every record present, headers, links, parents, read-back, field values. Prints PASS or the problems. Field checks sample up to 200 records per type. Starfield.esm with Climate added always shows 1 problem: ClimateNone (3D248E:Starfield.esm) has a `TNAM` one byte short, which is harmless. |
-| Full dossier before patching a new mod | `Profile <plugin> [--against darkstar.esm] [--out file.md]` |
+| Full dossier before patching a new mod | `Profile <plugin> [--against <plugin>] [--out file.md]` |
+| Which add-on commands are installed (checks for one mod) | `Extensions`. Run them like any command; two add-ons with the same command: `<AddOn>.<Command>`, e.g. `DarkStar.Lint`. Over MCP: `sfs_run`. |
 | How does mod X build its Mk.II / Mk.III? | `MkDiff <plugin> --sig Armor` or `--sig Weapon` |
 | How are its quality tiers built? | `OmodCensus <plugin> "<EditorID glob>"` |
 | How are its recipes built? | `RecipeCensus <plugin> [--bench <keyword>] [--filter <glob>]` |

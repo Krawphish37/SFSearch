@@ -164,7 +164,7 @@ public sealed class Tools
         IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
         => Bridge.Run(macro.Equals("list", StringComparison.OrdinalIgnoreCase) ? A("Q", "--list") : A("Q", macro, plugin, filter), progress, ct);
 
-    [McpServerTool(Name = "sfs_profile", ReadOnly = true, Idempotent = true), Description("Full dossier on a mod before patching it.")]
+    [McpServerTool(Name = "sfs_profile", ReadOnly = true, Idempotent = true), Description("Full dossier on a mod before patching it. against: another plugin to compare it with (overlapping records, gear needing integration).")]
     public static Task<CallToolResult> sfs_profile(string plugin, string? against = null, IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
         => Bridge.Run(A("Profile", plugin, against != null ? "--against" : null, against), progress, ct);
 
@@ -185,7 +185,8 @@ public sealed class Tools
 
     [McpServerTool(Name = "sfs_run"), Description(
         "Any other SFSearch command, as a list of arguments exactly as sfs.cmd takes them, e.g. [\"RecipeCensus\",\"darkstar.esm\",\"--bench\",\"x\"] or [\"--help\"]. " +
-        "Commands: Names, Fields, Inspect, Read, Dump, Live, Diff, Delta, Conflicts, Refs, Sources, Header, Stats, Assets, PluginDiff, LossCheck, Add, VerifyDb, Profile, MkDiff, OmodCensus, RecipeCensus, Q, Query, LoadOrder, Changes, Scripts.")]
+        "Commands: Names, Fields, Inspect, Read, Dump, Live, Diff, Delta, Conflicts, Refs, Sources, Header, Stats, Assets, PluginDiff, LossCheck, Add, VerifyDb, Profile, MkDiff, OmodCensus, RecipeCensus, Q, Query, LoadOrder, Changes, Scripts. " +
+        "Add-on commands (mod-specific checks installed in the extensions folder) run through this tool too: [\"Extensions\"] lists them; call one by its short name or as <AddOn>.<Command>.")]
     public static Task<CallToolResult> sfs_run([Description("The arguments, one per item")] string[] args,
         IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
         => Bridge.Run(args, progress, ct);

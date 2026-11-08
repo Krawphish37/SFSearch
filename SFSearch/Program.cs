@@ -179,7 +179,7 @@ namespace SFSearch
                 {
                     string asmPath = typeof(Program).Assembly.Location;
                     var built = File.Exists(asmPath) ? File.GetLastWriteTime(asmPath) : DateTime.MinValue;
-                    Console.WriteLine($"SFSearch Schema v{CacheSchemaVersion} | Built: {built:yyyy-MM-dd HH:mm:ss} | Home: {Sfs.HomeDir}");
+                    Console.WriteLine($"SFSearch {Extensions.ApiVersion.ToString(3)} | Schema v{CacheSchemaVersion} | Built: {built:yyyy-MM-dd HH:mm:ss} | Home: {Sfs.HomeDir}");
                 }
                 else if (command == "help" || command == "--help" || command == "-h")
                 {
@@ -388,6 +388,10 @@ namespace SFSearch
                     if (args.Length < 3) return;
                     InspectFormDirectly(args[1], args[2]);
                 }
+                else if (command == "extensions")
+                {
+                    Console.Write(Extensions.Describe());
+                }
                 else if (!Extensions.TryRun(command, restArgs))
                 {
                     Console.WriteLine($"Unknown command '{command}'. Run 'SFSearch --help' for usage.");
@@ -463,7 +467,7 @@ Reverse-Engineering & Verification Commands:
   VerifyDb <plugin|path> [--report f] [--samples N]  Check a plugin's database against the plugin file
   LossCheck <plugin|path> ... [--all] [--report f]  Read + save through both readers (temp folder, never Data); list anything lost
   PluginDiff <old> <new> [--detail] [--shifts]  Compare two versions of a plugin (EditorID-matched, FormID-shift-aware)
-  Profile <plugin> [--against darkstar.esm]     Generate a complete compatibility-patcher engineering dossier
+  Profile <plugin> [--against <plugin>]         A full dossier on a mod before patching it (--against: its overlap with another mod)
   Live <plugin|path> <FormKey|EDID> [--sig T]   Read one record straight from the plugin + its masters (no cache, no load order)
         [--field Path[0].X] [--chain] [--links]   One field / override chain with changed fields / outbound links resolved
         [--vs-cache] [--subrecords] [--with p1,p2] Live vs cached fields / raw subrecords / extra plugins loaded after it
@@ -480,7 +484,8 @@ Blueprint Research Commands (all take --with p1,p2 and --out report.md):
   RecipeCensus <plugin> [--bench kw] [--created Sig] [--filter glob] [--all]
                                                 Classify COBJs by bench + created type; per tier: conditions, perks, filters,
                                                 IFK, sort order, components, GetLevel values, and outliers
-  Version | Databases | BuildCache <Target>");
+  Version | Databases | BuildCache <Target>
+  Extensions                                    List the add-ons in the extensions folder and their commands");
             foreach (var line in Extensions.HelpLines()) Console.WriteLine(line);
         }
 

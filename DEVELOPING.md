@@ -6,7 +6,7 @@ For using SFSearch, see `README.md`. This file is for changing it.
 - **It only reads.** No command may write to the Data folder. Test patches and scratch files go elsewhere.
 - **Store what the plugin holds, faithfully.** A field that can't be stored is reported as a problem, not silently dropped. `VerifyDb` and `LossCheck` are the checks for this.
 - **Build with no warnings.** `sfs.cmd` rebuilds SFSearch by itself when any `.cs` file or the `.csproj` is newer than the build. Run `dotnet build SFSearch.Mcp -c Release` for the MCP server.
-- **Keep commands general.** Checks for one mod belong in an extension (`Extensions.cs`, README "Your own commands"), not in SFSearch.
+- **Keep commands general.** Checks for one mod belong in an add-on (`Extensions.cs`, README "Your own commands"), not in SFSearch.
 - **Agents read the answers.** Output is Markdown tables by default. Warnings go to stderr (shown to agents as `[notes]`). An error is one line starting `Error:`.
 
 ## The pieces
@@ -32,6 +32,11 @@ For using SFSearch, see `README.md`. This file is for changing it.
     - `--live`: built for one command in a temp folder, then deleted.
 - **The service:** a coordinator that never reads a plugin, and worker processes that each run one command at a time through `Program.Main`. One queue per agent, taken in turn. A crashed worker is replaced and its command runs once more. Databases use WAL, so readers never wait. Building a type takes a named mutex per database (`ServiceDb.BuildLock`). The coordinator and workers talk over named pipes open to the current user only.
 - **The MCP server** starts the service through `sfs.ps1` (which rebuilds first if needed). A call waits up to 45 s, then hands back a job number. A command cut off by a service restart is sent again.
+
+## Add-ons and SFSearch's version
+- An add-on is a class library that references `SFSearch.csproj` and implements `ISfsExtension`; `extensions\SFSearch.Example` is the template. SFSearch loads `SFSearch\extensions\*.dll` (from memory, so a `.dll` can be replaced while the service runs) and records which SFSearch each was built against.
+- **SFSearch's version is the add-on API's version** (`<Version>` in `SFSearch\SFSearch.csproj`). Add-ons use `Sfs`, `Program`'s public helpers, `ProfileCommand.GenerateDossier`, `InspectCommands` and the like. When one of those, or `ISfsExtension`, changes in a way that breaks a built add-on, raise the first number: add-ons built for the old one are then refused with "rebuild it" instead of failing oddly. Additions only need the second number.
+- An add-on's name is its file name without `SFSearch.`. Its commands answer to their short names unless two add-ons share one, and always to `<Name>.<Command>`. SFSearch's own commands come first.
 
 ## Testing changes
 - **Use a test home** so your real databases stay untouched: set `SFSEARCH_HOME` to an empty folder, and `SFSEARCH_DATA` to a folder holding copies of the plugins you test with.

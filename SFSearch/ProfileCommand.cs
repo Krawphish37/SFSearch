@@ -11,11 +11,11 @@ namespace SFSearch
     {
         public static void Run(List<string> args)
         {
-            string against = Sfs.TakeOption(args, "--against") ?? "darkstar.esm";
+            string? against = Sfs.TakeOption(args, "--against");
             string? outFile = Sfs.TakeOption(args, "--out");
             if (args.Count < 1)
             {
-                Console.WriteLine("Usage: SFSearch Profile <plugin> [--against darkstar.esm] [--out dossier.md]");
+                Console.WriteLine("Usage: SFSearch Profile <plugin> [--against <plugin>] [--out dossier.md]");
                 return;
             }
 
@@ -46,7 +46,9 @@ namespace SFSearch
             }
         }
 
-        static void GenerateDossier(string plugin, string against)
+        /// <summary>The dossier, printed. With <paramref name="against"/>, section 6 compares the mod with that plugin. Public so add-ons can
+        /// build on it (an add-on's own Profile can print this, then its mod-specific sections).</summary>
+        public static void GenerateDossier(string plugin, string? against)
         {
             Sfs.Say($"# Compatibility Engineering Dossier: `{plugin}`\n");
 
@@ -185,7 +187,7 @@ namespace SFSearch
                 Sfs.Print(mt, annotate: false);
             }
 
-            // 6. Conflict & Patch Surface vs target (e.g. darkstar.esm)
+            // 6. Conflict & Patch Surface vs another plugin (--against)
             if (!string.IsNullOrWhiteSpace(against) && !against.Equals(plugin, StringComparison.OrdinalIgnoreCase))
             {
                 Sfs.Say($"\n## 6. Compatibility & Conflict Surface vs `{against}`");
@@ -220,29 +222,6 @@ namespace SFSearch
                     if (collisions.Rows.Count > 0) Sfs.Print(collisions, annotate: false);
                     else Sfs.Say($"_No overlapping FormKeys between `{plugin}` and `{against}`._");
 
-                    // Also check if overridden Weapons/Armors have DarkStar_Mk2_* counterparts in against (e.g. darkstar.esm)
-                    var gearOverrides = overrides.Where(r => r.Signature is "Armor" or "Weapon").ToList();
-                    if (gearOverrides.Count > 0)
-                    {
-                        var mk2Table = new Sfs.Table("OverriddenRecord", "EditorID", "ModChangesVsVanilla", $"CounterpartIn({against})", "VisualSyncNeeded?");
-                        foreach (var ovr in gearOverrides)
-                        {
-                            var baseRow = InspectCommands.FindPrecedingRecord(ovr.FormKey, masters);
-                            var changed = baseRow != null ? InspectCommands.GetChangedTopFields(baseRow.Data, ovr.Data) : new List<string>();
-                            bool touchesVisuals = changed.Any(f => f is "Armatures" or "WorldModel" or "FirstPersonModel" or "Model");
-
-                            Sfs.RecordRow? mk2 = FindDarkStarMk2Counterpart(aConn, against, ovr.EditorID);
-                            mk2Table.Add(
-                                ovr.FormKey,
-                                ovr.EditorID,
-                                changed.Count == 0 ? "NONE (ITM)" : string.Join(", ", changed),
-                                mk2 != null ? $"{mk2.FormKey} ({mk2.EditorID})" : "(none found)",
-                                (mk2 != null && touchesVisuals) ? "YES (WorldModel/Armatures)" : "No");
-                        }
-                        Sfs.Say($"\n#### Overridden Equipment -> `{against}` Mk.II Counterparts ({gearOverrides.Count})");
-                        Sfs.Print(mk2Table, annotate: false);
-                    }
-
                     var playableNewGear = newRecs.Where(r =>
                         (r.Signature == "Weapon" || r.Signature == "Armor") &&
                         !string.Equals(r.Data["IsJunk"]?.ToString(), "True", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -261,27 +240,6 @@ namespace SFSearch
                     }
                 }
             }
-        }
-
-        static Sfs.RecordRow? FindDarkStarMk2Counterpart(SqliteConnection dsConn, string dsPlugin, string baseEdid)
-        {
-            var candidates = new List<string> { $"DarkStar_Mk2_{baseEdid}" };
-            if (baseEdid.StartsWith("Spacesuit_", StringComparison.OrdinalIgnoreCase))
-            {
-                string core = baseEdid.Substring("Spacesuit_".Length);
-                if (core.EndsWith("_Helmet", StringComparison.OrdinalIgnoreCase))
-                    candidates.Add($"DarkStar_Mk2_Helmet_{core.Substring(0, core.Length - "_Helmet".Length)}");
-                else if (core.EndsWith("_Backpack", StringComparison.OrdinalIgnoreCase))
-                    candidates.Add($"DarkStar_Mk2_Backpack_{core.Substring(0, core.Length - "_Backpack".Length)}");
-                else
-                    candidates.Add($"DarkStar_Mk2_Spacesuit_{core}");
-            }
-            foreach (var c in candidates)
-            {
-                var row = Sfs.FindRecord(dsConn, dsPlugin, c, "*");
-                if (row != null) return row;
-            }
-            return null;
         }
     }
 }

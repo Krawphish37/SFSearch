@@ -88,8 +88,26 @@ Every line is explained inside. Edit and save: the service reads it again by its
 
 `sfs.cmd Service status | stop | restart` control the service. `sfs.cmd --help` lists every command.
 
-## Your own commands (extensions)
-Checks for one mod, or research you run often, can be added without changing SFSearch. Make a class library that references `SFSearch\SFSearch.csproj`, implement `ISfsExtension` (in `SFSearch\Extensions.cs`: each command's name and help line, and a `Run` method), and put the built `.dll` in `SFSearch\extensions\`. Its commands then work like SFSearch's own: on the command line, through the service, and over MCP with `sfs_run`. A `.dll` can be replaced while the service runs. If your build also writes `extensions\<name>.project` holding the project's path, `sfs.cmd` rebuilds the extension when its code or SFSearch changes.
+## Your own commands (add-ons)
+SFSearch knows Starfield's records, not any one mod. Knowledge about a mod goes in an **add-on**:
+- a check for patches built against a framework mod
+- a lookup that explains a crafting overhaul's tiers
+- a report a mod's authors want every patcher to run
+
+Add-ons can be made by anyone and shared.
+
+**Using one:** put its `.dll` in `SFSearch\extensions\`. Its commands then work like SFSearch's own: on the command line, through the service, and over MCP with `sfs_run`. `sfs.cmd Extensions` lists what's installed, and `Service status` names them too.
+
+**Making one:**
+1. Copy `extensions\SFSearch.Example` and rename the folder and project to `SFSearch.<ModFamily>`, e.g. `SFSearch.DarkStar`. The part after `SFSearch.` is the add-on's name.
+2. Write your commands in the class that implements `ISfsExtension`: each command's name and its help line, and a `Run` method. The example's `KeywordCount` shows how to open a plugin's database, find a record and print a table with SFSearch's helpers. The tables are described in `agent-docs\skills\sfsearch\references\database.md`.
+3. `dotnet build -c Release` in its folder. The build puts the `.dll` in `SFSearch\extensions\`. From then on, `sfs.cmd` rebuilds it by itself when its code or SFSearch changes. A `.dll` can be replaced while the service runs.
+
+**Names:** keep command names short (`Lint`, `TierDiff`). If two add-ons have a command with the same name, SFSearch asks for the full name, `<AddOn>.<Command>` (`DarkStar.Lint`), instead of guessing. SFSearch's own commands always come first.
+
+**Versions:** an add-on is built against one SFSearch. When SFSearch's first version number changes (its add-on API changed), older add-ons aren't loaded and SFSearch says to rebuild them.
+
+**Sharing, and safety:** an add-on is a program. It runs with your rights, like any mod tool or script extender plugin. Share add-ons as source code that people build themselves, and only install `.dll` files from people you trust. SFSearch's own commands only read your Data folder; an add-on is expected to as well.
 
 ## About the Mutagen build
 SFSearch reads plugins with [Mutagen](https://github.com/Mutagen-Modding/Mutagen). It needs fixes that aren't in a published Mutagen version yet: real data that used to be lost, crashes on some plugins, text that kept changing on save. That build (`0.55.0-fixes.5`) is in `packages/`. Its full source is public at [Krawphish37/Mutagen, branch starfield-fixes5](https://github.com/Krawphish37/Mutagen/tree/starfield-fixes5).

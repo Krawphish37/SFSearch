@@ -675,6 +675,7 @@ namespace SFSearch.Service
             var mine = File.GetLastWriteTime(Path.Combine(AppContext.BaseDirectory, "SFSearch.dll"));
             if (File.Exists(dll) && File.GetLastWriteTime(dll) > mine.AddSeconds(5))
                 sb.AppendLine("SFSearch has been rebuilt since this service started: 'Service restart' to use the new build.");
+            if (Extensions.Summary() is string addOns) sb.AppendLine(addOns);
             if (Sf1EditOpen()) sb.AppendLine("SF1Edit is open: plugins it saves are read again on the next command.");
             return sb.ToString();
         }

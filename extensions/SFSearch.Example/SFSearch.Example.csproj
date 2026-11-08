@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A starter SFSearch add-on. Copy this folder, rename it SFSearch.<YourModFamily> (the project and the folder), and
+       write your commands in a class that implements ISfsExtension. "dotnet build -c Release" puts the .dll in
+       SFSearch\extensions; after that, sfs.cmd rebuilds it by itself when its code or SFSearch changes. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The SFSearch folder (the one with SFSearch.csproj). Change it if your add-on lives somewhere else. -->
+    <SfsHome>$(MSBuildThisFileDirectory)..\..\SFSearch</SfsHome>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SFSearch's own code (Sfs helpers, ISfsExtension) and, through it, Mutagen and SQLite. Private=false: SFSearch already has them. -->
+    <ProjectReference Include="$(SfsHome)\SFSearch.csproj" Private="false" />
+  </ItemGroup>
+
+  <!-- Put the add-on where SFSearch looks, and tell sfs.cmd where its source is so it can rebuild it -->
+  <Target Name="CopyToSfsExtensions" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SfsHome)\extensions" />
+    <WriteLinesToFile File="$(SfsHome)\extensions\$(TargetName).project" Lines="$(MSBuildProjectFullPath)" Overwrite="true" />
+  </Target>
+
+</Project>

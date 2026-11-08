@@ -20,6 +20,7 @@ SFSearch is our own tool for reading Starfield plugins. It turns each `.esm` int
 | `sfs_q` | The saved queries (`flst`, `vmad`, `appr`, `kw`, `templates`, `cobj`, `omod`, `arma`, `new`, `overrides`; `list`) |
 | `sfs_loadorder`, `sfs_changes`, `sfs_scripts` | The load order with runtime slots; what changed since last time and which patches are at risk; Papyrus source |
 | `sfs_delta`, `sfs_diff`, `sfs_plugin_diff`, `sfs_header`, `sfs_stats`, `sfs_profile`, `sfs_add`, `sfs_verifydb` | As the commands below |
+| `sfs_check`, `sfs_archive`, `sfs_leveled`, `sfs_materials`, `sfs_dialogue` | Check a plugin for errors; look inside BA2 archives; unfold a leveled list; meshes to materials to textures; a quest's dialogue (as the commands below) |
 | `sfs_run` | Any other command, as a list of arguments |
 | `sfs_job`, `sfs_status` | Collect a long answer; the service's health |
 
@@ -70,10 +71,15 @@ The load-order index (`Cache\_loadorder.db`), the history (`Cache\History.db`) a
 | What changed since last time? Is a patch broken by a mod update? | `Changes [plugin] [--since yyyy-mm-dd]`: mods added, removed or updated (Full ↔ Light, records added or removed), and patches at risk (trap 15). With a plugin: its history and the records its last update added or removed |
 | What does this mod's Papyrus do? | `Scripts <plugin> [--find text] [--show ScriptName]`: decompiled once with Champollion and kept; `Query --scripts` joins `scr.Scripts` / `scr.Lines` to records |
 | What points at this record? | `Refs <record> [--in plugins]` |
+| What can this leveled list give? | `Leveled <list> [--in plugin] [--depth N]`: every entry with level, count, chance of nothing and conditions, nested lists under it, each from the version that wins in the load order |
+| What do this quest's characters say? | `Dialogue <quest\|topic> [--in plugin]`: topics and lines with speaker, English text, conditions, and the scene, stage or speech challenge a line starts. Adds the plugin's dialogue types to its database the first time |
 | How does the player get this mod's items? | `Sources <plugin> [--item X] [--with p1,p2] [--scripts] [--out f.md]`: follows Refs back through leveled lists to quests, recipes (with conditions), vendors, LL injector scripts, containers, placed copies, NPCs; `--scripts` lists scripts calling AddItem / GetFormFromFile |
-| Header flags, masters, Light/Medium room left | `Header <plugin>` |
+| Is this plugin built right? (SF1Edit's Check for Errors) | `Check <plugin> [--all]`: missing masters, FormIDs too big for its size, links to missing or wrong-type records, links outside its masters, overrides whose type changed, deleted records, duplicate EditorIDs, ITMs. Links to the engine's built-in forms (Starfield.esm below 0x800, e.g. 000014, the player) and inside navmesh info maps are left out, with a note |
+| Header flags, masters, Light/Medium room left | `Header <plugin>` (also HEDR version and record count, and the ONAM list of overridden forms) |
 | How many records of each type? | `Stats <plugin>` |
 | Are all meshes and materials there? | `Assets <plugin> [--missing]` |
+| Are the textures behind its materials there? | `Materials <plugin> [--missing]`: the mod's meshes, the `.mat` files they use, and those materials' textures. Materials compiled into a `materialsbeta.cdb` (the game's own, or a mod's) are listed, not checked |
+| What is in a mod's archives? Which archive has this file? | `Archive <plugin\|file.ba2\|all>`: summary; `--list "*.mat"`; `--find text`; `--show <path>` prints a text file (`.mat`, `.psc`); `--extract <glob> --to <folder>` (never into Data). Notes loose copies the game uses instead. Texture sizes aren't shown (the reader reports them wrong) |
 | What changed between two versions of a plugin, or what does a patch change in the plugin it masters? | `PluginDiff <old> <new> [--detail]` |
 | Would a Mutagen read and save lose anything in this plugin? | `LossCheck <plugin or path> ... [--all] [--report file] [--samples N]` saves to a temp folder through both readers, never Data. LOST, CHANGED and ADDED are listed, and NOTE for a deleted record saved as its header only; order, FormID style and empty groups aren't counted. |
 | A type isn't in the database and I need more than `Live` gives (SQL, `Refs`, many records) | `Add <plugin> <Type> ...` stores it in full, with no rebuild. `Add <plugin> --list` shows what's missing, with row counts. `--all` gives the whole plugin. Safe to stop and run again; a rebuild adds the types back. |

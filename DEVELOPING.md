@@ -16,7 +16,7 @@ For using SFSearch, see `README.md`. This file is for changing it.
 | `SFSearch\Sfs.cs` | Shared helpers: the home folder, opening databases, FormKey and EditorID handling, tables and output |
 | `SFSearch\LiveDb.cs` | Reads a plugin with Mutagen and writes its database, one record type at a time when only some are needed |
 | `SFSearch\MetadataExtractor.cs`, `ItemFilter.cs` | The columns stored beside each record's JSON; how weapons and armor are sorted (configurable in `sfsearch.json`) |
-| `SFSearch\*Command.cs`, `InspectCommands.cs`, `ResearchCommands.cs`, `SavedQueries.cs` | The commands |
+| `SFSearch\*Command.cs`, `InspectCommands.cs`, `ResearchCommands.cs`, `SavedQueries.cs` | The commands (`CheckCommand.cs` reads the plugin file once for its links and their expected types; `ArchiveCommand.cs` and `MaterialsCommand.cs` read BA2 archives with Mutagen's archive reader) |
 | `SFSearch\LoadOrderCommand.cs`, `HistoryCommand.cs`, `ScriptsCommand.cs`, `RefScanCache.cs` | Shared indexes in `Cache\`: the load order (`_loadorder.db`), plugin history (`History.db`), decompiled scripts (`Scripts.db`), remembered `Refs` scans (`_refscan.db`) |
 | `SFSearch\Service\` | The service: coordinator (`ServiceHost.cs`), workers (`ServiceWorker.cs`), its databases (`ServiceDb.cs`), warm-up (`Warmup.cs`), settings (`ServiceConfig.cs`), messages (`Protocol.cs`) |
 | `SFSearch\Extensions.cs` | Loads extra commands from `extensions\*.dll` |

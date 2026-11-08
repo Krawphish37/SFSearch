@@ -326,6 +326,26 @@ namespace SFSearch
                     if (restArgs.Count < 1) { Console.WriteLine("Usage: SFSearch SetData <path to Starfield's Data folder>"); return; }
                     SetDataFolderPath(restArgs[0]);
                 }
+                else if (command == "archive")
+                {
+                    ArchiveCommand.Run(restArgs);
+                }
+                else if (command == "materials")
+                {
+                    MaterialsCommand.Run(restArgs);
+                }
+                else if (command == "leveled")
+                {
+                    LeveledCommand.Run(restArgs);
+                }
+                else if (command == "dialogue")
+                {
+                    DialogueCommand.Run(restArgs);
+                }
+                else if (command == "check")
+                {
+                    CheckCommand.Run(restArgs);
+                }
                 else if (command == "fields")
                 {
                     FieldsCommand.Run(restArgs);
@@ -414,6 +434,8 @@ Load order and history:
   Query --loadorder [<Target>] <SQL>             Attach the load-order index as lo: lo.Plugins, lo.Versions (every record in every
                                                 plugin), lo.Winners (last loaded version), lo.WinningRecords (full data of the
                                                 winners of the types the SQL names); functions winner(fk), versions(fk)
+  Dialogue <quest|topic> [--in plugin]          A quest's dialogue as readable lines: speaker, English text, conditions, scenes and stages
+                                                it starts (dialogue types are added to the plugin's database the first time)
   Scripts <plugin> [--find text] [--show name]   A plugin's Papyrus scripts as source (decompiled once with Champollion, kept
                                                 in Cache\Scripts.db); Query --scripts attaches them as scr (scr.Scripts, scr.Lines)
   Changes [plugin] [--since yyyy-mm-dd] [--all]  What changed in Data since history began (mod updates, size changes), and
@@ -435,16 +457,23 @@ Core Commands:
   Diff <T1> <T2> [Sig|*] <K1> [K2] [options]    Compare two records (--summary, --ignore f1,f2, --expect f1,f2)
 
 Reverse-Engineering & Verification Commands:
+  Check <plugin|path> [--all] [--out f.md]      Check a whole plugin for errors, like SF1Edit: missing masters, FormID room, links to
+                                                missing or wrong-type records, deleted records, duplicate EditorIDs, ITMs
   Header <plugin|path>                          Inspect TES4 flags (Light/Medium/Full), MaxLocalFormID, and ordered Masters
   Stats <plugin|path>                           Record counts by signature (Total, New, Overrides, CachedInDB)
   Delta <plugin> [FormKey|EDID] [--detail]      Compare every override in <plugin> against its preceding master record
         [--out file.md]                           (--detail adds a field-by-field table per override)
   Names <FormID...> [--in <p1,p2>]              Write FormIDs as EditorID (FormID:plugin); bare IDs list every plugin that has them
   Refs <FormKey|EDID> [--in <Target>]           Find all inbound references to a record across caches
+  Leveled <list> [--in plugin] [--depth N]     Unfold a leveled list (items, NPCs, ships): levels, counts, chance none, conditions,
+                                                nested lists, each from the version that wins in the load order
   Sources <plugin> [--sig T] [--item X]         How the player gets each weapon/armor: follows Refs back through leveled lists to
         [--with p1,p2] [--depth N] [--scripts]    quests, recipes (with conditions), vendors, containers, placed copies, NPCs;
         [--out file.md]                           --scripts lists the plugin's scripts that call GetFormFromFile / AddItem
   Conflicts <FormKey|EDID> [--in <Target>]      Show full override chain, winner, and modified fields across plugins
+  Archive <plugin|file.ba2|all> [--list [glob]] What is inside BA2 archives: summary, --list, --find text, --show <path> (text files),
+        [--find t] [--show p] [--extract p --to d]  --extract <path|glob> --to <folder> (never into Data); notes loose copies the game uses
+  Materials <plugin> [--missing] [--all]       The mod's meshes -> the materials they use -> those materials' textures; what is missing
   Assets <plugin> [--missing]                   Verify all .nif/.mesh/.mat paths against loose files and BA2 archives
   Add <plugin|path> <Type> ... | --list | --all     Store record types in full, with no rebuild (a rebuild adds them back)
   PluginDiff <old> <new> [--detail] [--shifts]  Compare two versions of a plugin (EditorID-matched, FormID-shift-aware)

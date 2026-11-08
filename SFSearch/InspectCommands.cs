@@ -64,6 +64,16 @@ namespace SFSearch
             metaTable.Add("MaxLocalFormID", $"{maxHex} ({capacityNote})");
             if (!string.IsNullOrWhiteSpace(author)) metaTable.Add("Author", author);
             if (!string.IsNullOrWhiteSpace(desc)) metaTable.Add("Description", desc);
+            string? src = Program.CacheSourcePath(cacheKey, Program.GetCachePath(cacheKey));
+            var tes4 = src != null ? ReadTes4(src) : null;
+            if (tes4 != null)
+            {
+                var h = tes4.Value;
+                metaTable.Add("HeaderVersion (HEDR)", h.Version.ToString("0.0#", System.Globalization.CultureInfo.InvariantCulture));
+                metaTable.Add("RecordCount in header (HEDR)", h.Records);
+                metaTable.Add("NextObjectID (HEDR, as stored)", $"0x{h.NextId:X8}");
+                metaTable.Add("Overridden forms list (ONAM)", h.Onam.Count == 0 ? "none" : $"{h.Onam.Count} FormIDs (placed references, navmeshes and the like it overrides in its masters; the game loads these early)");
+            }
             Sfs.Print(metaTable, annotate: false);
 
             var masters = Sfs.Masters(conn);
@@ -71,6 +81,37 @@ namespace SFSearch
             var masterTable = new Sfs.Table("Index", "MasterName");
             for (int i = 0; i < masters.Count; i++) masterTable.Add(i, masters[i]);
             Sfs.Print(masterTable, annotate: false);
+        }
+
+        /// <summary>The plugin's TES4 header, read straight from the file: HEDR (version, record count, next object ID) and the
+        /// ONAM list of overridden forms. Null when the file can't be read as a plugin.</summary>
+        static (float Version, int Records, uint NextId, List<uint> Onam)? ReadTes4(string path)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var br = new BinaryReader(fs);
+                if (new string(br.ReadChars(4)) != "TES4") return null;
+                uint dataSize = br.ReadUInt32();
+                fs.Position = 24; // Starfield record header
+                long end = 24 + dataSize;
+                float version = 0; int records = 0; uint nextId = 0; var onam = new List<uint>();
+                uint bigSize = 0;
+                while (fs.Position + 6 <= end)
+                {
+                    string sig = new string(br.ReadChars(4));
+                    int size = br.ReadUInt16();
+                    if (sig == "XXXX") { bigSize = br.ReadUInt32(); continue; }
+                    long len = bigSize != 0 ? bigSize : size;
+                    bigSize = 0;
+                    long next = fs.Position + len;
+                    if (sig == "HEDR" && len >= 12) { version = br.ReadSingle(); records = br.ReadInt32(); nextId = br.ReadUInt32(); }
+                    else if (sig == "ONAM") for (long i = 0; i + 4 <= len; i += 4) onam.Add(br.ReadUInt32());
+                    fs.Position = next;
+                }
+                return (version, records, nextId, onam);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or EndOfStreamException) { return null; }
         }
 
         // ---------------------------------------------------------------- Stats

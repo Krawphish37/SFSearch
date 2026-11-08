@@ -148,9 +148,44 @@ public sealed class Tools
         IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
         => Bridge.Run(A("PluginDiff", old_plugin, new_plugin, detail ? "--detail" : null), progress, ct);
 
-    [McpServerTool(Name = "sfs_header", ReadOnly = true, Idempotent = true), Description("A plugin's header: flags (Light/Medium/Full), masters, author, room left for new records.")]
+    [McpServerTool(Name = "sfs_header", ReadOnly = true, Idempotent = true), Description("A plugin's header: flags (Light/Medium/Full), masters, author, room left for new records, header version, the overridden-forms list (ONAM).")]
     public static Task<CallToolResult> sfs_header(string plugin, IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
         => Bridge.Run(A("Header", plugin), progress, ct);
+
+    [McpServerTool(Name = "sfs_check", ReadOnly = true, Idempotent = true), Description(
+        "Check a whole plugin for errors, like SF1Edit's Check for Errors: missing masters, FormIDs too big for its size, links to records that don't exist or are the wrong kind, " +
+        "links outside its masters, overrides whose type changed (built for an older master), deleted records, duplicate EditorIDs, ITMs. PASS / WARN / ERROR per check, then the records.")]
+    public static Task<CallToolResult> sfs_check(string plugin, [Description("List every problem, not the first 50 of each")] bool all = false,
+        IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
+        => Bridge.Run(A("Check", plugin, all ? "--all" : null), progress, ct);
+
+    [McpServerTool(Name = "sfs_archive", ReadOnly = true, Idempotent = true), Description(
+        "What's inside BA2 archives: a plugin's own (<name> - *.ba2), one .ba2, or 'all' in Data. With no option: a summary per archive. " +
+        "list: a glob such as *.mat; find: text or a glob to find a file in the archives (e.g. with target 'all'); show: a file's path to print it (text files: .mat, .psc, .json...). " +
+        "Notes loose files in Data that the game uses instead. To copy files out, use sfs_run with [\"Archive\",target,\"--extract\",glob,\"--to\",folder] (never into Data).")]
+    public static Task<CallToolResult> sfs_archive(string target, string? list = null, string? find = null, string? show = null, bool all = false,
+        IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
+        => Bridge.Run(A("Archive", target, list != null ? "--list" : null, list, find != null ? "--find" : null, find, show != null ? "--show" : null, show, all ? "--all" : null), progress, ct);
+
+    [McpServerTool(Name = "sfs_leveled", ReadOnly = true, Idempotent = true), Description(
+        "Unfold a leveled list (items, NPCs, ships and other base forms): every entry with level, count, chance of nothing and conditions, nested lists under it, " +
+        "each list read from the version that wins in the load order (or from 'in').")]
+    public static Task<CallToolResult> sfs_leveled(string list, [Description("Read the lists from this plugin instead of the winners")] string? @in = null, int depth = 8,
+        IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
+        => Bridge.Run(A("Leveled", list, @in != null ? "--in" : null, @in, "--depth", depth.ToString()), progress, ct);
+
+    [McpServerTool(Name = "sfs_materials", ReadOnly = true, Idempotent = true), Description(
+        "A plugin's meshes -> the materials they use -> the textures those use, with what's missing. Materials compiled into a materialsbeta.cdb (the game's own, or a mod's) are listed but not checked.")]
+    public static Task<CallToolResult> sfs_materials(string plugin, [Description("Only materials with a problem")] bool missing = false,
+        IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
+        => Bridge.Run(A("Materials", plugin, missing ? "--missing" : null), progress, ct);
+
+    [McpServerTool(Name = "sfs_dialogue", ReadOnly = true, Idempotent = true), Description(
+        "A quest's (or one topic's) dialogue as readable lines: speaker, English text, conditions, and the scene, quest stage or speech challenge a line starts. " +
+        "Adds the plugin's dialogue to its database the first time.")]
+    public static Task<CallToolResult> sfs_dialogue(string quest, [Description("The plugin that holds the dialogue, if not the quest's own")] string? @in = null,
+        IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)
+        => Bridge.Run(A("Dialogue", quest, @in != null ? "--in" : null, @in), progress, ct);
 
     [McpServerTool(Name = "sfs_stats", ReadOnly = true, Idempotent = true), Description("How many records of each type a plugin has, and which types are stored in full.")]
     public static Task<CallToolResult> sfs_stats(string plugin, IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default)

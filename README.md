@@ -10,6 +10,9 @@ Think of it as SF1Edit's data, ready for an agent to search. Instead of writing 
 - What does this mod change in its masters? Are any of its overrides ITMs?
 - What changed since a mod updated, and which patches did that break?
 - What do this mod's Papyrus scripts do?
+- Is this plugin built right? (like SF1Edit's Check for Errors)
+- What's inside this mod's archives, and are the textures behind its materials all there?
+- What can this leveled list give, and what do this quest's characters say?
 - Anything else, in SQL, across any plugin or the whole load order.
 
 **It only reads.** SFSearch never changes anything in your Data folder. **Starfield only.**

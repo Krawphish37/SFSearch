@@ -6,7 +6,7 @@ Most of these libraries are downloaded from nuget.org when you build SFSearch. T
 
 | Library | Version | License | Source |
 |---|---|---|---|
-| Mutagen.Bethesda.Starfield, .Core, .Kernel | 0.55.0-fixes.5 (modified; in `packages/`) | GPL-3.0-only | https://github.com/Krawphish37/Mutagen/tree/starfield-fixes5 (upstream: https://github.com/Mutagen-Modding/Mutagen) |
+| Mutagen.Bethesda.Starfield, .Core, .Kernel | 0.55.0-fixes.5 (modified; in `packages/`) | GPL-3.0-only | https://github.com/Krawphish37/Mutagen/branches (branch starfield-fixes5) (upstream: https://github.com/Mutagen-Modding/Mutagen) |
 | Noggog.CSharpExt | 4.3.0 | GPL-3.0 | https://github.com/Noggog/CSharpExt |
 | Loqui | 3.7.0 | GPL-3.0 | https://github.com/Noggog/Loqui |
 | GameFinder.Common, .RegistryUtils, .StoreHandlers.GOG, .StoreHandlers.Steam, .StoreHandlers.Xbox, .Wine | 4.9.0 | GPL-3.0-only | https://github.com/erri120/GameFinder |

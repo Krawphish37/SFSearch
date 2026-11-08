@@ -123,7 +123,11 @@ Add-ons can be made by anyone and shared.
 **Sharing, and safety:** an add-on is a program. It runs with your rights, like any mod tool or script extender plugin. Share add-ons as source code that people build themselves, and only install `.dll` files from people you trust. SFSearch's own commands only read your Data folder; an add-on is expected to as well.
 
 ## About the Mutagen build
-SFSearch reads plugins with [Mutagen](https://github.com/Mutagen-Modding/Mutagen). It needs fixes that aren't in a published Mutagen version yet: real data that used to be lost, crashes on some plugins, text that kept changing on save. That build (`0.55.0-fixes.5`) is in `packages/`. Its full source is public at [Krawphish37/Mutagen, branch starfield-fixes5](https://github.com/Krawphish37/Mutagen/tree/starfield-fixes5).
+SFSearch reads plugins with [Mutagen](https://github.com/Mutagen-Modding/Mutagen). It needs fixes that aren't in a published Mutagen version yet: real data that used to be lost, crashes on some plugins, text that kept changing on save. That build (`0.55.0-fixes.5`) is in `packages/`. Its full source is public: the `starfield-fixes5` branch of [Krawphish37/Mutagen](https://github.com/Krawphish37/Mutagen/branches). To get it:
+```powershell
+git clone -b starfield-fixes5 https://github.com/Krawphish37/Mutagen
+```
+(GitHub often times out showing pages of the Mutagen repository, which is very large; cloning always works.)
 
 ## Status
 Version 1.0.0. Tested on one PC (Steam install, about 370 plugins):

@@ -1,0 +1,105 @@
+# SFSearch
+
+SFSearch reads Starfield plugins (`.esm`, `.esp`) and answers questions about them. It's built for AI coding agents working on Starfield mods: Claude Code, Codex, Cursor and the like. You can run it by hand too.
+
+Think of it as SF1Edit's data, ready for an agent to search. Instead of writing its own plugin parser and getting things subtly wrong, an agent asks SFSearch:
+
+- What is this FormID, in every plugin that has it?
+- Which version of this record wins in my load order, and what does each plugin change?
+- What points at this record?
+- What does this mod change in its masters? Are any of its overrides ITMs?
+- What changed since a mod updated, and which patches did that break?
+- What do this mod's Papyrus scripts do?
+- Anything else, in SQL, across any plugin or the whole load order.
+
+**It only reads.** SFSearch never changes anything in your Data folder. **Starfield only.**
+
+## How agents use it
+- **The MCP server (`SFSearch.Mcp`) is the main way in.** It gives an agent tools such as `sfs_query`, `sfs_names`, `sfs_record`, `sfs_conflicts`, `sfs_loadorder` and `sfs_fields`, with plain arguments: no shell quoting, SQL can span lines.
+- **The tools talk to the SFSearch service,** which starts by itself on the first call. It serves many agents at once: several worker programs run commands side by side, a crashed worker is replaced and its command run again, and nothing hangs. It reads each plugin's record types the first time they're needed and keeps them. While nobody is asking anything, it reads ahead (the warm-up).
+- **The command line still works:** `SFSearch\sfs.cmd <Command> ...`. While the service runs, commands go to it.
+
+## What you need
+- **Windows 10 or 11.**
+- **Starfield.** Steam and Xbox (Game Pass) installs are found by themselves; only Steam has been tested. Any other location works with `sfs.cmd SetData "<path to Data>"`.
+- **The .NET 10 SDK** (SFSearch builds itself the first time you run it):
+  ```powershell
+  winget install Microsoft.DotNet.SDK.10
+  ```
+- **Disk space** for the databases: usually a few MB per mod, up to about 2 GB for Starfield.esm, more with a big load order. Their size cap is a setting.
+- **For the `Scripts` command only:** [Champollion](https://github.com/Orvid/Champollion/releases) 1.3.2 or newer. Put `Champollion.exe` in `SFSearch\tools\champollion\`, or set its path in `sfsearch.json`.
+
+## Install
+1. Get the repository into a folder of its own (avoid `Program Files`):
+   ```powershell
+   git clone https://github.com/Krawphish37/SFSearch.git C:\Modding\SFSearch
+   ```
+2. Build and try it. The first run builds SFSearch (about a minute):
+   ```powershell
+   C:\Modding\SFSearch\SFSearch\sfs.cmd Version
+   C:\Modding\SFSearch\SFSearch\sfs.cmd Names "000CF2" --in Starfield.esm
+   ```
+   If Starfield isn't found by itself, tell SFSearch once: `sfs.cmd SetData "D:\Games\Starfield\Data"`.
+3. Build the MCP server:
+   ```powershell
+   dotnet build C:\Modding\SFSearch\SFSearch.Mcp -c Release
+   ```
+
+## Connect your agent
+**Claude Code**, for every project:
+```powershell
+claude mcp add sfsearch --scope user -- "C:\Modding\SFSearch\SFSearch.Mcp\bin\Release\net10.0\SFSearch.Mcp.exe" --home "C:\Modding\SFSearch\SFSearch"
+```
+Or for one project, put this in a `.mcp.json` file in that project's folder:
+```json
+{
+  "mcpServers": {
+    "sfsearch": {
+      "type": "stdio",
+      "command": "C:\\Modding\\SFSearch\\SFSearch.Mcp\\bin\\Release\\net10.0\\SFSearch.Mcp.exe",
+      "args": ["--home", "C:\\Modding\\SFSearch\\SFSearch"]
+    }
+  }
+}
+```
+Start a new session and approve the `sfsearch` server when asked. Ask something like "what is 000CF2 in Starfield.esm?" to check it works.
+
+**Other agents** that speak MCP: the same program and arguments. Agents without MCP can run `sfs.cmd` directly.
+
+**Give your agent the guide:** `AGENTS.md`, and `agent-docs/skills/sfsearch/SKILL.md` (which tool answers which question, and the traps that give wrong answers with no error). For Claude Code, copy the `agent-docs/skills/sfsearch` folder into your project's `.claude/skills/` folder.
+
+## Settings: `SFSearch\sfsearch.json`
+Every line is explained inside. Edit and save: the service reads it again by itself. `sfs.cmd Service config` shows what's in effect.
+- **Warm-up:** on or off, and what to read ahead. Examples:
+    - only Starfield.esm: `["Starfield.esm"]`
+    - the base game and the DLCs: `["Starfield.esm", "ShatteredSpace.esm", "SFBGS050.esm"]`
+    - every Bethesda file, then the plugins you worked on lately: `["@official", "@recent"]`
+
+  After a game or mod update, it reads the changed files again.
+- **Item filter:** how SFSearch sorts weapons (pistol, rifle, and so on) and armor (spacesuit, helmet, and so on), and what counts as junk. Change the lists to suit your mods; databases built with other rules are rebuilt by themselves.
+- **The service's limits:** workers, time limit, memory, queue, and the size cap for its databases.
+
+## Other ways to run it
+| Way | How | What it keeps |
+|---|---|---|
+| The service | Started by the MCP tools, or `sfs.cmd Service start` | Its databases in `SFSearch\Service\data`, kept between restarts |
+| Stored databases | `sfs.cmd` commands while the service isn't running | A full database per plugin in `SFSearch\Cache` |
+| `--live` | Add `--live` to a command while the service isn't running | Nothing: builds what that command needs, then deletes it |
+
+`sfs.cmd Service status | stop | restart` control the service. `sfs.cmd --help` lists every command.
+
+## Your own commands (extensions)
+Checks for one mod, or research you run often, can be added without changing SFSearch. Make a class library that references `SFSearch\SFSearch.csproj`, implement `ISfsExtension` (in `SFSearch\Extensions.cs`: each command's name and help line, and a `Run` method), and put the built `.dll` in `SFSearch\extensions\`. Its commands then work like SFSearch's own: on the command line, through the service, and over MCP with `sfs_run`. A `.dll` can be replaced while the service runs. If your build also writes `extensions\<name>.project` holding the project's path, `sfs.cmd` rebuilds the extension when its code or SFSearch changes.
+
+## About the Mutagen build
+SFSearch reads plugins with [Mutagen](https://github.com/Mutagen-Modding/Mutagen). It needs fixes that aren't in a published Mutagen version yet: real data that used to be lost, crashes on some plugins, text that kept changing on save. That build (`0.55.0-fixes.5`) is in `packages/`. Its full source is public at [Krawphish37/Mutagen, branch starfield-fixes5](https://github.com/Krawphish37/Mutagen/tree/starfield-fixes5).
+
+## Status
+Tested on one PC (Steam install, about 370 plugins):
+- about 150,000 commands from 32 clients at once, with workers and the service killed on purpose, and no wrong answers
+- 455 real past questions give the same answers through MCP as from stored databases
+
+Not tested yet: Game Pass installs, other PCs.
+
+## License
+GPL-3.0, because Mutagen and the libraries around it are. See `LICENSE` and `THIRD_PARTY_NOTICES.md`.

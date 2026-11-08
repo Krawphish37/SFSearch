@@ -1,0 +1,23 @@
+# build output
+bin/
+obj/
+dist/
+
+# SFSearch's own databases and run-time files, and anything from a game or mod: never commit these
+Cache/
+SFSearch/Service/data/
+SFSearch/Service/logs/
+SFSearch/Service/results/
+SFSearch/Service/tmp/
+SFSearch/Service/usage.txt
+SFSearch/tools/
+scratch/
+*.db
+*.db-wal
+*.db-shm
+*.esm
+*.esp
+*.esl
+*.ba2
+*.bak
+SFSearch/extensions/

@@ -1,0 +1,82 @@
+// SFSearch settings: the service, its warm-up, the item filter. Edit and save: SFSearch reads this again by itself.
+// Delete a line to use its default. Environment variables of the same setting (SFSEARCH_WORKERS, SFSEARCH_WARMUP=0, ...)
+// override this file. 'sfs.cmd Service config' shows what's in effect.
+{
+  // How many commands run at once (each in its own worker program).
+  "workers": 8,
+  // A command running longer than this is stopped with a clear error.
+  "jobTimeoutMinutes": 10,
+  // A worker is replaced after this much memory (MB) or this many commands, and stopped mid-command above workerMaxMB.
+  "workerRecycleMB": 3072,
+  "workerMaxMB": 12288,
+  "workerRecycleCommands": 500,
+  // More waiting commands than this are turned away with "busy, try again".
+  "queueLimit": 500,
+  // The service's databases (Service\data); the least recently used go first above this size.
+  "dataCapGB": 40,
+
+  // Warm-up: while no agent is asking anything, read plugins ahead so the first question about them is fast.
+  "warmup": {
+    "enabled": true,
+    // How long nothing has to happen before it starts. Agents always go first.
+    "idleSeconds": 30,
+    // What to read, in this order. Plugin file names ("SFBGS050.esm"), patterns ("SFBGS*.esm"), and:
+    //   "@base"      Starfield.esm, and ShatteredSpace.esm when installed
+    //   "@official"  every Bethesda file that is loaded: the base game, Shattered Space, Terran Armada (SFBGS050.esm), Creations...
+    //   "@recent"    the plugins agents asked about most recently (how many: recentCount)
+    //   "@loaded"    every loaded plugin (slow the first time on a big load order)
+    // Examples:  ["Starfield.esm"]   or   ["Starfield.esm", "ShatteredSpace.esm", "SFBGS050.esm"]   or   ["@official", "@recent"]
+    "plugins": ["@base", "@recent"],
+    "recentCount": 15,
+    // Record types to read for each plugin. Only types SFSearch stores can be warmed; others are added with 'Add'.
+    "types": ["Weapon", "Armor", "ArmorAddon", "ConstructibleObject", "WeaponModification", "ArmorModification", "ObjectModification",
+              "Keyword", "FormList", "LeveledItem", "MiscItem", "Ammunition"],
+    // Also the list of every record (the Forms table: needed by Names, Conflicts and 'every record' queries).
+    "allRecordsList": true,
+    // After a game update or a mod update, read the changed files again at the next quiet moment.
+    "rewarmAfterUpdates": true,
+    "rewarmCheckMinutes": 10
+  },
+
+  // Champollion.exe, the Papyrus decompiler the Scripts command uses (version 1.3.2 or newer). Leave empty to look for it in
+  // SFSearch's tools\champollion folder.
+  "champollion": "",
+
+  // Item filter: how SFSearch sorts weapons and armor (Profile, MkDiff, reports, the Archetype and IsJunk fields it stores).
+  // Leave this section out to use the default rules. A list you write here replaces that default list. FormKeys are
+  // "ID:Plugin.esm". Changing anything here makes SFSearch build its databases again, once, as they're used.
+  "itemFilter": {
+    // A weapon's group comes from the first group with one of its keywords.
+    "weaponGroups": {
+      "Melee":   ["2811D0:Starfield.esm", "04A0A4:Starfield.esm", "04A0A5:Starfield.esm"],
+      "Heavy":   ["2811CF:Starfield.esm", "04A0A3:Starfield.esm", "04C922:Starfield.esm"],
+      "Shotgun": ["2811CE:Starfield.esm", "298ED2:Starfield.esm", "226454:Starfield.esm"],
+      "Rifle":   ["2811CC:Starfield.esm", "1C84DD:Starfield.esm", "298ECF:Starfield.esm", "298ED1:Starfield.esm", "04A0A1:Starfield.esm", "04A0A2:Starfield.esm"],
+      "Pistol":  ["2811CA:Starfield.esm", "298ECE:Starfield.esm", "298ED0:Starfield.esm", "04A0A0:Starfield.esm", "00E6C5:Starfield.esm"]
+    },
+    // Damage type by keyword (first match).
+    "weaponTypes": { "Particle": "27BAFE:Starfield.esm", "Ballistic": "092A86:Starfield.esm", "Laser": "092A84:Starfield.esm", "EM": "27DF95:Starfield.esm", "Explosive": "04C922:Starfield.esm" },
+    // Keywords behind some weapon classes (Sniper = scoped rifle; Knife and Sword = melee animations).
+    "weaponClassKeywords": { "Sniper": "1E325D:Starfield.esm", "Launcher": "04C922:Starfield.esm", "Minigun": "03165E:Starfield.esm", "Knife": "00B0A1:Starfield.esm", "Sword": "040DD3:Starfield.esm" },
+    // Words in a melee weapon's EditorID or name that make it a polearm.
+    "polearmWords": ["polearm", "lance", "staff", "trident", "spear", "halberd", "pike"],
+    // Armor type by body slot bit (first match); anything else is an Accessory.
+    "armorSlots": { "Spacesuit": 35, "Helmet": 36, "Pack": 37, "Neuroamp": 18, "Apparel": 3, "Headwear": 4 },
+    // What counts as junk (not a real player item). Non-playable records always are.
+    "junkWeapons": {
+      "editorIdStartsWith": ["OLD_"],
+      "editorIdContains": ["Debug", "NOCLUTTER", "Clutter", "Ecliptic", "ModelA_", "SFFL_SE_", "Vortex", "NonEquippable", "NOTPLAYABLE"],
+      "nameContains": ["NOT PLAYABLE", "Ecliptic"],
+      "keywords": ["04A0A6:Starfield.esm", "10C414:Starfield.esm"],
+      "requireName": true, "requireEquipType": true, "requireDamage": true
+    },
+    "junkArmor": {
+      "editorIdStartsWith": ["OLD_", "NPC_"],
+      "editorIdContains": ["Debug", "NOCLUTTER", "Clutter", "Crew_Elite_", "Vortex", "NonEquippable", "NOTPLAYABLE", "Armor_Model_A_", "Skin_"],
+      "nameContains": ["NOT PLAYABLE"],
+      "requireName": true, "nameNotNeededForEditorIdStartingWith": ["DarkStar_"],
+      // Armor made for a race other than this one belongs to a creature.
+      "playableRace": "00347D:Starfield.esm"
+    }
+  }
+}

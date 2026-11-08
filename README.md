@@ -1,4 +1,4 @@
-# SFSearch
+![SFSearch: Starfield plugin data for AI coding agents](.github/social-preview.png)
 
 SFSearch reads Starfield plugins (`.esm`, `.esp`) and answers questions about them. It's built for AI coding agents working on Starfield mods: Claude Code, Codex, Cursor and the like. You can run it by hand too.
 
@@ -16,6 +16,22 @@ Think of it as SF1Edit's data, ready for an agent to search. Instead of writing 
 - Anything else, in SQL, across any plugin or the whole load order.
 
 **It only reads.** SFSearch never changes anything in your Data folder. **Starfield only.**
+
+## Try it in 5 minutes
+You need Windows, Starfield, Claude Code (or another agent that speaks MCP), and the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`).
+
+```powershell
+git clone https://github.com/Krawphish37/SFSearch.git C:\Modding\SFSearch
+C:\Modding\SFSearch\SFSearch\sfs.cmd Version
+dotnet build C:\Modding\SFSearch\SFSearch.Mcp -c Release
+claude mcp add sfsearch --scope user -- "C:\Modding\SFSearch\SFSearch.Mcp\bin\Release\net10.0\SFSearch.Mcp.exe" --home "C:\Modding\SFSearch\SFSearch"
+```
+
+Start a new Claude Code session, approve the `sfsearch` server, and ask:
+
+> Use SFSearch: which of my mods change the Eon pistol, and which version wins in my load order?
+
+The first question about Starfield.esm takes up to a minute while SFSearch reads it; after that, answers come back in a second or two. The sections below explain each step, other agents, and the settings.
 
 ## How agents use it
 - **The MCP server (`SFSearch.Mcp`) is the main way in.** It gives an agent tools such as `sfs_query`, `sfs_names`, `sfs_record`, `sfs_conflicts`, `sfs_loadorder` and `sfs_fields`, with plain arguments: no shell quoting, SQL can span lines.

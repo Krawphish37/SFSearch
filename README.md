@@ -71,8 +71,18 @@ Start a new session and approve the `sfsearch` server when asked. Ask something 
 
 **Give your agent the guide:** `AGENTS.md`, and `agent-docs/skills/sfsearch/SKILL.md` (which tool answers which question, and the traps that give wrong answers with no error). For Claude Code, copy the `agent-docs/skills/sfsearch` folder into your project's `.claude/skills/` folder.
 
+## Updating
+```powershell
+cd C:\Modding\SFSearch
+git pull
+dotnet build SFSearch.Mcp -c Release
+```
+Then start a new agent session (the MCP server is loaded when a session starts). SFSearch itself rebuilds on its next command; if the service is running, `sfs.cmd Service restart` puts it on the new version. Your settings, databases and add-ons aren't touched. `sfs.cmd Version` shows the version you have.
+
+If `dotnet build` says the MCP server's `.exe` is in use, close your agent sessions first.
+
 ## Settings: `SFSearch\sfsearch.json`
-Every line is explained inside. Edit and save: the service reads it again by itself. `sfs.cmd Service config` shows what's in effect.
+SFSearch writes this file, with every line explained, the first time it runs. It's yours: updates never change it. Edit and save: the service reads it again by itself. `sfs.cmd Service config` shows what's in effect. To go back to the defaults, delete it.
 - **Warm-up:** on or off, and what to read ahead. Examples:
     - only Starfield.esm: `["Starfield.esm"]`
     - the base game and the DLCs: `["Starfield.esm", "ShatteredSpace.esm", "SFBGS050.esm"]`
@@ -116,11 +126,12 @@ Add-ons can be made by anyone and shared.
 SFSearch reads plugins with [Mutagen](https://github.com/Mutagen-Modding/Mutagen). It needs fixes that aren't in a published Mutagen version yet: real data that used to be lost, crashes on some plugins, text that kept changing on save. That build (`0.55.0-fixes.5`) is in `packages/`. Its full source is public at [Krawphish37/Mutagen, branch starfield-fixes5](https://github.com/Krawphish37/Mutagen/tree/starfield-fixes5).
 
 ## Status
-Tested on one PC (Steam install, about 370 plugins):
+Version 1.0.0. Tested on one PC (Steam install, about 370 plugins):
 - about 150,000 commands from 32 clients at once, with workers and the service killed on purpose, and no wrong answers
 - 455 real past questions give the same answers through MCP as from stored databases
+- `Check`, `Archive`, `Materials`, `Leveled` and `Dialogue` tried on a dozen mods and the base game; their first runs found real problems (a patch broken by a mod update, materials pointing at textures that don't exist)
 
-Not tested yet: Game Pass installs, other PCs.
+Not tested yet: Game Pass installs, other PCs. Found a problem? Open an issue with the output of `sfs.cmd Version` and the command you ran.
 
 ## License
 GPL-3.0, because Mutagen and the libraries around it are. See `LICENSE` and `THIRD_PARTY_NOTICES.md`.

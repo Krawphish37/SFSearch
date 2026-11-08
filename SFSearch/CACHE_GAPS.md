@@ -2,7 +2,7 @@
 
 Record types and fields the cache doesn't hold, written down when they came up so they can be added later. Until then, `sfs.cmd Live` reads them straight from the file.
 
-Always not cached in full (by design; see trap 9 in the `sfsearch-pipeline` skill): dialogue, scenes, navmeshes, cells, worldspaces, planets, biomes, statics, lights, sounds, visual records, ship-builder parts (GenericBaseForm named SM + letters + _). In a plugin with more than 50,000 placed references (Starfield.esm, ShatteredSpace.esm and any big mod, e.g. nfvc0003vigilance.esm; `Meta` `PlacedMode` tells), only placed objects with scripts are cached in full. Placed NPCs are always cached in full.
+Always not cached in full (by design; see trap 9 in the agent guide, `agent-docs/skills/sfsearch/SKILL.md`): dialogue, scenes, navmeshes, cells, worldspaces, planets, biomes, statics, lights, sounds, visual records, ship-builder parts (GenericBaseForm named SM + letters + _). In a plugin with more than 50,000 placed references (Starfield.esm, ShatteredSpace.esm and any big mod, e.g. nfvc0003vigilance.esm; `Meta` `PlacedMode` tells), only placed objects with scripts are cached in full. Placed NPCs are always cached in full.
 
 Since 2026-11-06, any of these can be stored for one plugin with `sfs.cmd Add <plugin> <Type>`, with no rebuild. A gap only needs adding to the list here, and to `CachedSignatures`, if every plugin should store it.
 

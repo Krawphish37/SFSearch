@@ -1,11 +1,11 @@
 ---
-name: sfsearch-pipeline
-description: How to look up, compare and check Starfield .esm data with SFSearch, our own plugin database tool (the sfsearch MCP tools, or sfs.cmd). Covers which command answers which question, the traps that give wrong answers, and where the database layout and research commands are documented. Load before any .esm lookup, FormID name lookup, load-order or "who wins" question, patch check (Delta, Diff), mod-update check or mod reverse-engineering. Never write scripts to parse plugins instead.
+name: sfsearch
+description: How to look up, compare and check Starfield .esm data with SFSearch, a plugin database tool for agents (the sfsearch MCP tools, or sfs.cmd). Covers which command answers which question, the traps that give wrong answers, and where the database layout and research commands are documented. Load before any .esm lookup, FormID name lookup, load-order or "who wins" question, patch check (Delta, Diff), mod-update check or mod reverse-engineering. Never write scripts to parse plugins instead.
 ---
 
 # SFSearch
 
-SFSearch is our own tool for reading Starfield plugins. It turns each `.esm` into a local database (`SFSearch\Cache\<plugin>.db`) and has commands to look up, compare and check records. Use it for every `.esm` lookup and every patch check. Don't write Python or C# scripts to parse plugins or Mutagen JSON: SFSearch already does that, and its answers have been checked.
+SFSearch is a tool for reading Starfield plugins. It turns each `.esm` into a local database (`SFSearch\Cache\<plugin>.db`) and has commands to look up, compare and check records. Use it for every `.esm` lookup and every patch check. Don't write Python or C# scripts to parse plugins or Mutagen JSON: SFSearch already does that, and its answers have been checked.
 
 ## Running it
 **The `sfsearch` MCP tools are the main way in** (set up as the repo's README says; the server is `SFSearch.Mcp`). Each tool takes plain values, so there are no PowerShell quoting traps: FormIDs stay text and SQL can span lines. The first call starts the SFSearch service by itself.
@@ -74,7 +74,7 @@ The load-order index (`Cache\_loadorder.db`), the history (`Cache\History.db`) a
 | What can this leveled list give? | `Leveled <list> [--in plugin] [--depth N]`: every entry with level, count, chance of nothing and conditions, nested lists under it, each from the version that wins in the load order |
 | What do this quest's characters say? | `Dialogue <quest\|topic> [--in plugin]`: topics and lines with speaker, English text, conditions, and the scene, stage or speech challenge a line starts. Adds the plugin's dialogue types to its database the first time |
 | How does the player get this mod's items? | `Sources <plugin> [--item X] [--with p1,p2] [--scripts] [--out f.md]`: follows Refs back through leveled lists to quests, recipes (with conditions), vendors, LL injector scripts, containers, placed copies, NPCs; `--scripts` lists scripts calling AddItem / GetFormFromFile |
-| Is this plugin built right? (SF1Edit's Check for Errors) | `Check <plugin> [--all]`: missing masters, FormIDs too big for its size, links to missing or wrong-type records, links outside its masters, overrides whose type changed, deleted records, duplicate EditorIDs, ITMs. Links to the engine's built-in forms (Starfield.esm below 0x800, e.g. 000014, the player) and inside navmesh info maps are left out, with a note |
+| Is this plugin built right? (SF1Edit's Check for Errors) | `Check <plugin> [--all]`: missing masters, FormIDs too big for its size, links to missing or wrong-type records, links outside its masters, overrides whose type changed, deleted records, duplicate EditorIDs, ITMs. Links to the engine's built-in forms (Starfield.esm below 0x800, e.g. 000014, the player) and inside navmesh info maps (which keep entries for deleted navmeshes) are left out, with a note |
 | Header flags, masters, Light/Medium room left | `Header <plugin>` (also HEDR version and record count, and the ONAM list of overridden forms) |
 | How many records of each type? | `Stats <plugin>` |
 | Are all meshes and materials there? | `Assets <plugin> [--missing]` |

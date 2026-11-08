@@ -21,3 +21,5 @@ scratch/
 *.ba2
 *.bak
 SFSearch/extensions/
+# Your settings: SFSearch writes a commented default on first start; edits stay yours across updates
+SFSearch/sfsearch.json

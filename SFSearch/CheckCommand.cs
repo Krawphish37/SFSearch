@@ -114,7 +114,8 @@ namespace SFSearch
             int hardcoded = 0, navi = 0;
             foreach (var l in links)
             {
-                // The navmesh info map (NAVI) isn't fully decoded by Mutagen: numbers in it read as links. Not the plugin's error.
+                // The navmesh info map (NAVI) keeps entries for navmeshes that were deleted and whose FormIDs were reused (Starfield.esm's own
+                // has 120 such): its links say little about the plugin. Part of it (traversals) isn't read as links at all.
                 if (l.FromSig == "NavigationMeshInfoMap") { navi++; continue; }
                 string toPlugin = Sfs.PluginOf(l.To);
                 if (!known.Contains(toPlugin)) { fForeign.Rows.Add(new Problem(l.From, l.FromSig, l.FromEdid, $"→ {l.To}: {toPlugin} isn't a master")); continue; }
@@ -131,7 +132,7 @@ namespace SFSearch
             }
             notes = new List<string>();
             if (hardcoded > 0) notes.Add($"{hardcoded} link(s) to the engine's built-in forms (Starfield.esm below 0x800, such as 000014, the player) aren't in any file and aren't errors.");
-            if (navi > 0) notes.Add($"{navi} link(s) inside the navmesh info map (NAVI) weren't checked: Mutagen doesn't decode that record fully.");
+            if (navi > 0) notes.Add($"{navi} link(s) inside the navmesh info map (NAVI) weren't checked: it keeps entries for deleted navmeshes whose FormIDs were reused (the game's own does too).");
             findings.Add(fMissing); findings.Add(fWrongType); findings.Add(fForeign);
 
             // ---- overrides whose type changed (patch built for an older master)

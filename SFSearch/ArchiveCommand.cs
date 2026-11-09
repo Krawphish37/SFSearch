@@ -144,17 +144,26 @@ namespace SFSearch
                 return;
             }
             var rx = pattern.Contains('*') || pattern.Contains('?') ? Matcher(pattern) : new Regex("^" + Regex.Escape(pattern.Replace('/', '\\').TrimStart('\\')) + "$", RegexOptions.IgnoreCase);
-            int n = 0; long bytes = 0;
+            int n = 0, refused = 0; long bytes = 0;
+            string inside = dest.TrimEnd('\\') + "\\";
             foreach (var (arch, f, p) in Files(archives))
             {
                 if (!rx.IsMatch(p)) continue;
-                string outPath = Path.Combine(dest, p);
+                // A path inside an archive is data from whoever made it: one with "..", a drive or a rooted path could
+                // otherwise write outside the target folder. Only paths that stay inside it are written.
+                string outPath = Path.GetFullPath(Path.Combine(dest, p));
+                if (Path.IsPathRooted(p) || !outPath.StartsWith(inside, StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.Error.WriteLine($"[sfs] WARNING: not extracted, its path leads outside {dest}: {p} ({arch})");
+                    refused++;
+                    continue;
+                }
                 Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
                 var b = f.GetBytes();
                 File.WriteAllBytes(outPath, b);
                 n++; bytes += b.Length;
             }
-            Sfs.Say(n == 0 ? $"No file matches '{pattern}'." : $"Extracted {n:N0} file(s), {bytes / 1048576.0:0.0} MB, to {dest} (their archive folders kept).");
+            Sfs.Say(n == 0 && refused == 0 ? $"No file matches '{pattern}'." : $"Extracted {n:N0} file(s), {bytes / 1048576.0:0.0} MB, to {dest} (their archive folders kept)." + (refused > 0 ? $" {refused} file(s) refused: their paths lead outside that folder." : ""));
         }
     }
 }

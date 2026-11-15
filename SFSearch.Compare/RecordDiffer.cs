@@ -346,7 +346,7 @@ public sealed class RecordDiffer
         string Cut(string s) => s.Length <= _o.MaxValueChars ? s : s[.._o.MaxValueChars] + $"… ({s.Length:N0} characters)";
 
         void Leaf(FieldDef? def, string name, string path, string shown, string plain, string? sub, Change change, JsonNode? va, JsonNode? vb, bool ha, bool hb,
-            string? note = null, string? element = null, string? textA = null, string? textB = null, DiffClass? cls = null)
+            string? note = null, string? element = null, string? textA = null, string? textB = null, DiffClass? cls = null, string? xedit = null)
         {
             bool top = path == _top;
             string? a = !ha ? null : textA ?? Cut(Text(va, def)), b = !hb ? null : textB ?? Cut(Text(vb, def));
@@ -359,7 +359,50 @@ public sealed class RecordDiffer
                 Class = cls ?? (_topClass != DiffClass.Value ? _topClass : IsLayout(name) ? DiffClass.Layout : DiffClass.Value),
                 A = a, B = b, AJson = ha ? va : null, BJson = hb ? vb : null, Note = note,
                 CanonA = ha ? Canonical(va, true) : null, CanonB = hb ? Canonical(vb, false) : null,
+                XEditRule = xedit ?? XEditRule(def, name, path, sub ?? _topSig, change, ha ? va : null, hb ? vb : null),
             });
+        }
+
+        // ------------------------------------------------------------------ xEdit's rules (GAPS S49)
+        /// <summary>A number with a fraction, or a float's Infinity or NaN: a float, which xEdit compares.</summary>
+        static bool FloatLike(JsonNode? n) => n is JsonValue v && (v.TryGetValue<string>(out var t) ? t is "Infinity" or "-Infinity" or "NaN"
+            : v.GetValueKind() == JsonValueKind.Number && v.ToJsonString().IndexOfAny(new[] { '.', 'e', 'E' }) >= 0);
+        static bool IsHex(JsonNode? n) => n is JsonValue v && v.TryGetValue<string>(out var t) && t.StartsWith("0x", StringComparison.Ordinal);
+        static bool Persistent(JsonObject record) => record[RawFlags] is JsonValue v && long.TryParse(v.ToJsonString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long bits) && (bits & 0x400) != 0;
+
+        /// <summary>
+        /// The rule by which SF1Edit's "identical to master" leaves this difference aside, or null when it counts it.
+        /// Only the opt-in xEdit-style verdict uses it; the strict verdict counts every difference.
+        /// </summary>
+        string? XEditRule(FieldDef? def, string name, string path, string? sub, Change change, JsonNode? va, JsonNode? vb)
+        {
+            // Worldspace bookkeeping the Creation Kit writes: xEdit ignores it (cpIgnore)
+            if (_sig == "WRLD" && _top is "OffsetData" or "CellSizeData" or "LargeReferences") return $"worldspace {_top switch { "OffsetData" => "OFST", "CellSizeData" => "CLSZ", _ => "large references" }}: xEdit ignores it";
+            // A placed object gaining a location: benign when added (cpBenignIfAdded)
+            // (Not on a persistent reference, flag 0x400: there SF1Edit lists no such ITM. Measured: stlazarusawakened.esm's 94
+            // temporary references that only gain an XLRL are SF1Edit ITMs, its 116 persistent ones aren't.)
+            if (change == Change.OnlyB && _top == "Location" && _topSig == "XLRL" && path == _top && !Persistent(_b)) return "a location added (XLRL) to a temporary reference: xEdit counts it benign when added";
+            // An empty list against no list: xEdit shows both as nothing
+            if (change is Change.OnlyA or Change.OnlyB && (va ?? vb) is JsonArray { Count: 0 }) return $"an empty list against none ({name})";
+            // The order of a list the game sorts
+            if (change == Change.Order)
+            {
+                if (_top == "Keywords" && path == _top) return "keywords (KWDA) in another order: the game sorts them";
+                if (_sig == "OTFT" && _top == "Items" && path == _top) return "outfit items (INAM) in another order: the game sorts them";
+                if (_sig is "NPC_" && _top == "Factions" && path == _top) return "factions (SNAM) in another order: the game sorts them";
+                if (_top == "VirtualMachineAdapter" && name is "Properties" or "Scripts") return $"script {name.ToLowerInvariant()} in another order: sorted by name";
+                return null;
+            }
+            // Bytes that hold nothing known: a schema Unknown field, padding, an Unused field. Not when xEdit names the field
+            // (it compares it: a lock's XLOC Unknown, 8 against 1), not a float (a traversal's Unknown4, Infinity against
+            // 1.73), and not in a light's XLIG and XLRD (their 0xAB fill bytes against zeros: SF1Edit lists no such ITM).
+            if (change == Change.Changed && (def is { Unknown: true } || name.Contains("Unknown", StringComparison.Ordinal) || name.Contains("Unused", StringComparison.Ordinal)
+                || name.Contains("Padding", StringComparison.Ordinal) || name.Contains("Fluff", StringComparison.Ordinal)) && !name.StartsWith('[')
+                && def?.XEdit is not { Length: > 0 } && def?.Kind is not ("Float" or "Double") && sub is not ("XLIG" or "XLRD")
+                // A field the schema doesn't know (one Mutagen's own code reads): only bytes; a number may be a float
+                && (def != null || IsHex(va) && IsHex(vb)) && !FloatLike(va) && !FloatLike(vb))
+                return $"unknown or unused bytes ({name}): xEdit doesn't compare them";
+            return null;
         }
 
         static string FlagsText(JsonNode? raw, JsonObject record)
@@ -445,6 +488,9 @@ public sealed class RecordDiffer
                 notes.Add($"the text changes in {changedIn.Count} other language{(changedIn.Count == 1 ? "" : "s")}: " + string.Join(", ", changedIn.Take(4).Select(l => $"{l} {Quote(xa.In(l) ?? "")} → {Quote(xb.In(l) ?? "")}")) + (changedIn.Count > 4 ? ", …" : ""));
 
             bool sameShown = string.Equals(ta, tb, StringComparison.Ordinal) && xa.None == xb.None;
+            // xEdit shows one language (the one compared here): the same text there, or no text against an empty one, is equal to it
+            // (the Creation Kit's <ID=…> tag in front of a text taken off, as a reader sees it)
+            string? xeditText = string.Equals(CardBuilder.NoTag(ta) ?? "", CardBuilder.NoTag(tb) ?? "", StringComparison.Ordinal) ? $"the same {_o.Language} text ({(xa.None != xb.None ? "no text against an empty one" : "plain text against localized strings, or other languages")}): xEdit compares one language" : null;
             // The two values as text. How many languages each holds, when that differs; and when the text in the
             // language asked for is the same, what changed in the others, so that a compact line says it too
             bool counts = xa.Count != xb.Count && !xa.None && !xb.None;
@@ -467,7 +513,7 @@ public sealed class RecordDiffer
             {
                 if (sameShown) notes.Insert(0, $"the same {_o.Language} text");
                 Leaf(def, name, path, shown, plain, sub, Change.Changed, a, b, true, true, textA: Shown(xa, ta, false), textB: Shown(xb, tb, true),
-                    note: notes.Count == 0 ? null : string.Join("; ", notes));
+                    note: notes.Count == 0 ? null : string.Join("; ", notes), xedit: xeditText);
                 return;
             }
             // Every language shows the same text: the same value, written another way

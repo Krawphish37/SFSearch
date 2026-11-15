@@ -250,6 +250,165 @@ static class RealTests
         return $"{plugin}: {itms.Count} ITMs, each names its header difference, as the raw reader reads both headers ({string.Join("; ", shapes.OrderByDescending(k => k.Value).Select(k => $"{k.Value}× {k.Key}"))}); the explanation once; equal headers add nothing";
     }
 
+    /// <summary>
+    /// GAPS S50: a partial form (record flag 0x4000) holds only some fields; the game lays them over the version before
+    /// it. SFBGS00D.esm's CityNewAtlantisLodgeInt (06BB29:Starfield.esm) holds only its EDID: taken literally, every
+    /// other field of the cell read as changed. Merged over Starfield.esm's cell it equals it; 00vv-unfamiliarfaces.esm's
+    /// override, held against that merged cell, changes only Name and Ownership. A worldspace's partial form whose
+    /// component holds a BNAM keeps the worldspace's own Biome (BNAM) from the version before it.
+    /// </summary>
+    public static string PartialForms(Ctx ctx)
+    {
+        var s = ctx.Session; var c = ctx.Compare;
+        var label = s.Labeller();
+        var options = new DiffOptions { Label = label };
+        RecordView View(string plugin, string formKey) => s.View(s.Engine, CompareSession.Find(s.Index, plugin, formKey) ?? throw new TestFailed($"{plugin} doesn't hold {formKey}"));
+
+        // The merge itself
+        var full = View("Starfield.esm", "06BB29:Starfield.esm"); var partial = View("SFBGS00D.esm", "06BB29:Starfield.esm");
+        Check(CompareSession.IsPartial(partial) && !CompareSession.IsPartial(full), "SFBGS00D.esm's 06BB29 isn't a partial form, or Starfield.esm's is");
+        var literal = s.Differ.Diff(full.Type, full.Json, partial.Type, partial.Json, options);
+        Check(literal.TopFields.Count >= 10, $"taken literally the partial form differs in {literal.TopFields.Count} fields; it holds only its EDID, so most fields were expected to differ");
+        var merged = s.Merge(partial, full);
+        Check(merged.Merged == "SFBGS00D.esm's partial form merged over Starfield.esm", $"the merged record says \"{merged.Merged}\"");
+        Check(!CompareSession.IsPartial(merged), "the merged record still has the PartialForm flag");
+        var mergedDiff = s.Differ.Diff(full.Type, full.Json, merged.Type, merged.Json, options);
+        Check(mergedDiff.Same, $"merged over Starfield.esm, the cell still differs in {string.Join(", ", mergedDiff.TopFields)}");
+        var effective = s.Effective(s.Engine, partial.Ref);
+        Check(effective.Merged == merged.Merged, $"Effective gives \"{effective.Merged}\"");
+
+        // plugin_vs_masters: the partial form as the base, and as the override
+        var lodge = c.PluginVsMasters("00vv-unfamiliarfaces.esm", "06BB29:Starfield.esm").Overrides.Single();
+        Check(lodge.Class == OverrideClass.Changed && lodge.Base == "SFBGS00D.esm" && lodge.Merged == merged.Merged, $"00vv-unfamiliarfaces.esm's 06BB29: {lodge.Class} against {lodge.Base}, merged \"{lodge.Merged}\"");
+        Check(string.Join(",", lodge.Diff!.TopFields) == "Name,Ownership", $"00vv-unfamiliarfaces.esm's 06BB29 changes {string.Join(", ", lodge.Diff.TopFields)}; Name and Ownership were expected (the literal comparison gave 15 fields)");
+        var own = c.PluginVsMasters("SFBGS00D.esm", "06BB29:Starfield.esm");
+        var ownRow = own.Overrides.Single();
+        Check(ownRow.Class == OverrideClass.Itm && ownRow.Merged == merged.Merged, $"SFBGS00D.esm's own partial form: {ownRow.Class}, merged \"{ownRow.Merged}\"; an ITM was expected");
+        string text = own.ToText(new TextOptions { MaxChars = 200000 });
+        Check(text.Contains($"identical to Starfield.esm ({merged.Merged})", StringComparison.Ordinal) && Regex.Matches(text, Regex.Escape(HeaderNumbers.PartialExplanation)).Count == 1, $"the ITM row doesn't say it was merged, or the explanation isn't there once:\n{text}");
+        Check((string?)ownRow.ToJson()["merged"] == merged.Merged, "the JSON row has no merged");
+        Check(own.Sources.Any(x => x.StartsWith("Starfield.esm ", StringComparison.Ordinal)), "Starfield.esm, read for the merge, isn't among the sources");
+
+        // A worldspace: the component's BNAM isn't the worldspace's own Biome
+        var red = c.PluginVsMasters("SFBGS050.esm", "141E6E:Starfield.esm").Overrides.Single();
+        Check(red.Merged != null && !red.Diff!.TopFields.Contains("Biome"), $"SFBGS050.esm's settleredmile (141E6E:Starfield.esm): merged \"{red.Merged}\", changes {string.Join(", ", red.Diff!.TopFields)}; Biome was expected from Starfield.esm");
+
+        // versions: the partial form's row is compared merged
+        var versions = c.Versions("06BB29:Starfield.esm");
+        var v = versions.Loaded.First(r => r.Plugin == "SFBGS00D.esm");
+        Check(v.Merged != null && v.Diff != null && v.Diff.Same, $"versions: SFBGS00D.esm's row: merged \"{v.Merged}\", same {v.Diff?.Same}");
+        return $"06BB29:Starfield.esm: the literal partial form differs in {literal.TopFields.Count} fields, merged in none; 00vv-unfamiliarfaces.esm changes {string.Join(", ", lodge.Diff.TopFields)} against the merged cell; SFBGS00D.esm's own partial form is an ITM; settleredmile keeps its Biome; versions merges too";
+    }
+
+    /// <summary>
+    /// GAPS S47: a heavy record (over 16 MB) isn't read through Mutagen without allow_heavy; an override of one is held
+    /// against its base by its bytes first. SFBGS006.esm's override of the navmesh info map (000FF1:Starfield.esm) is
+    /// 12,630 bytes against Starfield.esm's 53,882,334: not an ITM, and the row says the bytes differ. With the heavy
+    /// line lowered to 64 bytes for this test, every record of darkstar.esm is heavy: its 20 ITMs are still found, each
+    /// told from its bytes. Bytes of two plugins that number FormIDs differently prove nothing (null).
+    /// </summary>
+    public static string HeavyBytes(Ctx ctx)
+    {
+        var s = ctx.Session; var c = ctx.Compare;
+        var navi = c.PluginVsMasters("SFBGS006.esm", "000FF1:Starfield.esm").Overrides.Single();
+        var mine = CompareSession.Find(s.Index, "SFBGS006.esm", "000FF1:Starfield.esm")!.Value; var theirs = CompareSession.Find(s.Index, "Starfield.esm", "000FF1:Starfield.esm")!.Value;
+        Check(CompareSession.SameBytes(s.Engine, mine, s.Engine, theirs) == false, "SFBGS006.esm's 000FF1 reads as the same bytes as Starfield.esm's");
+        Check(navi.Class == OverrideClass.NotRead && navi.Problem!.StartsWith("Its bytes differ from Starfield.esm's (", StringComparison.Ordinal) && navi.Problem.Contains("so it isn't an ITM", StringComparison.Ordinal),
+            $"SFBGS006.esm's 000FF1: {navi.Class}, \"{navi.Problem}\"");
+
+        // FormIDs numbered another way: the bytes prove nothing
+        var dark = s.Index.Plugin("darkstar.esm")!; var d00 = s.Index.Plugin("SFBGS00D.esm")!;
+        bool sameSpace = dark.Header!.Masters.Count > d00.Header!.Masters.Count && dark.Header.Masters[d00.Header.Masters.Count].Equals("SFBGS00D.esm", StringComparison.OrdinalIgnoreCase);
+        var lodgeDark = CompareSession.Find(s.Index, "darkstar.esm", "06BB29:Starfield.esm")!.Value; var lodge00D = CompareSession.Find(s.Index, "SFBGS00D.esm", "06BB29:Starfield.esm")!.Value;
+        var spaced = CompareSession.SameBytes(s.Engine, lodgeDark, s.Engine, lodge00D);
+        Check(sameSpace ? spaced != null : spaced == null, $"darkstar.esm against SFBGS00D.esm (darkstar.esm's masters: {string.Join(", ", dark.Header.Masters)}): SameBytes gives {spaced?.ToString() ?? "null"}");
+
+        // Every record heavy: darkstar.esm's ITMs told from their bytes alone
+        long was = s.Engine.HeavyRecordBytes;
+        PluginVsMastersAnswer heavy;
+        try { s.Engine.HeavyRecordBytes = 64; heavy = c.PluginVsMasters("darkstar.esm"); }
+        finally { s.Engine.HeavyRecordBytes = was; }
+        var itms = heavy.Itms.ToList();
+        var strict = c.PluginVsMasters("darkstar.esm").Itms.Select(r => r.FormKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Check(itms.Count == 20 && itms.All(r => r.ByBytes != null && strict.Contains(r.FormKey)), $"darkstar.esm with every record heavy: {itms.Count} ITMs ({itms.Count(r => r.ByBytes != null)} told from bytes); the 20 of the full comparison were expected");
+        string text = heavy.ToText(new TextOptions { MaxChars = 400000 });
+        Check(text.Contains("identical to Starfield.esm byte for byte (a heavy record of ", StringComparison.Ordinal) && (string?)itms[0].ToJson()["byBytes"] == itms[0].ByBytes, "an ITM row told from its bytes doesn't say so, or its JSON has no byBytes");
+        return $"SFBGS006.esm's navmesh info map: {navi.Problem![..navi.Problem!.IndexOf(", so", StringComparison.Ordinal)]}: not an ITM; darkstar.esm with every record heavy: its 20 ITMs told from their bytes; darkstar.esm against SFBGS00D.esm: {(spaced?.ToString() ?? "null (FormIDs numbered another way)")}";
+    }
+
+    /// <summary>
+    /// GAPS S49: the opt-in xEdit-style ITM verdict. Overrides SF1Edit 4.1.5q lists as "Identical to Master" in the ITM
+    /// hunt of 2026-11-15 (C:\mtg\itm-hunt\xedit-itm.tsv) that the strict verdict calls changed, one per rule; each is an
+    /// ITM with like_xedit and its row names the rule. Overrides SF1Edit doesn't list stay out: a navmesh whose edge
+    /// links changed, a lock's named Unknown field, a cell that wins over another plugin's change, an override
+    /// identical to a previous override but not to the record's own plugin's version.
+    /// </summary>
+    public static string LikeXEdit(Ctx ctx)
+    {
+        var c = ctx.Compare;
+        var cases = new (string Plugin, string FormKey, string Rule)[]
+        {
+            ("00vv-unfamiliarfaces.esm", "27F189:Starfield.esm", "unknown or unused bytes (Unknown)"),                 // CELL XCLC padding
+            ("sfta02.esm", "08AE04:Starfield.esm", "unknown or unused bytes (LevelUnknown)"),                           // REFR XLOC padding
+            ("MissionsGalore.esm", "13F2C4:Starfield.esm", "unknown or unused bytes (Unknown2)"),                       // SMQN condition padding
+            ("aa50_longwatch.esm", "2F99F8:Starfield.esm", "unknown or unused bytes (Unused)"),                         // LVLO Unused
+            ("N12_EnergyShields.esm", "132305:Starfield.esm", "a location added (XLRL) to a temporary reference"),      // REFR XLRL added
+            ("darkstarpatch_terranarmada.esm", "0A9B43:SFBGS050.esm", "factions (SNAM) in another order"),              // NPC_ factions
+            ("starfield_crowd_faces_z.esm", "0A6FF8:Starfield.esm", "keywords (KWDA) in another order"),                // ARMO keywords, Name, Description
+            ("economy.esm", "2C9BCD:Starfield.esm", "the same English text"),                                          // MISC Name, plain against localized
+            ("darkstar.esm", "06BB29:Starfield.esm", "the same English text"),                                         // CELL through a partial form
+        };
+        var done = new List<string>();
+        foreach (var (plugin, formKey, rule) in cases)
+        {
+            var strict = c.PluginVsMasters(plugin, formKey).Overrides.Single();
+            var like = c.PluginVsMasters(plugin, formKey, likeXEdit: true);
+            var row = like.Overrides.Single();
+            Check(strict.Class == OverrideClass.Changed, $"{plugin} {formKey}: the strict verdict says {strict.Class}; changed was expected");
+            Check(row.Class == OverrideClass.Itm && row.XEditRules != null && row.XEditRules.Any(r => r.StartsWith(rule, StringComparison.Ordinal)),
+                $"{plugin} {formKey} with like_xedit: {row.Class}, rules {string.Join(" | ", row.XEditRules ?? new())}{(row.NotListed != null ? ", " + row.NotListed : "")}; an ITM by \"{rule}\" was expected (strict: {string.Join(", ", strict.Diff!.TopFields)})");
+            string text = like.ToText(new TextOptions { MaxChars = 200000 });
+            Check(text.Contains("as SF1Edit compares (like_xedit: ", StringComparison.Ordinal) && text.Contains(HeaderNumbers.XEditExplanation, StringComparison.Ordinal), $"{plugin} {formKey}: the row doesn't name its rule, or the answer doesn't explain like_xedit:\n{text}");
+            done.Add($"{strict.Signature} {string.Join("/", strict.Diff!.TopFields)}");
+        }
+        // Not ITMs for SF1Edit either
+        var navmesh = c.PluginVsMasters("NewAtlantisPerimeterGate.esm", "123E16:Starfield.esm", likeXEdit: true).Overrides.Single();
+        Check(navmesh.Class == OverrideClass.Changed, $"NewAtlantisPerimeterGate.esm's navmesh 123E16 with like_xedit: {navmesh.Class}; its edge links change, so changed was expected");
+        var lockRef = c.PluginVsMasters("aa50_longwatch.esm", "14E991:Starfield.esm", likeXEdit: true).Overrides.Single();
+        Check(lockRef.Class == OverrideClass.Changed, $"aa50_longwatch.esm's 14E991 (its lock's Unknown, which xEdit names, 8 against 1) with like_xedit: {lockRef.Class}");
+        var wins = c.PluginVsMasters("rabbits_real_lights_starfield.esm", "0125A0:Starfield.esm", likeXEdit: true).Overrides.Single();
+        Check(wins.Class == OverrideClass.ItmNotListed && wins.NotListed!.Contains("NewAtlantisPerimeterGate.esm", StringComparison.Ordinal), $"rabbits_real_lights_starfield.esm's cell 0125A0: {wins.Class}, \"{wins.NotListed}\"; not listed (it wins over NewAtlantisPerimeterGate.esm) was expected");
+        // darkstar.esm's 20 strict ITMs stay 20 without like_xedit
+        Check(c.PluginVsMasters("darkstar.esm").Itms.Count() == 20, "darkstar.esm's strict ITMs aren't 20");
+        return $"{cases.Length} overrides SF1Edit calls ITMs, changed in the strict verdict ({string.Join("; ", done)}), are ITMs with like_xedit, each naming its rule; a navmesh with new edge links, a lock's named Unknown and a cell winning a conflict aren't; darkstar.esm strict: 20";
+    }
+
+    /// <summary>
+    /// GAPS S51: the ITM hunt read compare plugin_vs_masters as leaving out world data (no rows for
+    /// rabbits_real_lights_starfield.esm's 122 disputed cells and worldspaces). compare reads world data: every override,
+    /// the cells and worldspaces among them, is compared, and the answer says so in one line; what it couldn't compare
+    /// is named in one line too (SFBGS006.esm's 51 MB navmesh info map's base).
+    /// </summary>
+    public static string WorldIncluded(Ctx ctx)
+    {
+        var c = ctx.Compare;
+        var rabbits = c.PluginVsMasters("rabbits_real_lights_starfield.esm");
+        int world = rabbits.WorldOverrides.Values.Sum();
+        Check(world >= 1000 && rabbits.WorldOverrides.ContainsKey("CELL") && rabbits.WorldOverrides.ContainsKey("WRLD"), $"rabbits_real_lights_starfield.esm: {world} world overrides counted ({string.Join(", ", rabbits.WorldOverrides.Select(k => $"{k.Key} {k.Value}"))})");
+        foreach (string fk in new[] { "01251B:Starfield.esm", "0125A0:Starfield.esm", "08DA69:Starfield.esm", "056B1F:Starfield.esm" })
+        {
+            var row = rabbits.Overrides.SingleOrDefault(r => r.FormKey.Equals(fk, StringComparison.OrdinalIgnoreCase));
+            Check(row != null && row.Diff != null && row.Class is OverrideClass.Changed or OverrideClass.Itm, $"rabbits_real_lights_starfield.esm: the world record {fk} isn't compared ({row?.Class.ToString() ?? "not listed"})");
+        }
+        string text = rabbits.ToText(new TextOptions { MaxChars = 4000 });
+        Check(text.Contains($"World data included: {world:N0} of the {rabbits.Overrides.Count:N0} overrides are world records (", StringComparison.Ordinal) && text.Contains("check2 leaves them out unless --world", StringComparison.Ordinal), $"no line says world data is included:\n{text}");
+        Check(rabbits.ToJson()["worldOverrides"]?["CELL"] != null, "the JSON has no worldOverrides");
+        var navi = c.PluginVsMasters("SFBGS006.esm");
+        string naviText = navi.ToText(new TextOptions { MaxChars = 4000 });
+        Check(navi.NotRead.Count() == 1 && naviText.Contains("Left out: 1 override couldn't be compared", StringComparison.Ordinal), $"SFBGS006.esm: {navi.NotRead.Count()} not read; no line names what was left out:\n{naviText}");
+        return $"rabbits_real_lights_starfield.esm: {rabbits.Overrides.Count:N0} overrides compared, {world:N0} of them world records ({string.Join(", ", rabbits.WorldOverrides.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value:N0}"))}), the line says so; SFBGS006.esm: the one override left out is named";
+    }
+
     public static string OutputContract(Ctx ctx)
     {
         var c = ctx.Compare;

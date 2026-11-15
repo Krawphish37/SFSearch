@@ -22,10 +22,10 @@ namespace SFSearch.Engine
         public const string Help = """
             compare versions <record> [--plugin <plugin>]
             compare records <a: plugin> <record> <b: plugin> [<record_b>] [--expect <field,...>]
-            compare plugin_vs_masters <a: plugin> [<filter>]
+            compare plugin_vs_masters <a: plugin> [<filter>] [--like-xedit]
             compare plugins <a> <b> [--match formkey|editorid] [--as <plugin name>]
             compare patch_vs_reference <a> <b> [--match formkey|editorid]
-                    [--detail] [--max-chars N] [--cursor C] [--language <language>] [--json]
+                    [--detail] [--max-chars N] [--cursor C] [--all] [--language <language>] [--json]
               Comparisons, read live from the plugin files. No database is read or built.
 
               versions            one record across the load order: who holds it, who wins, what each changes against the one before
@@ -34,6 +34,8 @@ namespace SFSearch.Engine
               plugin_vs_masters   what a plugin changes in its masters; overrides that change nothing (ITMs) and overrides of nothing listed.
                                   An ITM holds its master's data; its row names the record header's numbers that differ (form version, version control)
                                   A filter keeps records whose EditorID holds the text, or one FormKey, or one type (WEAP)
+                                  --like-xedit counts ITMs as SF1Edit does (unknown bytes, sorted lists, OFST/CLSZ, an added
+                                  XLRL, the same English text don't count); each such ITM names the rule
               plugins             two versions of one mod (a file in Data against a copy elsewhere), or a patch against the plugin it masters.
                                   --match editorid pairs a plugin's own records by type and EditorID; repeated EditorIDs are listed, not dropped.
                                   --as reads a file under another plugin name on purpose (a renamed master)
@@ -41,6 +43,9 @@ namespace SFSearch.Engine
 
               A plugin is a file name in Data or the path of a plugin file. A record is a FormKey, an EditorID, or a FormID with its plugin.
               --detail   every difference on a line of its own with both values, and the record header's own numbers
+              --all      every row on one page, no cursor (for scripts)
+              --world    taken for check2's sake: compare always reads world data (cells, worldspaces, placed objects,
+                         navmeshes); plugin_vs_masters says how many of the overrides are world records
               A translated text counts in every language: a language dropped or added, or no text against an empty one,
               is a change of that field. A field that is the same value written another way is listed too, and says so.
               Exit code: 0 answered; 1 answered, and compare records with --expect found a difference outside the expected
@@ -48,11 +53,11 @@ namespace SFSearch.Engine
               memory free for it.
             """;
 
-        static readonly string[] Known = { "kind", "a", "b", "record", "record_b", "plugin", "expect", "match", "as", "filter", "detail", "max_chars", "cursor", "language" };
+        static readonly string[] Known = { "kind", "a", "b", "record", "record_b", "plugin", "expect", "match", "as", "filter", "detail", "all", "like_xedit", "world", "max_chars", "cursor", "language" };
         static readonly VerbSpec Spec = new()
         {
             Verb = "compare", Positional = new[] { "kind", "p1", "p2", "p3", "p4" }, Options = new[] { "a", "b", "record", "record_b", "plugin", "expect", "match", "as", "filter", "max_chars", "cursor", "language" },
-            Flags = new[] { "detail" }, Aliases = new(StringComparer.OrdinalIgnoreCase) { ["lang"] = "language", ["in"] = "plugin" }, JoinRest = false,
+            Flags = new[] { "detail", "all", "like_xedit", "world" }, Aliases = new(StringComparer.OrdinalIgnoreCase) { ["lang"] = "language", ["in"] = "plugin" }, JoinRest = false,
         };
 
         public static void Tool(IReadOnlyDictionary<string, JsonElement> args)
@@ -140,7 +145,8 @@ namespace SFSearch.Engine
                 if (m.Equals("editorid", StringComparison.OrdinalIgnoreCase)) match = MatchBy.EditorId;
                 else if (!m.Equals("formkey", StringComparison.OrdinalIgnoreCase)) { answer.Fail($"there is no way of pairing named '{m}'", "use match formkey (the default) or editorid", 2); return; }
             }
-            int maxChars = Math.Max(RecordTool.LeastChars, a.Int("max_chars") ?? RecordTool.DefaultChars);
+            // all (command line --all): every row on one page, for scripts
+            int maxChars = a.Flag("all") ? int.MaxValue / 4 : Math.Max(RecordTool.LeastChars, a.Int("max_chars") ?? RecordTool.DefaultChars);
             bool detail = a.Flag("detail");
             string question = string.Join("|", Known.Where(k => k is not ("cursor" or "max_chars")).Select(k => k + "=" + a.Text(k)));
             if (!Cursors.TryRead(a.Text("cursor"), question, out int start))
@@ -186,7 +192,7 @@ namespace SFSearch.Engine
                 {
                     if (pa == null) { answer.Fail("compare plugin_vs_masters needs a plugin", "give a: the plugin whose changes to its masters you want", 2); return; }
                     string? filter = a.Text("filter") ?? record;
-                    result = compare.PluginVsMasters(pa, filter?.Trim('*'));
+                    result = compare.PluginVsMasters(pa, filter?.Trim('*'), a.Flag("like_xedit"));
                     break;
                 }
                 case "plugins":

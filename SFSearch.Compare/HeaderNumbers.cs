@@ -11,13 +11,21 @@ namespace SFSearch.Compare;
 public readonly record struct HeaderNumbers(uint VersionControl, ushort FormVersion, ushort Version2)
 {
     /// <summary>The one line an ITM answer gives once, when any of its ITMs has a header that differs from its master's.</summary>
+    /// <summary>The one line an answer gives once, when any of its comparisons went through a partial form (GAPS S50).</summary>
+    public const string PartialExplanation = "A partial form (record flag 0x4000) holds only some of a record's fields; the game keeps the version before it for the rest. Such a record is compared as the game merges it: the partial form's fields over the version before it. The row says where.";
+
     public const string ItmExplanation = "SFSearch compares a record's data (its subrecords and flags), not its header; a row names the header numbers that differ (this plugin's first, then the master's). xEdit may not show such a record as an ITM.";
 
     /// <summary>An ITM row's text: "identical to Starfield.esm", and when the header differs, "identical to Starfield.esm
     /// in data; header differs: form version 582 vs 581; version control 0 vs 0x002034C1".</summary>
-    public static string ItmText(string master, IReadOnlyCollection<string> rewritten, string? header) =>
-        $"identical to {master}" + (rewritten.Count > 0 ? $" in every value; the same value, written another way: {string.Join(", ", rewritten)}" : header != null ? " in data" : "")
+    public static string ItmText(string master, IReadOnlyCollection<string> rewritten, string? header, string? merged = null, string? bytes = null, IReadOnlyCollection<string>? xedit = null) =>
+        $"identical to {master}" + (bytes != null ? " " + bytes : "") + (merged != null ? $" ({merged})" : "")
+        + (xedit is { Count: > 0 } ? $" as SF1Edit compares (like_xedit: {string.Join("; ", xedit)})" : "")
+        + (rewritten.Count > 0 ? $" in every value; the same value, written another way: {string.Join(", ", rewritten)}" : header != null ? " in data" : "")
         + (header != null ? $"; header differs: {header}" : "");
+
+    /// <summary>The one line an answer gives when the xEdit-style verdict was asked for (GAPS S49).</summary>
+    public const string XEditExplanation = "ITMs as SF1Edit counts them (like_xedit): an override is also listed when it differs only in what xEdit's \"identical to master\" leaves aside: unknown or unused bytes (padding, Unknown and Unused fields), the order of lists the game sorts (keywords, outfit items, an NPC's factions, script properties), a worldspace's OFST, CLSZ and large references, a location added to a placed object (XLRL), an empty list against none, and a text that reads the same in the language compared (plain text against localized strings, other languages, no text against an empty one). Each such row names the rule. Without like_xedit every difference counts.";
 
     /// <summary>The header numbers of a record, from the file's bytes.</summary>
     public static HeaderNumbers Read(RecordEngine engine, RecordRef r)

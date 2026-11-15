@@ -14,7 +14,8 @@
          since fixes.14, C182) are read from the restored package. The build fails when the package's nuspec doesn't
          name the compiled assembly's version and commit, or when an XML file differs from the package's .nupkg. -->
     <MutagenVersion>0.55.0-fixes.17</MutagenVersion>
-    <SchemaPackageDir>$(NuGetPackageRoot)mutagen.bethesda.starfield\$(MutagenVersion)</SchemaPackageDir>
+    <!-- NuGetPackageRoot ends in a slash only when NUGET_PACKAGES (or the default) does: add one when it doesn't -->
+    <SchemaPackageDir>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))mutagen.bethesda.starfield\$(MutagenVersion)</SchemaPackageDir>
     <SchemaPairs>$(MSBuildProjectDirectory)\inputs\xedit-pairs-2026-11-14.tsv</SchemaPairs>
     <SchemaEvidence>$(MSBuildProjectDirectory)\inputs\unknown-fields-r4-2026-11-10.tsv</SchemaEvidence>
     <SchemaAnnotations>$(MSBuildProjectDirectory)\annotations.tsv</SchemaAnnotations>

@@ -37,7 +37,7 @@ namespace SFSearch.Engine
             try
             {
                 if (!EngineLibs.Language(a.Text("language"), answer, out var language)) return;
-                int maxChars = Math.Max(RecordTool.LeastChars, a.Int("max_chars") ?? RecordTool.DefaultChars);
+                int maxChars = a.Flag("all") ? AllChars : Math.Max(RecordTool.LeastChars, a.Int("max_chars") ?? RecordTool.DefaultChars);
                 string question = verb + "|" + string.Join("|", known.Where(k => k is not ("cursor" or "max_chars" or "allow_heavy")).Select(k => k + "=" + a.Text(k)));
                 if (!Cursors.TryRead(a.Text("cursor"), question, out int start))
                 { answer.Fail($"the cursor \"{a.Text("cursor")}\" doesn't belong to this question", "pass a cursor together with the same arguments that gave it, or leave it out to start at the top", 2); return; }
@@ -123,8 +123,8 @@ namespace SFSearch.Engine
 
         // ---------------------------------------------------------------- check
         public const string CheckHelp = """
-            check2 <plugin> [--what records|itm|assets|materials|roundtrip|all] [--world] [--beside] [--detail]
-                   [--max-chars N] [--cursor C] [--allow-heavy] [--json]
+            check2 <plugin> [--what records|itm|assets|materials|roundtrip|all] [--world] [--beside] [--like-xedit] [--detail]
+                   [--max-chars N] [--cursor C] [--all] [--allow-heavy] [--json]
               Is this plugin built right? Read live from the plugin file. No database is read or built.
 
               --what    records    (default) 19 checks, one PASS, WARN or ERROR line each, then the records each found:
@@ -144,6 +144,11 @@ namespace SFSearch.Engine
                         (several: --what records,assets)
               --world   include world data (cells, placed references, navmeshes, terrain) in the checks that read records
               --beside  for a plugin file outside Data: read the archives that sit beside it, not the ones in Data
+              --like-xedit  count ITMs as SF1Edit does: an override that differs only in what xEdit's "identical to
+                        master" leaves aside (unknown or unused bytes, the order of lists the game sorts, a worldspace's
+                        OFST/CLSZ, an added XLRL, the same English text) is listed too, and its row names the rule
+              --all     every row on one page, no cursor (for scripts). Without it a long answer comes in pages, and a
+                        count line says when its page holds only some of the rows it counts
               --allow-heavy  run a check estimated over 10 s or 2 GB. Without it the answer is what it would cost.
               A plugin is a file name in Data or the path of a plugin file.
               Exit code: 0 answered, nothing wrong; 1 answered, and a check found errors (or the round trip differs);
@@ -151,8 +156,8 @@ namespace SFSearch.Engine
               free for heavy work that was allowed.
             """;
 
-        static readonly string[] CheckKnown = { "plugin", "what", "world", "beside", "allow_heavy", "detail", "max_chars", "cursor", "language" };
-        static readonly VerbSpec CheckSpec = Spec("check2", new[] { "plugin" }, new[] { "what" }, new[] { "world", "beside", "allow_heavy" });
+        static readonly string[] CheckKnown = { "plugin", "what", "world", "beside", "allow_heavy", "all", "like_xedit", "detail", "max_chars", "cursor", "language" };
+        static readonly VerbSpec CheckSpec = Spec("check2", new[] { "plugin" }, new[] { "what" }, new[] { "world", "beside", "allow_heavy", "all", "like_xedit" });
         static readonly string[] CheckParts = { "records", "itm", "assets", "materials", "roundtrip" };
 
         public static void CheckTool(IReadOnlyDictionary<string, JsonElement> args)
@@ -180,19 +185,19 @@ namespace SFSearch.Engine
                 parts.Add(part);
             }
             parts = parts.Distinct().ToList();
-            bool allow = a.Flag("allow_heavy"), world = a.Flag("world"), beside = a.Flag("beside"), detail = a.Flag("detail");
+            bool allow = a.Flag("allow_heavy"), world = a.Flag("world"), beside = a.Flag("beside"), detail = a.Flag("detail"), xedit = a.Flag("like_xedit");
             if (parts.Count == 1 && parts[0] is "records" or "assets" or "materials")
             {
                 // One report: the library's own pages, with its heading on every page
                 string part = parts[0];
-                Report(answer, a, "check", CheckKnown, s => One(s, part, plugin, world, beside, allow, answer), r => { if (r is CheckAnswer { Failed: true }) Environment.ExitCode = 1; });
+                Report(answer, a, "check", CheckKnown, s => One(s, part, plugin, world, beside, allow, answer, xedit), r => { if (r is CheckAnswer { Failed: true }) Environment.ExitCode = 1; });
                 return;
             }
             // Several parts, or one the engine words itself (itm, roundtrip): every part whole, one after another, cut by lines
             try
             {
                 if (!EngineLibs.Language(a.Text("language"), answer, out var language)) return;
-                int maxChars = Math.Max(RecordTool.LeastChars, a.Int("max_chars") ?? RecordTool.DefaultChars);
+                int maxChars = a.Flag("all") ? AllChars : Math.Max(RecordTool.LeastChars, a.Int("max_chars") ?? RecordTool.DefaultChars);
                 string question = "check|" + string.Join("|", CheckKnown.Where(k => k is not ("cursor" or "max_chars" or "allow_heavy")).Select(k => k + "=" + a.Text(k)));
                 if (!Cursors.TryRead(a.Text("cursor"), question, out int offset))
                 { answer.Fail($"the cursor \"{a.Text("cursor")}\" doesn't belong to this question", "pass a cursor together with the same arguments that gave it, or leave it out to start at the top", 2); return; }
@@ -201,6 +206,7 @@ namespace SFSearch.Engine
                 using var session = Session(eng, language);
                 var lines = new List<string>();
                 bool failed = false;
+                int itmCount = -1; (int First, int Count) itmRows = (-1, 0);
                 foreach (string part in parts)
                 {
                     if (parts.Count > 1) lines.Add($"## {part}");
@@ -214,24 +220,27 @@ namespace SFSearch.Engine
                         answer.Source(CompareSession.SourceLine(side));
                         continue;
                     }
-                    var result = One(session, part == "itm" ? "records" : part, plugin, world, beside, allow, answer);
+                    var result = One(session, part == "itm" ? "records" : part, plugin, world, beside, allow, answer, xedit);
                     if (result == null) return;
                     EngineLibs.Parts(answer, result.Notes, result.Sources, result.Read);
                     if (part == "itm" && result is CheckAnswer c)
                     {
                         var itm = c.Findings.FirstOrDefault(f => f.Id.Contains("itm", StringComparison.OrdinalIgnoreCase) || f.Name.Contains("identical", StringComparison.OrdinalIgnoreCase));
-                        lines.Add($"Overrides of {c.Plugin} that change nothing (ITMs): {itm?.Rows.Count ?? 0:N0} of the {c.OverridesCompared:N0} overrides compared with their master ({c.Overrides:N0} overrides in all).");
+                        itmCount = lines.Count;
+                        lines.Add($"Overrides of {c.Plugin} that change nothing (ITMs{(xedit ? ", as SF1Edit counts them" : "")}): {itm?.Rows.Count ?? 0:N0} of the {c.OverridesCompared:N0} overrides compared with their master ({c.Overrides:N0} overrides in all).");
                         // World data left out is said right under the count, the same way every tool says it (WorldData.LeftOut)
                         if (c.WorldLeftOut.Values.Sum() is int leftOut and > 0)
                             lines.Add(WorldData.LeftOut("was left out of the ITM check", leftOut, c.WorldBytesLeftOut, 0, $"about {2 + leftOut * CheckReport.WorldSecondsPerRecord:F0} s more", ByType(c.WorldLeftOut)));
                         if (itm?.NotRun != null) lines.Add($"Not run: {itm.NotRun}");
                         else if (itm == null || itm.Rows.Count == 0) lines.Add("None: every override compared changes something.");
-                        else { if (itm.Note != null) lines.Add("  " + itm.Note); lines.AddRange(itm.Rows.Select(r => r.Line())); }
+                        else { if (itm.Note != null) lines.Add("  " + itm.Note); itmRows = (lines.Count, itm.Rows.Count); lines.AddRange(itm.Rows.Select(r => r.Line())); }
                         continue;
                     }
                     failed |= result is CheckAnswer { Failed: true };
                     lines.AddRange(EngineLibs.BodyLines(result.ToText(new ReportTextOptions { Detail = detail, MaxChars = int.MaxValue })));
                 }
+                // The ITM count line says when this page holds only some of its rows (GAPS S48: a count above 121 rows read as the rows shown)
+                if (itmCount >= offset && itmRows.Count > 0) SayRowsShown(lines, itmCount, itmRows.First, itmRows.Count, offset, maxChars);
                 answer.Lines(lines, 0, offset, maxChars, n => Cursors.Make(n, question));
                 if (failed) Environment.ExitCode = 1;
             }
@@ -248,12 +257,45 @@ namespace SFSearch.Engine
             }
         }
 
+        /// <summary>What max_chars becomes with all (command line --all): every row on one page.</summary>
+        const int AllChars = int.MaxValue / 4;
+
+        /// <summary>How many lines from offset one page of EngineAnswer.Lines holds (its own rule: whole lines up to maxChars, at least one).</summary>
+        static int LinesOnPage(IReadOnlyList<string> lines, int offset, int maxChars)
+        {
+            int used = 0, shown = 0;
+            for (int i = offset; i < lines.Count; i++)
+            {
+                if (shown > 0 && used + lines[i].Length + 1 > maxChars) break;
+                used += Math.Min(lines[i].Length, maxChars) + 1; shown++;
+            }
+            return shown;
+        }
+
+        /// <summary>
+        /// When the page that holds a count line doesn't hold all the rows it counts, the count line says so: "This page
+        /// shows 118 of the 199 rows; …". Without it, "199 ITMs" above 118 rows reads like the rows shown (GAPS S48).
+        /// </summary>
+        static void SayRowsShown(List<string> lines, int countLine, int firstRow, int rows, int offset, int maxChars)
+        {
+            string plain = lines[countLine];
+            for (int round = 0; round < 3; round++)
+            {
+                int onPage = LinesOnPage(lines, offset, maxChars);
+                int shown = Math.Clamp(offset + onPage - firstRow, 0, rows);
+                string said = shown >= rows ? plain
+                    : plain + $" This page shows {shown:N0} of the {rows:N0} rows; the cursor on the [more] line gives the rest (command line: --all prints every row on one page).";
+                if (said == lines[countLine]) return;
+                lines[countLine] = said;
+            }
+        }
+
         /// <summary>The largest world types left out: "REFR 30, NAVM 4".</summary>
         static string ByType(Dictionary<string, int> left) =>
             string.Join(", ", left.OrderByDescending(k => k.Value).Take(6).Select(k => $"{k.Key} {k.Value:N0}")) + (left.Count > 6 ? ", …" : "");
 
         /// <summary>One part of check that is a report of the library. Null when the answer is already said ("not run").</summary>
-        static ReportAnswer? One(ReportSession session, string part, string plugin, bool world, bool beside, bool allow, EngineAnswer answer)
+        static ReportAnswer? One(ReportSession session, string part, string plugin, bool world, bool beside, bool allow, EngineAnswer answer, bool likeXEdit = false)
         {
             switch (part)
             {
@@ -272,7 +314,7 @@ namespace SFSearch.Engine
                         long memory = 400 + (long)((seg.Count - worldRecords) * 0.003) + (world ? (long)(worldRecords * 0.0003) : 0);
                         if (!EngineLibs.Heavy(answer, allow, seconds, memory, $"The checks of {side.Name} read {read:N0} of its {seg.Count:N0} records{(world ? ", world data included" : "")}")) return null;
                     }
-                    return new CheckReport(session).Check(plugin, new CheckOptions { World = world });
+                    return new CheckReport(session).Check(plugin, new CheckOptions { World = world, LikeXEdit = likeXEdit });
                 }
             }
         }

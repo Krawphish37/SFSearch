@@ -116,9 +116,10 @@ public sealed class NewTools
         [Description("editorid: pair own records by EditorID")] string match = "",
         [Description("plugins: read a under this plugin name")] string @as = "",
         [Description("plugin_vs_masters: EditorID text, FormKey or type")] string filter = "",
+        [Description("ITMs as SF1Edit counts them")] bool like_xedit = false,
         bool detail = false, string cursor = "", string format = "",
         IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default) =>
-        Bridge.Tool("sfs_compare", P(("kind", kind), ("a", a), ("b", b), ("record", record), ("record_b", record_b), ("expect", expect), ("match", match), ("as", @as), ("filter", filter), ("detail", detail)), cursor, format, null, false, progress, ct);
+        Bridge.Tool("sfs_compare", P(("kind", kind), ("a", a), ("b", b), ("record", record), ("record_b", record_b), ("expect", expect), ("match", match), ("as", @as), ("filter", filter), ("like_xedit", like_xedit), ("detail", detail)), cursor, format, null, false, progress, ct);
 
     [McpServerTool(Name = "sfs_loadorder", ReadOnly = true), Description(
         "view: order (default: slot, size, records, problems of every loaded plugin), plugin (its masters, records per type), " +
@@ -138,9 +139,10 @@ public sealed class NewTools
         string what = "",
         [Description("Include world data")] bool world = false,
         [Description("A file outside Data: use the archives beside it")] bool beside = false,
+        [Description("ITMs as SF1Edit counts them")] bool like_xedit = false,
         bool detail = false, string cursor = "", bool allow_heavy = false, string format = "",
         IProgress<ProgressNotificationValue>? progress = null, CancellationToken ct = default) =>
-        Bridge.Tool("sfs_check", P(("plugin", plugin), ("what", what), ("world", world), ("beside", beside), ("detail", detail), ("allow_heavy", allow_heavy)), cursor, format, null, allow_heavy, progress, ct);
+        Bridge.Tool("sfs_check", P(("plugin", plugin), ("what", what), ("world", world), ("beside", beside), ("like_xedit", like_xedit), ("detail", detail), ("allow_heavy", allow_heavy)), cursor, format, null, allow_heavy, progress, ct);
 
     [McpServerTool(Name = "sfs_saved"), Description(
         "Stored queries with named parameters (recipes, keywords, attach points, templates, leveled lists, items, broken links, …). action: list (default), show, run, check, save.")]

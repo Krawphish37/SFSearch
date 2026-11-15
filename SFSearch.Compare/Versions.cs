@@ -28,6 +28,8 @@ public sealed class VersionRow
     public string? FirstPlugin { get; set; }
     /// <summary>Why this version couldn't be read or compared.</summary>
     public string? Problem { get; set; }
+    /// <summary>Set when this version is a partial form: it was compared merged over the version before it (GAPS S50).</summary>
+    public string? Merged { get; set; }
 
     public JsonObject ToJson()
     {
@@ -40,6 +42,7 @@ public sealed class VersionRow
         if (Diff != null) o["changes"] = Diff.ToJson();
         if (FieldsAgainstFirst != null) { o["againstFirst"] = FirstPlugin; o["fieldsAgainstFirst"] = new JsonArray(FieldsAgainstFirst.Select(f => (JsonNode)f).ToArray()); }
         if (Problem != null) o["problem"] = Problem;
+        if (Merged != null) o["merged"] = Merged;
         return o;
     }
 }
@@ -85,7 +88,7 @@ public sealed class VersionsAnswer : CompareAnswer
         var lines = new List<string>();
         string where = r.Loaded ? $"load order {r.Position}{(r.Slot.Length > 0 ? ", slot " + r.Slot : "")}" : "not loaded";
         string role = (r.IsOwner ? "the record's own plugin" : "override") + (r.IsWinner ? ", WINNER" : "");
-        string head = $"- {r.Plugin} ({where}; {role})";
+        string head = $"- {r.Plugin} ({where}; {role}{(r.Merged != null ? "; a partial form, compared merged over the version before it" : "")})";
         if (r.Problem != null) lines.Add($"{head}: {r.Problem}");
         else if (r.Diff == null) lines.Add($"{head}: the first version.");
         else if (r.Diff.DifferentTypes) lines.Add($"{head}: a record of a different type than in {r.Against}.");
@@ -142,6 +145,9 @@ public sealed partial class Comparer
                 var against = loaded ? previous : first;
                 if (against != null)
                 {
+                    // A partial form is what the game makes of it: its fields over the version before it (GAPS S50)
+                    view = Session.Merge(view, against);
+                    row.Merged = view.Merged;
                     row.Against = against.Plugin;
                     row.Diff = Diff(against, view, Options(label));
                     if (loaded && first != null && !ReferenceEquals(first, previous))

@@ -223,7 +223,7 @@ git clone -b fixes17 https://github.com/Krawphish37/Mutagen.Bethesda.Serializati
 (GitHub often times out showing pages of the Mutagen repository, which is very large; cloning always works.) SFSearch 1.0.x used `0.55.0-fixes.5`, from the `starfield-fixes5` branch.
 
 ## Status
-Version `2.0.0`, with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
+Version `2.0.1` (2.0.0 with the fixes listed in its release notes), with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
 - **455 real past commands** recorded from agent sessions: 452 run (3 name files that no longer exist), and all 452 answer line for line as before the new tools were added. Since the removal each of them is held to the call that answers it now, and each old command's name to its pointer line (`sfsharness mapping`).
 - **The 16 traps of the 1.x agent guide** (wrong answers with no error): each now can't happen, or gives a clear error or warning. All 16 have a tested case, and all pass.
 - **The MCP server's own test** (with the author's calls of every tool): 98 calls of the 12 tools, 102 of 102 checks pass. The 12 tool definitions are 8,796 characters (the 25 older ones, removed in 2.0, were 14,789).

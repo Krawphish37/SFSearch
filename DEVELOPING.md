@@ -117,6 +117,9 @@ SFSearch.Records: a record read through Mutagen → JSON (Mutagen.Bethesda.Seria
 - **By hand:** `SFSearch __index status` and `SFSearch __links status` say how far the two indexes are; `__links check <plugin>` holds the link walk against the record's JSON and against Mutagen's own list of links.
 - **The docs are tested by hand:** every example in `README.md` and `agent-docs\` was run and pasted. When a tool's answer changes, run its examples again.
 
+## Releases
+A release is published by the author as one commit with the release's tree; this repository's history isn't pushed as it is. Mutagen's packages in `packages/` are built from the public branches named in THIRD_PARTY_NOTICES.md.
+
 ## The Creation Kit's names
 Every build of SFSearch carries the Creation Kit's display names, tooltips, ranges and Hidden flags (the author's decision): `schema.db` is made from `SFSearch.SchemaGen\inputs\ck-names-1.16.244.0.tsv`, a data file in the repo that holds only what SFSearch uses of the CK's reflection data, keyed by the engine's names. No dump, flag or release build is needed. The schema's `Meta` records the file (`CkNamesFile`, `CkNamesSha256`) and, from its header, the Creation Kit and the dump it was made from (`CkReflection` = CreationKit.exe 1.16.244.0, `CkReflectionSha256`).
 

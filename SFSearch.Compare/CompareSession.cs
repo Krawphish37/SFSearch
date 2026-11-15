@@ -56,9 +56,14 @@ public sealed class RecordView
     public required RecordEngine Engine { get; init; }
     public string Plugin => Info.Plugin;
     public string Label => Info.Label;
+    /// <summary>Set when this is a partial form merged over the version before it (CompareSession.Merge): says so,
+    /// as "SFBGS00D.esm's partial form merged over Starfield.esm". Null for a record as it is written.</summary>
+    public string? Merged { get; init; }
+    /// <summary>The plugins whose versions a merged record was made from, below this one.</summary>
+    public IReadOnlyList<string> Through { get; init; } = Array.Empty<string>();
 }
 
-public sealed class CompareSession : IDisposable
+public sealed partial class CompareSession : IDisposable
 {
     public string DataFolder { get; }
     public string ScratchFolder { get; }

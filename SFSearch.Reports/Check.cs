@@ -24,6 +24,9 @@ public sealed class CheckOptions
     /// <summary>Read world data too: cells and what they hold (placed references, navmeshes, terrain), the navmesh
     /// info map, surface trees. Off by default: the answer says how many records that leaves out.</summary>
     public bool World { get; init; }
+    /// <summary>Count ITMs as SF1Edit does: an override that differs only in what xEdit's "identical to master" leaves
+    /// aside is listed too, with the rule (GAPS S49). Off by default: every difference counts.</summary>
+    public bool LikeXEdit { get; init; }
     /// <summary>Called now and then with the number of records read so far (for a progress line).</summary>
     public Action<int, int>? Progress { get; init; }
 }
@@ -586,7 +589,8 @@ public sealed class CheckReport
         scope.Touch(side.Engine, side.Name);
         var file = side.Engine.Sessions.Get(side.Name).File;
         var idBytes = new byte[4];
-        int headerDiffers = 0;
+        int headerDiffers = 0, merged = 0, likeXEdit = 0;
+        var notListed = new List<string>();
         // How many masters of each size the plugin has: a FormID names one of them, or the plugin itself (the next number)
         int full = p.MasterStyles.Count(m => m == MasterStyle.Full), medium = p.MasterStyles.Count(m => m == MasterStyle.Medium), small = p.MasterStyles.Count(m => m == MasterStyle.Small);
         // The links of a record to the plugin's own records, by local ID, for the "FormID forms" rules
@@ -614,6 +618,31 @@ public sealed class CheckReport
                 else if (owner.Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase) && id < 0x800) t.BuiltIn = true;
             }
             return targets[formKey] = t;
+        }
+
+        // An override that may be an ITM: not the plugin's own record, of its base's type, not deleted, not a second copy
+        bool MayBeItm(int i) => seg[i].Owner != seg.SelfOwner && !typeMismatch.Contains(i) && !ofNothing.Contains(i) && (seg[i].Flags & 0x20) == 0 && !(i > 0 && seg[i - 1].Key == seg[i].Key);
+
+        // A record that isn't read through Mutagen here (a heavy one, or the navmesh info map): an ITM when its bytes are
+        // its base's (GAPS S47). True when it was told that way, an ITM or not.
+        bool ItmByBytes(int i, RecordRef mineRef, bool always)
+        {
+            var e = seg[i];
+            if (!MayBeItm(i) || _s.Seen(side, seg.Names[e.Owner], e.LocalId, mastersOnly: true) is not { } before) return false;
+            if (!always && !CompareSession.IsHeavy(side.Engine, mineRef) && !CompareSession.IsHeavy(before.Engine, before.Ref)) return false;
+            bool? same;
+            try { scope.Touch(before.Engine, before.Plugin.Name); same = CompareSession.SameBytes(side.Engine, mineRef, before.Engine, before.Ref); }
+            catch (CompareException) { return false; }
+            if (same == null) return false;
+            answer.OverridesCompared++;
+            usedMasters.Add(before.Plugin.Name);
+            if (same == true)
+            {
+                string? header = HeaderNumbers.Differences(side.Engine, mineRef, before.Engine, before.Ref);
+                if (header != null) headerDiffers++;
+                fItm.Rows.Add(row(i, HeaderNumbers.ItmText(before.Plugin.Name, Array.Empty<string>(), header, null, CompareSession.BytesNote(side.Engine, mineRef)), null, null));
+            }
+            return true;
         }
 
         for (int i = 0; i < seg.FirstUnresolved; i++)
@@ -654,12 +683,14 @@ public sealed class CheckReport
                 }
                 catch (RecordException x) { fUnread.Rows.Add(row(i, x.Message, null, null)); }
                 finally { side.Engine.AllowHeavy = heavy; }
+                // Its JSON is never made, so it is held against its base by its bytes
+                ItmByBytes(i, hit.Ref, always: true);
                 continue;
             }
 
             RecordView mine;
             try { mine = _s.Compare.View(side.Engine, hit.Ref); }
-            catch (CompareException x) { fUnread.Rows.Add(row(i, x.Message, null, null)); continue; }
+            catch (CompareException x) { fUnread.Rows.Add(row(i, x.Message, null, null)); ItmByBytes(i, hit.Ref, always: false); continue; }
             answer.RecordsRead++;
 
             int at = i;
@@ -711,22 +742,37 @@ public sealed class CheckReport
             }
 
             // ---- overrides that change nothing
-            if (e.Owner == seg.SelfOwner || typeMismatch.Contains(i) || ofNothing.Contains(i) || (e.Flags & 0x20) != 0) continue;
-            if (i > 0 && seg[i - 1].Key == e.Key) continue; // a second copy of a FormKey: reported as that
+            if (!MayBeItm(i)) continue; // a second copy of a FormKey is reported as that
             if (_s.Seen(side, seg.Names[e.Owner], e.LocalId, mastersOnly: true) is not { } before) continue;
+            // A heavy base isn't read through Mutagen: its bytes may still say (GAPS S47)
+            if (CompareSession.IsHeavy(before.Engine, before.Ref) && ItmByBytes(i, hit.Ref, always: true)) continue;
             try
             {
                 scope.Touch(before.Engine, before.Plugin.Name);
-                var theirs = _s.Compare.View(before.Engine, before.Ref);
+                // A partial form on either side is compared as the game merges it (GAPS S50)
+                var theirs = _s.Compare.Effective(before.Engine, before.Ref);
                 usedMasters.Add(before.Plugin.Name);
-                var diff = _s.Compare.Differ.Diff(theirs.Type, theirs.Json, mine.Type, mine.Json, diffOptions);
+                var mineMerged = _s.Compare.Merge(mine, theirs);
+                string? through = mineMerged.Merged ?? theirs.Merged;
+                usedMasters.UnionWith(mineMerged.Through); usedMasters.UnionWith(theirs.Through);
+                var diff = _s.Compare.Differ.Diff(theirs.Type, theirs.Json, mineMerged.Type, mineMerged.Json, diffOptions);
                 answer.OverridesCompared++;
-                if (diff.Same)
+                // The xEdit-style verdict (GAPS S49): its rules, its master (the record's own plugin), its filter
+                List<string>? rules = null;
+                bool itm = diff.Same;
+                if (options.LikeXEdit && _s.Compare.LikeXEdit(side, mineMerged, diff, before.Plugin.Name) is { } verdict)
+                {
+                    if (verdict.Itm) { itm = true; rules = verdict.Rules.Count > 0 ? verdict.Rules : null; if (rules != null) likeXEdit++; }
+                    else { itm = false; notListed.Add($"{mine.Label}: {verdict.NotListed}"); }
+                }
+                else if (options.LikeXEdit) itm = false;
+                if (itm)
                 {
                     // The header's own numbers aren't data, but the row names them when they differ: xEdit may not call it an ITM
                     string? header = HeaderNumbers.Differences(side.Engine, hit.Ref, before.Engine, before.Ref);
                     if (header != null) headerDiffers++;
-                    fItm.Rows.Add(row(i, HeaderNumbers.ItmText(before.Plugin.Name, diff.RewrittenFields, header), null, null));
+                    if (through != null) merged++;
+                    fItm.Rows.Add(row(i, HeaderNumbers.ItmText(before.Plugin.Name, diff.RewrittenFields, header, through, null, rules), null, null));
                 }
             }
             catch (CompareException x) { fUnread.Rows.Add(row(i, $"its version in {before.Plugin.Name} couldn't be read: {x.Message}", null, null)); }
@@ -734,5 +780,10 @@ public sealed class CheckReport
         foreach (var m in usedMasters)
             if (_s.Compare.EngineFor(side, m).Index.Plugin(m) is { } mp) ReportSession.AddSource(answer, mp);
         if (headerDiffers > 0) fItm.Note += " " + HeaderNumbers.ItmExplanation;
+        if (merged > 0) fItm.Note += " " + HeaderNumbers.PartialExplanation;
+        if (options.LikeXEdit) fItm.Note += " " + HeaderNumbers.XEditExplanation;
+        if (notListed.Count > 0)
+            fItm.Note += $" {notListed.Count:N0} more change nothing against the version before them, but SF1Edit doesn't list them, so neither does this list: "
+                + string.Join("; ", notListed.Take(5)) + (notListed.Count > 5 ? "; …" : "") + ".";
     }
 }

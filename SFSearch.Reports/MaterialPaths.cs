@@ -538,38 +538,7 @@ public static class MaterialPaths
     /// types; a type and a size for each block; then the strings. Null when the bytes end before the strings do or
     /// aren't such a header.
     /// </summary>
-    internal static List<string>? MeshStrings(byte[] b, int length)
-    {
-        if (!b.AsSpan(0, length).StartsWith("Gamebryo File Format, Version 20.2.0.7\n"u8)) return null;
-        int q = 39;
-        bool Has(int n) => n >= 0 && q + n <= length;
-        uint U32() { uint v = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(q)); q += 4; return v; }
-        if (!Has(17)) return null;
-        uint version = U32(); q += 5; uint blocks = U32(); uint bs = U32();
-        if (version != 0x14020007 || blocks > 1_000_000) return null;
-        bool Short() { if (!Has(1)) return false; int n = b[q]; q++; if (!Has(n)) return false; q += n; return true; }
-        if (!Short()) return null;
-        if (bs > 130) { if (!Has(4)) return null; q += 4; } else if (!Short()) return null;
-        if (!Short()) return null;
-        if (bs >= 103 && !Short()) return null;
-        if (!Has(2)) return null;
-        int types = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(q)); q += 2;
-        for (int i = 0; i < types; i++) { if (!Has(4)) return null; uint n = U32(); if (n > 256 || !Has((int)n)) return null; q += (int)n; }
-        if (!Has((int)blocks * 6 + 8)) return null;
-        q += (int)blocks * 6;
-        uint count = U32(); q += 4;
-        if (count > 200_000) return null;
-        var list = new List<string>((int)count);
-        for (int i = 0; i < count; i++)
-        {
-            if (!Has(4)) return null;
-            uint n = U32();
-            if (n > 4096 || !Has((int)n)) return null;
-            list.Add(Encoding.Latin1.GetString(b, q, (int)n));
-            q += (int)n;
-        }
-        return list;
-    }
+    internal static List<string>? MeshStrings(byte[] b, int length) => MeshHeader.Read(b.AsSpan(0, length))?.Strings;
 
     /// <summary>A material's path from the evidence: whole, or from its name (when it is its file's) and a folder.</summary>
     internal static string? PathOf(MaterialContents.Node n, MaterialPathEvidence e)

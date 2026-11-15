@@ -676,6 +676,90 @@ static class CheckTests
         return $"darkstar.esm: {itm.Rows.Count} ITMs, each row names its header difference as the raw reader reads both headers ({itm.Rows.Count(r => r.Problem.Contains("form version 582 vs 581", StringComparison.Ordinal))} with form version 582 vs 581); the explanation once in the note";
     }
 
+    /// <summary>
+    /// GAPS S48: check2's ITM list comes in pages, and the count line said "199 ITMs" above the first 119 rows. The count
+    /// line now says how many of its rows the page holds, and --all prints every row with no cursor. sfta01.esm with
+    /// world data has 199 ITMs (the ITM hunt of 2026-11-15), more than a page holds.
+    /// </summary>
+    public static string ItmPaging(Ctx ctx)
+    {
+        if (!ctx.HasToday) return "SKIP this worktree's SFSearch wasn't given (--sfsearch and --home)";
+        string? paged = ctx.Today("check2_itm_paged__sfta01.esm", "check2", "sfta01.esm", "--what", "itm", "--world", "--allow-heavy");
+        string? all = ctx.Today("check2_itm_all__sfta01.esm", "check2", "sfta01.esm", "--what", "itm", "--world", "--allow-heavy", "--all");
+        if (paged == null || all == null) return "SKIP today's SFSearch couldn't be run";
+        static List<string> Rows(string text) => text.Replace("\r", "").Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && l.Contains(": identical to ", StringComparison.Ordinal)).ToList();
+        var allRows = Rows(all); var pageRows = Rows(paged);
+        string count = paged.Replace("\r", "").Split('\n').First(l => l.StartsWith("Overrides of sfta01.esm that change nothing", StringComparison.Ordinal));
+        var m = System.Text.RegularExpressions.Regex.Match(count, @"\(ITMs\): ([\d,]+) of .* This page shows ([\d,]+) of the ([\d,]+) rows; the cursor on the \[more\] line gives the rest");
+        Check(m.Success, $"the paged count line doesn't say how many rows its page shows: {count}");
+        int total = int.Parse(m.Groups[1].Value.Replace(",", "")), shown = int.Parse(m.Groups[2].Value.Replace(",", "")), of = int.Parse(m.Groups[3].Value.Replace(",", ""));
+        Check(total == of && total == allRows.Count, $"the count says {total} ITMs, the page {of}, and --all prints {allRows.Count} rows");
+        Check(shown == pageRows.Count && shown < total, $"the count line says the page shows {shown} rows; it shows {pageRows.Count}");
+        Check(paged.Contains("[more] ", StringComparison.Ordinal) && !all.Contains("[more] ", StringComparison.Ordinal), "the paged answer has no [more] line, or the --all answer has one");
+        Check(pageRows.SequenceEqual(allRows.Take(pageRows.Count)), "the first page's rows aren't the first rows of the --all answer");
+        string allCount = all.Replace("\r", "").Split('\n').First(l => l.StartsWith("Overrides of sfta01.esm that change nothing", StringComparison.Ordinal));
+        Check(!allCount.Contains("This page shows", StringComparison.Ordinal), $"the --all count line says the page is cut: {allCount}");
+        return $"sfta01.esm with world data: {total} ITMs; the first page shows {shown} and its count line says so; --all prints all {allRows.Count} rows with no cursor";
+    }
+
+    /// <summary>
+    /// GAPS S50: an override that is a partial form (record flag 0x4000) holds only some fields; the game lays them over
+    /// the version before it. Aurie_UpgradedCompanions.esm's 13 quest overrides are partial forms that change nothing:
+    /// taken literally they read as changing up to a dozen fields each, merged they are ITMs, and each row says so.
+    /// darkstar.esm's override of CityNewAtlantisLodgeInt (06BB29:Starfield.esm) sits on SFBGS00D.esm's partial form:
+    /// against the merged cell it changes Name and Ownership, so it stays out of the list, which stays at 20.
+    /// </summary>
+    public static string ItmPartial(Ctx ctx)
+    {
+        var s = ctx.Session;
+        var answer = new CheckReport(s).Check("Aurie_UpgradedCompanions.esm");
+        var itm = answer.Finding("itm");
+        var merged = itm.Rows.Where(r => r.Problem.Contains("Aurie_UpgradedCompanions.esm's partial form merged over Starfield.esm", StringComparison.Ordinal)).ToList();
+        Check(merged.Count >= 13, $"Aurie_UpgradedCompanions.esm: {merged.Count} ITM rows say they were merged; the 13 partial-form quests were expected");
+        Check(merged.Any(r => r.FormKey!.StartsWith("009E99:", StringComparison.OrdinalIgnoreCase)), "COM_Companion_SarahMorgan (009E99:Starfield.esm) isn't among them");
+        Check(itm.Note != null && itm.Note.Split(HeaderNumbers.PartialExplanation).Length == 2, $"the ITM note doesn't explain partial forms once: {itm.Note}");
+        var dark = new CheckReport(s).Check("darkstar.esm", new CheckOptions { World = true }).Finding("itm");
+        Check(dark.Rows.Count == 20 && !dark.Rows.Any(r => r.FormKey!.StartsWith("06BB29:", StringComparison.OrdinalIgnoreCase)), $"darkstar.esm with world data: {dark.Rows.Count} ITMs; 20 were expected, without 06BB29");
+        return $"Aurie_UpgradedCompanions.esm: {itm.Rows.Count} ITMs, {merged.Count} of them partial forms merged over Starfield.esm, each row says so; darkstar.esm (world data included) still 20";
+    }
+
+    /// <summary>
+    /// GAPS S47: the navmesh info map is never read as JSON, so check2 left SFBGS006.esm's override of it
+    /// (000FF1:Starfield.esm) out of the ITM test: 30 of its 31 overrides compared. It is held against Starfield.esm's by
+    /// its bytes now: 12,630 bytes against 53,882,334, so all 31 are compared and the ITMs stay 22.
+    /// </summary>
+    public static string ItmHeavy(Ctx ctx)
+    {
+        var answer = new CheckReport(ctx.Session).Check("SFBGS006.esm", new CheckOptions { World = true });
+        var itm = answer.Finding("itm");
+        Check(answer.OverridesCompared == answer.Overrides && answer.Overrides == 31, $"SFBGS006.esm: {answer.OverridesCompared} of {answer.Overrides} overrides compared; all 31 were expected");
+        Check(itm.Rows.Count == 22 && !itm.Rows.Any(r => r.FormKey!.StartsWith("000FF1:", StringComparison.OrdinalIgnoreCase)), $"SFBGS006.esm: {itm.Rows.Count} ITMs; 22 were expected, without the navmesh info map");
+        return $"SFBGS006.esm with world data: {answer.OverridesCompared} of {answer.Overrides} overrides compared (the navmesh info map by its bytes), {itm.Rows.Count} ITMs";
+    }
+
+    /// <summary>
+    /// GAPS S49: check2's ITM test with the xEdit-style verdict. SF1Edit 4.1.5q's "Identical to Master" filter lists
+    /// 92 overrides of MissionsGalore.esm and 27 of economy.esm (the ITM hunt of 2026-11-15); the strict verdict 4 and 1.
+    /// With like_xedit the counts are SF1Edit's, every added row names its rule, and the strict default is unchanged.
+    /// </summary>
+    public static string ItmLikeXEdit(Ctx ctx)
+    {
+        var report = new CheckReport(ctx.Session);
+        var parts = new List<string>();
+        foreach (var (plugin, strictCount, xeditCount) in new[] { ("MissionsGalore.esm", 4, 92), ("economy.esm", 1, 27) })
+        {
+            var strict = report.Check(plugin).Finding("itm");
+            var like = report.Check(plugin, new CheckOptions { LikeXEdit = true }).Finding("itm");
+            Check(strict.Rows.Count == strictCount, $"{plugin}: {strict.Rows.Count} strict ITMs; {strictCount} were expected");
+            Check(like.Rows.Count == xeditCount, $"{plugin}: {like.Rows.Count} ITMs with like_xedit; SF1Edit lists {xeditCount}");
+            var added = like.Rows.Where(r => !strict.Rows.Any(s => s.FormKey == r.FormKey)).ToList();
+            Check(added.All(r => r.Problem.Contains("as SF1Edit compares (like_xedit: ", StringComparison.Ordinal)), $"{plugin}: a row added by like_xedit doesn't name its rule: {added.FirstOrDefault(r => !r.Problem.Contains("like_xedit", StringComparison.Ordinal))?.Problem}");
+            Check(like.Note != null && like.Note.Contains(HeaderNumbers.XEditExplanation, StringComparison.Ordinal) && (strict.Note == null || !strict.Note.Contains("like_xedit", StringComparison.Ordinal)), $"{plugin}: the like_xedit note is missing, or the strict note has it");
+            parts.Add($"{plugin}: {strict.Rows.Count} strict, {like.Rows.Count} with like_xedit (SF1Edit {xeditCount})");
+        }
+        return string.Join("; ", parts) + "; each added row names its rule";
+    }
+
     public static string World(Ctx ctx)
     {
         var s = ctx.Session;

@@ -63,6 +63,9 @@ public sealed class FieldDiff
     public JsonNode? AJson { get; init; }
     public JsonNode? BJson { get; init; }
     public string? Note { get; init; }
+    /// <summary>The rule by which SF1Edit's "identical to master" leaves this difference aside ("keywords (KWDA) in another
+    /// order: the game sorts them"), or null when it counts it. Used only by the opt-in xEdit-style verdict (GAPS S49).</summary>
+    public string? XEditRule { get; init; }
     /// <summary>The two values as texts that are equal exactly when the values are (links by what they are compared by).</summary>
     public string? CanonA { get; init; }
     public string? CanonB { get; init; }
@@ -85,6 +88,7 @@ public sealed class FieldDiff
         if (AJson != null) o["aValue"] = AJson.DeepClone();
         if (BJson != null) o["bValue"] = BJson.DeepClone();
         if (Note != null) o["note"] = Note;
+        if (XEditRule != null) o["xeditRule"] = XEditRule;
         return o;
     }
 }
@@ -133,6 +137,10 @@ public sealed class RecordDiff
             return Rewritten.Select(d => d.Top).Where(t => !values.Contains(t)).Distinct(StringComparer.Ordinal).ToList();
         }
     }
+    /// <summary>True when every difference that counts is one SF1Edit's "identical to master" leaves aside (GAPS S49).</summary>
+    public bool SameLikeXEdit => !DifferentTypes && Values.All(d => d.XEditRule != null);
+    /// <summary>The rules that made the record equal to SF1Edit, each once.</summary>
+    public List<string> XEditRules => Values.Select(d => d.XEditRule).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
     /// <summary>True when the two records are of one type and no value differs.</summary>
     public bool Same => !DifferentTypes && !All.Any(d => d.Class == DiffClass.Value);
     /// <summary>The record's own fields that differ, each once, in order.</summary>

@@ -87,6 +87,22 @@ public sealed partial class Comparer
         }
     }
 
+    /// <summary>What a comparison went through when either side is a partial form merged over the version before it; null when neither is.</summary>
+    static string? Merged(RecordView theirs, RecordView mine) =>
+        mine.Merged ?? theirs.Merged; // the override's own says what it was merged over, the base's merge included
+
+    static readonly HashSet<string> WorldSignatures = new(StringComparer.Ordinal) { "CELL", "WRLD", "NAVI", "SFTR", "SFBK", "SFPT" };
+
+    /// <summary>World data, by check2's rule (ReportSession.IsWorld): cells, worldspaces, the navmesh info map, surface
+    /// trees, and the records nested in a cell or a worldspace.</summary>
+    static bool IsWorld(Segment seg, in Entry e)
+    {
+        if (WorldSignatures.Contains(seg.SignatureOf(e))) return true;
+        if (!seg.TryGetParent(e, out int owner, out uint localId)) return false;
+        int at = seg.Find(owner, localId);
+        return at < 0 || seg.SignatureOf(seg[at]) is "CELL" or "WRLD";
+    }
+
     static bool Matches(RecordInfo info, string filter) =>
         (info.EditorId != null && info.EditorId.Contains(filter, StringComparison.OrdinalIgnoreCase))
         || info.FormKey.Equals(filter, StringComparison.OrdinalIgnoreCase)

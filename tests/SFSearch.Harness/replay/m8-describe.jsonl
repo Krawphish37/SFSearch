@@ -1,0 +1,19 @@
+{"id": "des01", "tool": "sfs_describe", "params": {"what": "WEAP", "filter": "damage"}}
+{"id": "des02", "tool": "sfs_describe", "params": {"what": "Weapon.AttackDamage"}}
+{"id": "des03", "tool": "sfs_describe", "params": {"what": "WEAP/WDMG"}}
+{"id": "des04", "tool": "sfs_describe", "params": {"what": "WEAP/WDMG@16"}}
+{"id": "des05", "tool": "sfs_describe", "params": {"what": "Base Damage"}}
+{"id": "des06", "tool": "sfs_describe", "params": {"what": "OMOD"}}
+{"id": "des07", "tool": "sfs_describe", "params": {"what": "OMOD", "filter": "AttachPoint"}}
+{"id": "des08", "tool": "sfs_describe", "params": {"what": "SoundLevel"}}
+{"id": "des09", "tool": "sfs_describe", "params": {"what": "Keyword"}}
+{"id": "des10", "tool": "sfs_describe", "params": {"what": "Weapon", "max_chars": 3000}}
+{"id": "des11", "tool": "sfs_describe", "params": {"what": "damage"}}
+{"id": "des12", "tool": "sfs_describe", "params": {"what": "Weapn"}}
+{"id": "des13", "tool": "sfs_describe", "params": {"what": "Weapon.BaseDamage"}}
+{"id": "des14", "tool": "sfs_describe", "params": {"what": "WEAP/ZZZZ"}}
+{"id": "des15", "tool": "sfs_describe", "params": {"what": "WEAP", "nope": 1}}
+{"id": "des16", "tool": "sfs_describe", "params": {"what": "Links"}}
+{"id": "des17", "tool": "sfs_describe", "params": {"what": "LeveledItem_Entries"}}
+{"id": "des18", "tool": "sfs_describe", "params": {"what": "PERK", "filter": "rank"}}
+{"id": "des19", "tool": "sfs_describe", "params": {"what": "schema.Fields"}}

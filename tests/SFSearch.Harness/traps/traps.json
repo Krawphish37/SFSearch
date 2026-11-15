@@ -1,0 +1,1813 @@
+{
+  "about": "The 16-trap acceptance test (the traps are those of the 1.x agent guide, agent-docs\\skills\\sfsearch\\SKILL.md). One case per trap, as data. 'today' is the case through today's commands: it shows whether the trap is still silent. 'new' is the case through the 12 new tools: it is 'not built yet' until the tool exists, and then it decides the row. A form passes when every condition of any one 'pass_if' entry holds. Placeholders: {data} the Data folder, {fx} the case's own folder under the work folder (fixtures are copies of plugins, never files in Data), {exe} SFSearch.exe and {sfscmd} sfs.cmd, already quoted for PowerShell. Regular expressions are .NET's; (?m) makes ^ match at a line start, (?i) ignores case.",
+  "traps": [
+    {
+      "n": 1,
+      "title": "An unquoted FormID in PowerShell becomes a number",
+      "design": "clear error",
+      "today_shows": "PowerShell turns 0003E6,000E82 into 3000000 and 0. SFSearch answers '3000000: not a FormID' and '0: not found' in a table, exit code 0. Nothing says to quote.",
+      "today": {
+        "calls": [
+          {
+            "via": "powershell",
+            "line": "& {exe} Names 0003E6,000E82 --in darkstar.esm"
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error",
+            "all": [
+              {
+                "matches": "(?im)^Error:[^\\n]*quot"
+              }
+            ]
+          },
+          {
+            "name": "right value",
+            "all": [
+              {
+                "part": "out",
+                "matches": "0003E6:darkstar\\.esm"
+              },
+              {
+                "part": "out",
+                "matches": "000E82:darkstar\\.esm"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Call 1 is the trap as typed. Call 2 is what the shell made of it, given to the tool. Call 3 is the same line with the IDs quoted: it must give both records.",
+        "needs": [
+          "sfs_find"
+        ],
+        "calls": [
+          {
+            "via": "powershell",
+            "line": "& {exe} find 0003E6,000E82 --in darkstar.esm"
+          },
+          {
+            "tool": "sfs_find",
+            "params": {
+              "query": "3000000 0",
+              "in": "darkstar.esm"
+            }
+          },
+          {
+            "via": "powershell",
+            "line": "& {exe} find '0003E6,000E82' --in darkstar.esm"
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error",
+            "all": [
+              {
+                "call": 1,
+                "matches": "(?im)^Error:[^\\n]*quot"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "not_matches": "(?m)^\\|"
+              },
+              {
+                "call": 2,
+                "matches": "(?im)^Error:[^\\n]*0003E6[^\\n]*quot"
+              },
+              {
+                "call": 2,
+                "exit": "nonzero"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "\\(0003E6:darkstar\\.esm\\)"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "\\(000E82:darkstar\\.esm\\)"
+              }
+            ]
+          },
+          {
+            "name": "right value",
+            "all": [
+              {
+                "part": "out",
+                "matches": "0003E6:darkstar\\.esm"
+              },
+              {
+                "part": "out",
+                "matches": "000E82:darkstar\\.esm"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 2,
+      "title": "The same six digits are different records in different plugins",
+      "design": "impossible",
+      "today_shows": "Names lists every plugin that has the ID, each with its plugin, and picks none. The trap is the reader taking the first row. Conflicts and Refs refuse a bare ID.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "Names",
+              "000CF2"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "every record listed with its plugin, none picked",
+            "all": [
+              {
+                "part": "out",
+                "matches": "(?i)\\(000CF2:Starfield\\.esm\\)"
+              },
+              {
+                "part": "out",
+                "matches": "(?i)\\(000CF2:SFBGS003\\.esm\\)"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Call 1: the bare ID lists every plugin's record, and a note says they are different records. Call 2: with the plugin named, only that plugin's record is listed. Calls 3 and 4 (milestone M5, second half): record and refs given the bare ID list the records too and read none. Call 5: record with the plugin named reads that plugin's record and says which plugin it read.",
+        "calls": [
+          {
+            "tool": "sfs_find",
+            "params": {
+              "query": "000CF2",
+              "limit": 100
+            }
+          },
+          {
+            "tool": "sfs_find",
+            "params": {
+              "query": "000CF2",
+              "in": "darkstar.esm"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "000CF2"
+            }
+          },
+          {
+            "tool": "sfs_refs",
+            "params": {
+              "record": "000CF2"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "000CF2",
+              "plugin": "darkstar.esm"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "every record listed with its plugin, none picked",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?i)\\(000CF2:Starfield\\.esm\\)"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?i)\\(000CF2:SFBGS003\\.esm\\)"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?i)\\(000CF2:darkstar\\.esm\\)"
+              },
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?i)different records"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "DarkStar_Mk2_Helmet_Ecliptic \\(000CF2:darkstar\\.esm\\)"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "not_matches": "(?i)000CF2:Starfield\\.esm"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?i)none was picked"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?i)\\(000CF2:Starfield\\.esm\\)"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?i)\\(000CF2:darkstar\\.esm\\)"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "not_matches": "(?m)^Read from "
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "matches": "(?i)none was picked"
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "not_matches": "(?i)point(s)? at"
+              },
+              {
+                "call": 5,
+                "part": "out",
+                "matches": "(?m)^DarkStar_Mk2_Helmet_Ecliptic \\(000CF2:darkstar\\.esm\\)$"
+              },
+              {
+                "call": 5,
+                "part": "out",
+                "matches": "(?m)^Read from darkstar\\.esm: the plugin you named"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 3,
+      "title": "New or override judged by the cache's name",
+      "design": "impossible",
+      "today_shows": "A plugin read by path is shown as _file1_kgcdoom.esm, while its FormKeys say kgcdoom.esm. Comparing the two names calls every record an override.",
+      "today": {
+        "fixtures": [
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "bypath\\kgcdoom.esm"
+          }
+        ],
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "{fx}\\bypath\\kgcdoom.esm,atom74.esm",
+              "SELECT count(*) AS N, sum(IsOverride = 0) AS New FROM Records"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "the plugin is shown under its own name",
+            "all": [
+              {
+                "part": "out",
+                "not_matches": "_file\\d+_"
+              },
+              {
+                "part": "out",
+                "matches": "(?im)^\\| kgcdoom\\.esm \\|"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "fixtures": [
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "bypath\\kgcdoom.esm"
+          }
+        ],
+        "calls": [
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "{fx}\\bypath\\kgcdoom.esm",
+              "sql": "SELECT Plugin, count(*) AS N, sum(IsOverride = 0) AS New FROM Weapon GROUP BY 1 ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "the plugin is shown under its own name, its records new",
+            "all": [
+              {
+                "part": "out",
+                "not_matches": "_file\\d+_"
+              },
+              {
+                "part": "out",
+                "matches": "(?i)\\|\\s*kgcdoom\\.esm\\s*\\|\\s*2\\s*\\|\\s*2\\s*\\|"
+              },
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?m)^\\[source\\] [^\\n]*bypath\\\\kgcdoom\\.esm"
+              }
+            ]
+          }
+        ],
+        "about": "A copy of kgcdoom.esm outside Data, named by its path. The rows carry the plugin's own name (never a made-up name for a cache), both weapons are new records, and the source line names the file that was read."
+      }
+    },
+    {
+      "n": 4,
+      "title": "Searching record data by EditorID finds 0",
+      "design": "clear warning",
+      "today_shows": "Data LIKE '%kgcDoom_Tag_WeaponTypeDoom%' counts 0 weapons; the same search by FormKey counts 2. No note.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "kgcdoom.esm",
+              "SELECT count(*) AS N FROM Records WHERE Signature = 'Weapon' AND Data LIKE '%kgcDoom_Tag_WeaponTypeDoom%'"
+            ]
+          },
+          {
+            "args": [
+              "Query",
+              "kgcdoom.esm",
+              "SELECT count(*) AS N FROM Records WHERE Signature = 'Weapon' AND Data LIKE '%0076BE:kgcdoom.esm%'"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?i)EditorID"
+              }
+            ]
+          },
+          {
+            "name": "right value",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "same_as_call": 2
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Calls 1 and 2: refs by the keyword's EditorID and by its FormKey give the same answer, the 2 weapons. Calls 3 and 4: the SQL an agent used to write. Looking for the EditorID in Json finds 0, and the answer carries a note that names the cause and edid(); looking for the FormKey finds the 2.",
+        "calls": [
+          {
+            "tool": "sfs_refs",
+            "params": {
+              "record": "kgcDoom_Tag_WeaponTypeDoom",
+              "in": "kgcdoom.esm",
+              "types": "WEAP"
+            }
+          },
+          {
+            "tool": "sfs_refs",
+            "params": {
+              "record": "0076BE:kgcdoom.esm",
+              "in": "kgcdoom.esm",
+              "types": "WEAP"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT count(*) AS N FROM Weapon WHERE Json LIKE '%kgcDoom_Tag_WeaponTypeDoom%' ORDER BY 1"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT count(*) AS N FROM Weapon WHERE Json LIKE '%0076BE:kgcdoom.esm%' ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value by refs, and a clear warning on the SQL that looks for an EditorID in Json",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "same_as_call": 2
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^2 records point at kgcDoom_Tag_WeaponTypeDoom \\(0076BE:kgcdoom\\.esm\\)"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| kgcDoom_WEAP_\\w+ \\([0-9A-F]{6}:kgcdoom\\.esm\\) \\| WEAP Weapon \\| Keywords\\[\\*\\]"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^Searched: "
+              },
+              {
+                "call": 3,
+                "part": "notes",
+                "matches": "(?i)EditorID"
+              },
+              {
+                "call": 3,
+                "part": "notes",
+                "matches": "edid\\("
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?m)^\\| 0 \\|"
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "matches": "(?m)^\\| 2 \\|"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 5,
+      "title": "Weapon and armor OMODs aren't ObjectModification",
+      "design": "impossible",
+      "today_shows": "Signature = 'ObjectModification' counts 0 in darkstar.esm; its OMODs are stored as ArmorModification and WeaponModification. No note.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "darkstar.esm",
+              "SELECT count(*) AS N FROM Records WHERE Signature = 'ObjectModification'"
+            ]
+          },
+          {
+            "args": [
+              "Query",
+              "darkstar.esm",
+              "SELECT count(*) AS N FROM Records WHERE Signature LIKE '%Modification'"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "same_as_call": 2
+              }
+            ]
+          },
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?i)ArmorModification|WeaponModification"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Milestone M5 (second half): through the tools that exist. find by the type name ObjectModification lists the OMOD records (as many as find by OMOD), and says the name stands for 8 types. record reads one and says which type it is. 'new_with_query' is the case through sfs_query, for milestone M6. Calls 4 and 5: SELECT count(*) FROM ObjectModification gives as many as the header index has OMOD records (3,031), never 0.",
+        "calls": [
+          {
+            "tool": "sfs_find",
+            "params": {
+              "type": "ObjectModification",
+              "in": "darkstar.esm",
+              "limit": 1
+            }
+          },
+          {
+            "tool": "sfs_find",
+            "params": {
+              "type": "OMOD",
+              "in": "darkstar.esm",
+              "limit": 1
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "mod_DarkStar_Mk2_Weapon_RussianAssaultRifle_Quality_4",
+              "plugin": "darkstar.esm",
+              "max_chars": 1500
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "darkstar.esm",
+              "sql": "SELECT count(*) AS N FROM ObjectModification ORDER BY 1"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "darkstar.esm",
+              "sql": "SELECT count(*) AS N FROM Forms WHERE Sig = 'OMOD' ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value",
+            "all": [
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?m)^\\[more\\] 1 of [1-9][\\d,]* rows"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "same_as_call": 2
+              },
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?i)ObjectModification is one of 8 Mutagen types stored as OMOD"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?m)^OMOD (Weapon|Armor|Object|Npc|Container|Flora|Spaceship|UnknownObject)Modification in darkstar\\.esm"
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "same_as_call": 5
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "matches": "(?m)^\\| 3031 \\|"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 6,
+      "title": "Vanilla text is German first",
+      "design": "impossible",
+      "today_shows": "The first entry of a translated name is the German one: '[German, Super-Shotgun]' for a weapon whose name is Super Shotgun. No note.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "kgcdoom.esm",
+              "SELECT json_extract(Data,'$.Name') ->> '$[0]' AS Name FROM Records WHERE EditorID = 'kgcDoom_WEAP_SuperShotgun'"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value",
+            "all": [
+              {
+                "part": "out",
+                "matches": "Super Shotgun"
+              },
+              {
+                "part": "out",
+                "not_matches": "German|Super-Shotgun"
+              }
+            ]
+          },
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?i)\\ben\\(|language|English"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Milestone M5 (second half): through the tools that exist. record gives the weapon's name in English, picked by the language's name, never by its place in the list; asked for German it gives the German one. 'new_with_query' is the case through sfs_query, for milestone M6. Calls 3 and 4: the Name column of the typed view is the English text; asked for German it is the German one.",
+        "calls": [
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "kgcDoom_WEAP_SuperShotgun",
+              "plugin": "kgcdoom.esm",
+              "view": "fields",
+              "fields": "Name"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "kgcDoom_WEAP_SuperShotgun",
+              "plugin": "kgcdoom.esm",
+              "view": "fields",
+              "fields": "Name",
+              "language": "German"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT Name FROM Weapon WHERE EditorID = 'kgcDoom_WEAP_SuperShotgun' ORDER BY 1"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "language": "German",
+              "sql": "SELECT Name FROM Weapon WHERE EditorID = 'kgcDoom_WEAP_SuperShotgun' ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\s+Name = Super Shotgun\\b"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "not_matches": "German|Super-Shotgun"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^\\s+Name = Super-Shotgun\\b"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?m)^\\| Super Shotgun \\|"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "not_matches": "German|Super-Shotgun"
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "matches": "(?m)^\\| Super-Shotgun \\|"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 7,
+      "title": "One name, one cache: same-name files overwrite each other",
+      "design": "impossible",
+      "today_shows": "Two different files with one name, read by path, are kept apart (_file1_, _file2_) and each answers for itself.",
+      "today": {
+        "fixtures": [
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "a\\zz_trap7.esm"
+          },
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "b\\zz_trap7.esm",
+            "replace": "kgcDoom_WEAP_SuperShotgun",
+            "with": "kgcDoom_WEAP_SuperShotgum"
+          }
+        ],
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "{fx}\\a\\zz_trap7.esm",
+              "SELECT EditorID FROM Records WHERE Signature = 'Weapon' ORDER BY 1"
+            ]
+          },
+          {
+            "args": [
+              "Query",
+              "{fx}\\b\\zz_trap7.esm",
+              "SELECT EditorID FROM Records WHERE Signature = 'Weapon' ORDER BY 1"
+            ]
+          },
+          {
+            "args": [
+              "Query",
+              "{fx}\\a\\zz_trap7.esm",
+              "SELECT EditorID FROM Records WHERE Signature = 'Weapon' ORDER BY 1"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value: each file answers for itself",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "kgcDoom_WEAP_SuperShotgun"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "kgcDoom_WEAP_SuperShotgum"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "not_matches": "kgcDoom_WEAP_SuperShotgun"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "same_as_call": 1
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "fixtures": [
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "a\\zz_trap7.esm"
+          },
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "b\\zz_trap7.esm",
+            "replace": "kgcDoom_WEAP_SuperShotgun",
+            "with": "kgcDoom_WEAP_SuperShotgum"
+          }
+        ],
+        "calls": [
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "{fx}\\a\\zz_trap7.esm",
+              "sql": "SELECT EditorID FROM Weapon ORDER BY 1"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "{fx}\\b\\zz_trap7.esm",
+              "sql": "SELECT EditorID FROM Weapon ORDER BY 1"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "{fx}\\a\\zz_trap7.esm",
+              "sql": "SELECT EditorID FROM Weapon ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value: each file answers for itself",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "kgcDoom_WEAP_SuperShotgun"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "kgcDoom_WEAP_SuperShotgum"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "not_matches": "kgcDoom_WEAP_SuperShotgun"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "same_as_call": 1
+              },
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?m)^\\[source\\] [^\\n]*zz_trap7\\.esm[^\\n]*key [0-9a-f]{8}"
+              },
+              {
+                "call": 2,
+                "part": "notes",
+                "differs_from_call": 1
+              }
+            ]
+          }
+        ],
+        "about": "Two different files with one name, each read by its path, the first asked again afterwards. Each answers for itself, and the [source] lines carry different content keys."
+      }
+    },
+    {
+      "n": 8,
+      "title": "PluginDiff collapses repeated EditorIDs",
+      "design": "clear warning",
+      "today_shows": "The old file has two records named kgcDoom_mod_Crucible_Quality_02. PluginDiff shows the second one (00BA2E) as a new record in the new file. Nothing says an EditorID was repeated.",
+      "today": {
+        "fixtures": [
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "old\\zz_trap8.esm",
+            "replace": "kgcDoom_mod_Crucible_Quality_03",
+            "with": "kgcDoom_mod_Crucible_Quality_02"
+          },
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "new\\zz_trap8.esm"
+          }
+        ],
+        "calls": [
+          {
+            "args": [
+              "PluginDiff",
+              "{fx}\\old\\zz_trap8.esm",
+              "{fx}\\new\\zz_trap8.esm"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "matches": "(?i)(repeat|duplicate|more than one|twice|shared)[^\\n]*EditorID|EditorID[^\\n]*(repeat|duplicate|more than once|twice|shared)"
+              }
+            ]
+          },
+          {
+            "name": "right value: matched by FormKey",
+            "all": [
+              {
+                "part": "out",
+                "matches": "00BA2E:zz_trap8\\.esm[^\\n]*00BA2E:zz_trap8\\.esm"
+              },
+              {
+                "part": "out",
+                "not_matches": "(?m)^\\| ADDED[^\\n]*00BA2E:zz_trap8\\.esm"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "fixtures": [
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "old\\zz_trap8.esm",
+            "replace": "kgcDoom_mod_Crucible_Quality_03",
+            "with": "kgcDoom_mod_Crucible_Quality_02"
+          },
+          {
+            "copy": "{data}\\kgcdoom.esm",
+            "to": "new\\zz_trap8.esm"
+          }
+        ],
+        "calls": [
+          {
+            "tool": "sfs_compare",
+            "params": {
+              "kind": "plugins",
+              "a": "{fx}\\old\\zz_trap8.esm",
+              "b": "{fx}\\new\\zz_trap8.esm",
+              "match": "editorid"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "matches": "(?i)(repeat|duplicate|more than one|twice|shared)[^\\n]*EditorID|EditorID[^\\n]*(repeat|duplicate|more than once|twice|shared)"
+              },
+              {
+                "matches": "kgcDoom_mod_Crucible_Quality_02"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "not_matches": "(?m)^(ADDED|REMOVED)\\b"
+              }
+            ]
+          }
+        ],
+        "about": "The old file has one EditorID twice. Pairing by EditorID says so, names the EditorID, and pairs those records by FormKey: none is dropped and none shows as added or removed."
+      }
+    },
+    {
+      "n": 9,
+      "title": "Many record types aren't stored",
+      "design": "impossible",
+      "today_shows": "Records has 0 Static rows for kgcdoom.esm; Forms has 33. No note that the type isn't stored.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "kgcdoom.esm",
+              "SELECT count(*) AS N FROM Records WHERE Signature = 'Static'"
+            ]
+          },
+          {
+            "args": [
+              "Query",
+              "kgcdoom.esm",
+              "SELECT count(*) AS N FROM Forms WHERE Signature = 'Static'"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "same_as_call": 2
+              }
+            ]
+          },
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?i)Static[^\\n]*(isn't|not|aren't)[^\\n]*(stored|cached|read)|(isn't|not|aren't)[^\\n]*(stored|cached)[^\\n]*Static"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Milestone M5 (second half): through the tools that exist. find lists the Static records of kgcdoom.esm (33, as Forms has), and record reads one: no type is 'not stored'. 'new_with_query' is the case through sfs_query, for milestone M6. Calls 4 and 5: SELECT count(*) FROM Static gives the 33 the header index has.",
+        "calls": [
+          {
+            "tool": "sfs_find",
+            "params": {
+              "type": "Static",
+              "in": "kgcdoom.esm",
+              "limit": 100
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "kgcDoom_STAT_HiveNestGooMoundMedium01",
+              "plugin": "kgcdoom.esm"
+            }
+          },
+          {
+            "tool": "sfs_refs",
+            "params": {
+              "record": "kgcDoom_STAT_HiveNestGooMoundMedium01",
+              "in": "kgcdoom.esm",
+              "world": true,
+              "limit": 3
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT count(*) AS N FROM Static ORDER BY 1"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT count(*) AS N FROM Forms WHERE Sig = 'STAT' ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "right value",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| kgcDoom_STAT_HiveNestGooMoundMedium01 \\(00772F:kgcdoom\\.esm\\) \\| STAT Static \\|"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?s)\\A(?:[^\\n]*\\n){2}(?:\\| [^\\n]*\\| STAT Static \\|[^\\n]*\\n){33}\\z"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^STAT Static in kgcdoom\\.esm \\(its own record\\)"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^\\s+Model\\b"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?m)^46 records point at kgcDoom_STAT_HiveNestGooMoundMedium01"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "REFR PlacedObject \\| Base \\|"
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "same_as_call": 5
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "matches": "(?m)^\\| 33 \\|"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 10,
+      "title": "Inline SQL cut at a line break by cmd.exe",
+      "design": "clear error",
+      "today_shows": "sfs.cmd runs only the first line: the count of every record (14,719), where the whole query counts 2 weapons. Exit code 0, no error.",
+      "today": {
+        "calls": [
+          {
+            "via": "powershell",
+            "line": "& {sfscmd} Query kgcdoom.esm \"SELECT count(*) AS N FROM Records\nWHERE Signature = 'Weapon'\""
+          },
+          {
+            "args": [
+              "Query",
+              "kgcdoom.esm",
+              "--stdin"
+            ],
+            "stdin": "SELECT count(*) AS N FROM Records\nWHERE Signature = 'Weapon'"
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error",
+            "all": [
+              {
+                "call": 1,
+                "matches": "(?im)^Error:"
+              }
+            ]
+          },
+          {
+            "name": "right value",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "same_as_call": 2
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "needs": [
+          "sfs_query"
+        ],
+        "calls": [
+          {
+            "via": "powershell",
+            "line": "& {sfscmd} query2 kgcdoom.esm \"SELECT count(*) AS N FROM Forms\nWHERE Sig = 'WEAP';\""
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT count(*) AS N FROM Forms\nWHERE Sig = 'WEAP';"
+            }
+          },
+          {
+            "args": [
+              "query2",
+              "--plugins",
+              "kgcdoom.esm",
+              "--stdin"
+            ],
+            "stdin": "SELECT count(*) AS N FROM Forms\nWHERE Sig = 'WEAP';"
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error on the cut line; the whole query answers",
+            "all": [
+              {
+                "call": 1,
+                "matches": "(?im)^Error:[^\\n]*doesn't end with ';'[^\\n]*Fix:"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "not_matches": "(?m)^\\| \\d+ \\|"
+              },
+              {
+                "call": 1,
+                "exit": "nonzero"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^\\| 2 \\|"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?m)^\\| 2 \\|"
+              }
+            ]
+          }
+        ],
+        "about": "Call 1: the query typed over two lines through sfs.cmd. cmd.exe hands on the first line only, which doesn't end with ';': it is refused with a clear error, and nothing is counted. Call 2: the same SQL given to the tool, over two lines, gives the 2 weapons. Call 3: the same through the verb with the SQL piped in."
+      }
+    },
+    {
+      "n": 11,
+      "title": "Slow SQL from json_each per row; the shell's 2-minute limit",
+      "design": "clear warning",
+      "today_shows": "A statement over 5 s gets a note with its time. The note doesn't say json_each per row is the cause.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "darkstar.esm",
+              "SELECT count(*) AS N FROM Records a WHERE a.Signature = 'Keyword' AND EXISTS (SELECT 1 FROM Records b, json_each(b.Data,'$.Keywords') k WHERE b.Signature IN ('Armor','Weapon','ArmorModification','WeaponModification','MiscItem','Npc') AND k.value = a.FormKey) ORDER BY 1"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning: names the cause",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?i)json_each[^\\n]{0,120}(every row|per row|each row|once|temp table|list view)"
+              }
+            ]
+          },
+          {
+            "name": "clear warning: the slow statement and its time",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?i)statement \\d+/\\d+: [0-9.]+ ?s\\b"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "calls": [
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "darkstar.esm",
+              "sql": "SELECT count(*) AS N FROM Keyword a WHERE EXISTS (SELECT 1 FROM Records b, json_each(b.Json,'$.Keywords') k WHERE k.value = a.FormKey) ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning: names the cause",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?i)json_each[^\\n]{0,120}(every row|per row|each row|once|list view|_Keywords)|_Keywords"
+              }
+            ]
+          },
+          {
+            "name": "not run: the cost said first",
+            "all": [
+              {
+                "matches": "(?im)^Not run\\."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 12,
+      "title": "PluginDiff can't pair a patch whose master was renamed",
+      "design": "clear error",
+      "today_shows": "A WARNING says overrides weren't compared and to give the plugin under the name the patch masters. It doesn't name that master, and the table still lists everything as added or removed.",
+      "today": {
+        "fixtures": [
+          {
+            "copy": "{data}\\atom74.esm",
+            "to": "zrenamed_atom74.esm"
+          }
+        ],
+        "calls": [
+          {
+            "args": [
+              "PluginDiff",
+              "{fx}\\zrenamed_atom74.esm",
+              "darkstarpatch_atom74.esm"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error",
+            "all": [
+              {
+                "matches": "(?im)^Error:[^\\n]*atom74\\.esm"
+              }
+            ]
+          },
+          {
+            "name": "clear warning (the design asks for an error that names the master)",
+            "all": [
+              {
+                "matches": "(?i)WARNING[^\\n]*(weren't compared|not compared)"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "fixtures": [
+          {
+            "copy": "{data}\\atom74.esm",
+            "to": "zrenamed_atom74.esm"
+          }
+        ],
+        "calls": [
+          {
+            "tool": "sfs_compare",
+            "params": {
+              "kind": "plugins",
+              "a": "{fx}\\zrenamed_atom74.esm",
+              "b": "darkstarpatch_atom74.esm"
+            }
+          },
+          {
+            "tool": "sfs_compare",
+            "params": {
+              "kind": "plugins",
+              "a": "{fx}\\zrenamed_atom74.esm",
+              "b": "darkstarpatch_atom74.esm",
+              "as": "atom74.esm"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error",
+            "all": [
+              {
+                "matches": "(?im)^Error:[^\\n]*\\batom74\\.esm"
+              },
+              {
+                "call": 1,
+                "matches": "(?im)^Error:[^\\n]*Fix:[^\\n]*\\bas\\b"
+              },
+              {
+                "call": 1,
+                "exit": "nonzero"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^CHANGED  ccAtom74Mk2 \\(0009B7:atom74\\.esm\\)"
+              }
+            ]
+          }
+        ],
+        "about": "A copy of atom74.esm under another name, compared with the patch that masters atom74.esm. Call 1 stops and names the plugin the patch expects. Call 2 pairs them on purpose with as, and compares."
+      }
+    },
+    {
+      "n": 13,
+      "title": "Assets given a path reads the archives in Data",
+      "design": "clear warning",
+      "today_shows": "The copy outside Data has no archives beside it. Assets finds every mesh in 'atom74 - main.ba2' and doesn't say that archive is the one in Data.",
+      "today": {
+        "fixtures": [
+          {
+            "copy": "{data}\\atom74.esm",
+            "to": "outside\\atom74.esm"
+          }
+        ],
+        "calls": [
+          {
+            "args": [
+              "Assets",
+              "{fx}\\outside\\atom74.esm"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning: says which archives were read, and where",
+            "all": [
+              {
+                "matches": "(?im)^(?!\\|)[^\\n]*(archives?|\\.ba2)[^\\n]*(Data|beside|folder)"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "fixtures": [
+          {
+            "copy": "{data}\\atom74.esm",
+            "to": "outside\\atom74.esm"
+          }
+        ],
+        "calls": [
+          {
+            "tool": "sfs_check",
+            "params": {
+              "plugin": "{fx}\\outside\\atom74.esm",
+              "what": "assets"
+            }
+          },
+          {
+            "tool": "sfs_check",
+            "params": {
+              "plugin": "{fx}\\outside\\atom74.esm",
+              "what": "assets",
+              "beside": true
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning: says which archives were read, and where",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?im)^(\\[source\\][^\\n]*\\.ba2|[^\\n]*(archives?|\\.ba2)[^\\n]*(Data|beside|folder))"
+              }
+            ]
+          }
+        ],
+        "about": "A copy of atom74.esm outside Data, with no archive beside it. Call 1: the assets part reads the archives in Data and says so, in the notes and on the [source] line. Call 2: with beside, the archives beside the file are asked for: there are none, and the answer says that."
+      }
+    },
+    {
+      "n": 14,
+      "title": "A missing Small master puts FormIDs on the wrong plugin",
+      "design": "clear error",
+      "today_shows": "A WARNING names the missing master (atom7Z.esm) and says not to trust the results. The query still answers: 73 of 74 records as overrides, where the real patch has 1.",
+      "today": {
+        "fixtures": [
+          {
+            "copy": "{data}\\darkstarpatch_atom74.esm",
+            "to": "zz_trap14.esm",
+            "replace": "atom74.esm",
+            "with": "atom7Z.esm"
+          }
+        ],
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "{fx}\\zz_trap14.esm",
+              "SELECT count(*) AS N, sum(IsOverride) AS Overrides FROM Records"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error",
+            "all": [
+              {
+                "matches": "(?im)^Error:[^\\n]*atom7Z\\.esm"
+              },
+              {
+                "part": "out",
+                "not_matches": "(?m)^\\| \\d+ \\|"
+              }
+            ]
+          },
+          {
+            "name": "clear warning (the design asks for an error, with no answer)",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?i)WARNING[^\\n]*atom7Z\\.esm"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Milestone M5 (first half): through the tools that exist. find must stop with the error and list nothing; loadorder's plugin view, which describes the plugin itself, must name the missing master and count the records that can't be read. 'new_with_query' is the same case through sfs_query, for milestone M6 to put back into 'calls'. Call 6: SQL over the same file stops with the same error and counts nothing.",
+        "fixtures": [
+          {
+            "copy": "{data}\\darkstarpatch_atom74.esm",
+            "to": "zz_trap14.esm",
+            "replace": "atom74.esm",
+            "with": "atom7Z.esm"
+          }
+        ],
+        "calls": [
+          {
+            "tool": "sfs_find",
+            "params": {
+              "in": "{fx}\\zz_trap14.esm"
+            }
+          },
+          {
+            "tool": "sfs_find",
+            "params": {
+              "query": "DarkStar_*",
+              "type": "WEAP",
+              "in": "{fx}\\zz_trap14.esm"
+            }
+          },
+          {
+            "tool": "sfs_loadorder",
+            "params": {
+              "view": "plugin",
+              "plugin": "{fx}\\zz_trap14.esm"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "000800",
+              "plugin": "{fx}\\zz_trap14.esm"
+            }
+          },
+          {
+            "tool": "sfs_refs",
+            "params": {
+              "record": "0476C4:Starfield.esm",
+              "in": "{fx}\\zz_trap14.esm"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "{fx}\\zz_trap14.esm",
+              "sql": "SELECT count(*) AS N FROM Forms ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear error",
+            "all": [
+              {
+                "call": 1,
+                "matches": "(?im)^Error:[^\\n]*atom7Z\\.esm[^\\n]*Fix:"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "not_matches": "(?m)^\\|"
+              },
+              {
+                "call": 1,
+                "exit": "nonzero"
+              },
+              {
+                "call": 2,
+                "matches": "(?im)^Error:[^\\n]*atom7Z\\.esm[^\\n]*Fix:"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "not_matches": "(?m)^\\|"
+              },
+              {
+                "call": 3,
+                "part": "notes",
+                "matches": "\\A[^\\n]*atom7Z\\.esm"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?i)atom7Z\\.esm \\| missing"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?i)can't be read"
+              },
+              {
+                "call": 4,
+                "matches": "(?im)^Error:[^\\n]*atom7Z\\.esm[^\\n]*Fix:"
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "not_matches": "(?m)^Read from "
+              },
+              {
+                "call": 4,
+                "exit": "nonzero"
+              },
+              {
+                "call": 5,
+                "matches": "(?im)^Error:[^\\n]*atom7Z\\.esm[^\\n]*Fix:"
+              },
+              {
+                "call": 5,
+                "part": "out",
+                "not_matches": "(?m)^\\|"
+              },
+              {
+                "call": 5,
+                "exit": "nonzero"
+              },
+              {
+                "call": 6,
+                "matches": "(?im)^Error:[^\\n]*atom7Z\\.esm[^\\n]*Fix:"
+              },
+              {
+                "call": 6,
+                "part": "out",
+                "not_matches": "(?m)^\\| \\d+ \\|"
+              },
+              {
+                "call": 6,
+                "exit": "nonzero"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 15,
+      "title": "A patch built before its master changed size reads wrong, with no warning",
+      "design": "clear warning, always",
+      "today_shows": "darkstarpatch_crimsonx.esm has 105 overrides whose type differs from their base. Header, Names and LoadOrder warn. Query answers with no warning, even after the load-order index has checked the plugin.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "LoadOrder",
+              "darkstarpatch_crimsonx.esm"
+            ]
+          },
+          {
+            "args": [
+              "Query",
+              "darkstarpatch_crimsonx.esm",
+              "SELECT count(*) AS N, sum(IsOverride) AS Overrides FROM Records"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning on the query",
+            "all": [
+              {
+                "call": 2,
+                "part": "notes",
+                "matches": "(?i)WARNING[^\\n]*(type differs|different type)"
+              }
+            ]
+          },
+          {
+            "name": "clear error on the query",
+            "all": [
+              {
+                "call": 2,
+                "matches": "(?im)^Error:[^\\n]*(type differs|different type|master)"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "about": "Milestone M5 (first half): through the tools that exist. The warning must be the first note of every answer that reads the patch, with no other command run first: a search inside the patch, a record asked for by FormKey with no plugin named (the patch is one of its holders), and the patch's own page. 'new_with_query' is the same case through sfs_query, for milestone M6 to put back into 'calls'. Call 6: SQL on the patch carries the warning as its first note too.",
+        "calls": [
+          {
+            "tool": "sfs_find",
+            "params": {
+              "type": "ARMO",
+              "in": "darkstarpatch_crimsonx.esm"
+            }
+          },
+          {
+            "tool": "sfs_find",
+            "params": {
+              "query": "000806:CrimsonX_Z.esm"
+            }
+          },
+          {
+            "tool": "sfs_loadorder",
+            "params": {
+              "view": "plugin",
+              "plugin": "darkstarpatch_crimsonx.esm"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "000806:CrimsonX_Z.esm",
+              "plugin": "darkstarpatch_crimsonx.esm",
+              "max_chars": 2000
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "000806:CrimsonX_Z.esm",
+              "view": "versions"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "darkstarpatch_crimsonx.esm",
+              "sql": "SELECT count(*) AS N FROM Forms ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning, first in the notes of every answer",
+            "all": [
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "(?i)\\A[^\\n]*darkstarpatch_crimsonx\\.esm[^\\n]*(type differs|different type)"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| DarkStar_"
+              },
+              {
+                "call": 2,
+                "part": "notes",
+                "matches": "(?i)\\A[^\\n]*darkstarpatch_crimsonx\\.esm[^\\n]*(type differs|different type)"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "\\(000806:CrimsonX_Z\\.esm\\)"
+              },
+              {
+                "call": 3,
+                "part": "notes",
+                "matches": "(?i)\\A[^\\n]*darkstarpatch_crimsonx\\.esm[^\\n]*(type differs|different type)"
+              },
+              {
+                "call": 4,
+                "part": "notes",
+                "matches": "(?i)\\A[^\\n]*darkstarpatch_crimsonx\\.esm[^\\n]*(type differs|different type)"
+              },
+              {
+                "call": 4,
+                "part": "notes",
+                "matches": "(?i)overrides a record of another type"
+              },
+              {
+                "call": 4,
+                "part": "out",
+                "matches": "(?m)^ARMO Armor in darkstarpatch_crimsonx\\.esm \\(an override\\)"
+              },
+              {
+                "call": 5,
+                "part": "out",
+                "matches": "(?i)darkstarpatch_crimsonx\\.esm \\|[^\\n]*a different type than its base \\(ARMA\\)"
+              },
+              {
+                "call": 6,
+                "part": "notes",
+                "matches": "(?i)\\A[^\\n]*darkstarpatch_crimsonx\\.esm[^\\n]*(type differs|different type)"
+              },
+              {
+                "call": 6,
+                "part": "out",
+                "matches": "(?m)^\\| 122 \\|"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 16,
+      "title": "SQL with no ORDER BY returns rows in changing order",
+      "design": "clear warning",
+      "today_shows": "The rows come back with no note that their order isn't fixed.",
+      "today": {
+        "calls": [
+          {
+            "args": [
+              "Query",
+              "kgcdoom.esm",
+              "SELECT EditorID FROM Records WHERE Signature = 'Weapon'"
+            ]
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?i)ORDER BY"
+              }
+            ]
+          }
+        ]
+      },
+      "new": {
+        "calls": [
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT EditorID FROM Weapon"
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "plugins": "kgcdoom.esm",
+              "sql": "SELECT EditorID FROM Weapon ORDER BY 1"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "clear warning",
+            "all": [
+              {
+                "part": "notes",
+                "matches": "(?i)ORDER BY"
+              },
+              {
+                "call": 2,
+                "part": "notes",
+                "not_matches": "(?i)ORDER BY"
+              }
+            ]
+          }
+        ],
+        "about": "Call 1: no ORDER BY, so the answer carries a note that says the order isn't fixed. Call 2: with ORDER BY there is no such note."
+      }
+    }
+  ]
+}

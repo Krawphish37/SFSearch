@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>sfsindex-tests</AssemblyName>
+    <RootNamespace>SFSearch.Index.Tests</RootNamespace>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SFSearch.Index\SFSearch.Index.csproj" />
+    <!-- Mutagen is here only to check the index against: the index itself never uses it. fixes.17 comes from the local feed (nuget.config beside this file). -->
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="[0.55.0-fixes.17]" />
+    <!-- Reads today's load-order index read only, when there is one, to compare with -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+  </ItemGroup>
+
+</Project>

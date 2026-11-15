@@ -1,0 +1,201 @@
+{
+  "about": "How a later milestone puts a new tool under the golden replay. A rule turns the recorded commands of one old command into calls of the new tool. Two kinds of rule. (1) No 'agree': the answer must be the baseline's (rows as sets where the SQL has no ORDER BY). Run with: sfsharness replay compare --translated. (2) With 'agree': the new tool's answer has another shape, so the two are held against each other on what both give, by the comparison named (Agree.cs: find-names, loadorder-header, loadorder-stats, loadorder-order; record-old for Inspect, Dump, Read and Live against sfs_record: which record, its EditorID, its type, the plugin it was read from; record-values: every value today's Dump or Live shows is in sfs_record's JSON; refs-old and refs-live for Refs and Live --refs against sfs_refs: the records that point at the target, the plugin each was read from, their fields and how many links each has. Every refs comparison is also asked with search: bytes, and the link index and the byte search must give the same rows. A record only sfs_refs lists is checked through today's Live --links). Run with: sfsharness agree (it is also a part of sfsharness all). A recorded command with no rule runs as it was recorded: that is the test of the old names on the new engine (milestone M9), and needs no rule. 'command' is the old command's name. 'when' (optional) is a pattern the joined arguments must match. 'options' are the old command's options that take a value. In 'params', \"{1}\" is the first plain argument, \"{*}\" every plain argument joined by spaces, \"{--in}\" an option's value (left out when the command didn't have it), \"{?--csv}\" true when the flag was given, \"{args}\" every argument as a list. 'via' is service (the default) or mcp. 'also' lists old commands that weren't recorded but must agree with a new tool: each is asked both ways. 'explained' lists every accepted disagreement: 'agree' is the comparison, 'match' a pattern on the disagreement's line, 'why' says which side is right and how that was checked against the plugin. A disagreement that matches no entry fails the run. The rule under 'example' is not used: it shows the shape of kind (1).",
+  "rules": [
+    { "command": "names", "options": [ "--in", "--maxwidth" ], "tool": "sfs_find", "params": { "query": "{*}", "in": "{--in}", "limit": 2000 }, "agree": "find-names" },
+    { "command": "header", "tool": "sfs_loadorder", "params": { "view": "plugin", "plugin": "{1}" }, "agree": "loadorder-header" },
+    { "command": "stats", "tool": "sfs_loadorder", "params": { "view": "plugin", "plugin": "{1}" }, "agree": "loadorder-stats" },
+    { "command": "inspect", "when": "^\\S+ \\S+( --\\S+ \\S+)*$", "options": [ "--maxwidth" ], "tool": "sfs_record", "params": { "record": "{2}", "plugin": "{1}" }, "agree": "record-old" },
+    { "command": "inspect", "when": "^\\S+ \\S+ \\S+( --\\S+ \\S+)*$", "options": [ "--maxwidth" ], "tool": "sfs_record", "params": { "record": "{3}", "plugin": "{1}" }, "agree": "record-old" },
+    { "command": "dump", "when": "^\\S+ \\S+( --\\S+ \\S+)*$", "options": [ "--maxwidth" ], "tool": "sfs_record", "params": { "record": "{2}", "plugin": "{1}", "view": "json" }, "agree": "record-old" },
+    { "command": "read", "when": "^\\S+( \\S+)?( --\\S+ \\S+)*$", "options": [ "--maxwidth" ], "tool": "sfs_record", "params": { "record": "{2}", "plugin": "{1}" }, "agree": "record-old" },
+    { "command": "refs", "options": [ "--in", "--maxwidth" ], "tool": "sfs_refs", "params": { "record": "{1}", "in": "{--in}", "world": true, "limit": 2000 }, "agree": "refs-old" }
+  ],
+  "also": [
+    { "id": "lo-all", "old": [ "LoadOrder", "--all" ], "tool": "sfs_loadorder", "params": { "view": "order", "all": true, "limit": 2000 }, "agree": "loadorder-order" },
+    { "id": "lo-loaded", "old": [ "LoadOrder", "--quick" ], "tool": "sfs_loadorder", "params": { "view": "order", "limit": 2000 }, "agree": "loadorder-order" },
+    { "id": "v01", "old": ["Dump", "Starfield.esm", "00424E:Starfield.esm"], "tool": "sfs_record", "params": {"record": "00424E:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v02", "old": ["Dump", "Starfield.esm", "003C4E:Starfield.esm"], "tool": "sfs_record", "params": {"record": "003C4E:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v03", "old": ["Dump", "Starfield.esm", "001BB9:Starfield.esm"], "tool": "sfs_record", "params": {"record": "001BB9:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v04", "old": ["Dump", "Starfield.esm", "004241:Starfield.esm"], "tool": "sfs_record", "params": {"record": "004241:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v05", "old": ["Dump", "Starfield.esm", "0060AC:Starfield.esm"], "tool": "sfs_record", "params": {"record": "0060AC:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v06", "old": ["Dump", "Starfield.esm", "000892:Starfield.esm"], "tool": "sfs_record", "params": {"record": "000892:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v07", "old": ["Dump", "Starfield.esm", "00ABF9:Starfield.esm"], "tool": "sfs_record", "params": {"record": "00ABF9:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v08", "old": ["Dump", "Starfield.esm", "0297F5:Starfield.esm"], "tool": "sfs_record", "params": {"record": "0297F5:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v09", "old": ["Dump", "Starfield.esm", "002379:Starfield.esm"], "tool": "sfs_record", "params": {"record": "002379:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v10", "old": ["Dump", "Starfield.esm", "001D9E:Starfield.esm"], "tool": "sfs_record", "params": {"record": "001D9E:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v11", "old": ["Dump", "Starfield.esm", "000B23:Starfield.esm"], "tool": "sfs_record", "params": {"record": "000B23:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v12", "old": ["Dump", "Starfield.esm", "00262F:Starfield.esm"], "tool": "sfs_record", "params": {"record": "00262F:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v13", "old": ["Dump", "Starfield.esm", "00B964:Starfield.esm"], "tool": "sfs_record", "params": {"record": "00B964:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v14", "old": ["Dump", "Starfield.esm", "0600F6:Starfield.esm"], "tool": "sfs_record", "params": {"record": "0600F6:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v15", "old": ["Dump", "Starfield.esm", "0065B8:Starfield.esm"], "tool": "sfs_record", "params": {"record": "0065B8:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v16", "old": ["Dump", "Starfield.esm", "0076D4:Starfield.esm"], "tool": "sfs_record", "params": {"record": "0076D4:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v17", "old": ["Dump", "Starfield.esm", "003243:Starfield.esm"], "tool": "sfs_record", "params": {"record": "003243:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v18", "old": ["Dump", "Starfield.esm", "003321:Starfield.esm"], "tool": "sfs_record", "params": {"record": "003321:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v19", "old": ["Dump", "Starfield.esm", "003C57:Starfield.esm"], "tool": "sfs_record", "params": {"record": "003C57:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v20", "old": ["Dump", "Starfield.esm", "02E9BB:Starfield.esm"], "tool": "sfs_record", "params": {"record": "02E9BB:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v21", "old": ["Dump", "Starfield.esm", "006E08:Starfield.esm"], "tool": "sfs_record", "params": {"record": "006E08:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v22", "old": ["Dump", "Starfield.esm", "009ECB:Starfield.esm"], "tool": "sfs_record", "params": {"record": "009ECB:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v23", "old": ["Live", "Starfield.esm", "000015:Starfield.esm"], "tool": "sfs_record", "params": {"record": "000015:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v24", "old": ["Dump", "Starfield.esm", "000B71:Starfield.esm"], "tool": "sfs_record", "params": {"record": "000B71:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v25", "old": ["Dump", "Starfield.esm", "001736:Starfield.esm"], "tool": "sfs_record", "params": {"record": "001736:Starfield.esm", "plugin": "Starfield.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v26", "old": ["Dump", "darkstar.esm", "000389:darkstar.esm"], "tool": "sfs_record", "params": {"record": "000389:darkstar.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v27", "old": ["Dump", "darkstar.esm", "000C66:darkstar.esm"], "tool": "sfs_record", "params": {"record": "000C66:darkstar.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v28", "old": ["Dump", "darkstar.esm", "0000E9:darkstar.esm"], "tool": "sfs_record", "params": {"record": "0000E9:darkstar.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v29", "old": ["Dump", "darkstar.esm", "0E5767:Starfield.esm"], "tool": "sfs_record", "params": {"record": "0E5767:Starfield.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v30", "old": ["Dump", "darkstar.esm", "0003F2:darkstar.esm"], "tool": "sfs_record", "params": {"record": "0003F2:darkstar.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v31", "old": ["Dump", "darkstar.esm", "000002:darkstar.esm"], "tool": "sfs_record", "params": {"record": "000002:darkstar.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v32", "old": ["Dump", "darkstar.esm", "0017E4:darkstar.esm"], "tool": "sfs_record", "params": {"record": "0017E4:darkstar.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v33", "old": ["Dump", "darkstar.esm", "002191:darkstar.esm"], "tool": "sfs_record", "params": {"record": "002191:darkstar.esm", "plugin": "darkstar.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v34", "old": ["Dump", "kgcdoom.esm", "007751:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "007751:kgcdoom.esm", "plugin": "kgcdoom.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v35", "old": ["Dump", "kgcdoom.esm", "007759:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "007759:kgcdoom.esm", "plugin": "kgcdoom.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v36", "old": ["Dump", "kgcdoom.esm", "00BACB:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "00BACB:kgcdoom.esm", "plugin": "kgcdoom.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v37", "old": ["Dump", "kgcdoom.esm", "00772E:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "00772E:kgcdoom.esm", "plugin": "kgcdoom.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v38", "old": ["Dump", "N12_EnergyShields.esm", "000834:N12_EnergyShields.esm"], "tool": "sfs_record", "params": {"record": "000834:N12_EnergyShields.esm", "plugin": "N12_EnergyShields.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v39", "old": ["Dump", "N12_EnergyShields.esm", "000018:N12_EnergyShields.esm"], "tool": "sfs_record", "params": {"record": "000018:N12_EnergyShields.esm", "plugin": "N12_EnergyShields.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v40", "old": ["Dump", "N12_EnergyShields.esm", "0000EC:N12_EnergyShields.esm"], "tool": "sfs_record", "params": {"record": "0000EC:N12_EnergyShields.esm", "plugin": "N12_EnergyShields.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v41", "old": ["Dump", "N12_EnergyShields.esm", "2457C2:Starfield.esm"], "tool": "sfs_record", "params": {"record": "2457C2:Starfield.esm", "plugin": "N12_EnergyShields.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v42", "old": ["Dump", "SFBGS003.esm", "000E93:SFBGS003.esm"], "tool": "sfs_record", "params": {"record": "000E93:SFBGS003.esm", "plugin": "SFBGS003.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v43", "old": ["Dump", "SFBGS003.esm", "006B72:SFBGS003.esm"], "tool": "sfs_record", "params": {"record": "006B72:SFBGS003.esm", "plugin": "SFBGS003.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v44", "old": ["Dump", "SFBGS003.esm", "006C1C:SFBGS003.esm"], "tool": "sfs_record", "params": {"record": "006C1C:SFBGS003.esm", "plugin": "SFBGS003.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v45", "old": ["Dump", "ShatteredSpace.esm", "00EEE4:ShatteredSpace.esm"], "tool": "sfs_record", "params": {"record": "00EEE4:ShatteredSpace.esm", "plugin": "ShatteredSpace.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v46", "old": ["Dump", "ShatteredSpace.esm", "018180:ShatteredSpace.esm"], "tool": "sfs_record", "params": {"record": "018180:ShatteredSpace.esm", "plugin": "ShatteredSpace.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v47", "old": ["Dump", "ShatteredSpace.esm", "0012B8:ShatteredSpace.esm"], "tool": "sfs_record", "params": {"record": "0012B8:ShatteredSpace.esm", "plugin": "ShatteredSpace.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v48", "old": ["Dump", "SFBGS050.esm", "028C5B:SFBGS050.esm"], "tool": "sfs_record", "params": {"record": "028C5B:SFBGS050.esm", "plugin": "SFBGS050.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v49", "old": ["Dump", "SFBGS050.esm", "005A2C:SFBGS050.esm"], "tool": "sfs_record", "params": {"record": "005A2C:SFBGS050.esm", "plugin": "SFBGS050.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "v50", "old": ["Dump", "atom74.esm", "0009B7:atom74.esm"], "tool": "sfs_record", "params": {"record": "0009B7:atom74.esm", "plugin": "atom74.esm", "view": "json", "max_chars": 8000000}, "agree": "record-values" },
+    { "id": "l01", "old": ["Live", "darkstar.esm", "0003C2:darkstar.esm"], "tool": "sfs_record", "params": {"record": "0003C2:darkstar.esm", "plugin": "darkstar.esm"}, "agree": "record-old" },
+    { "id": "l02", "old": ["Live", "darkstar.esm", "DarkStar_Mk3_MagShear"], "tool": "sfs_record", "params": {"record": "DarkStar_Mk3_MagShear", "plugin": "darkstar.esm"}, "agree": "record-old" },
+    { "id": "l03", "old": ["Live", "Starfield.esm", "Eon"], "tool": "sfs_record", "params": {"record": "Eon", "plugin": "Starfield.esm"}, "agree": "record-old" },
+    { "id": "l04", "old": ["Live", "kgcdoom.esm", "007789:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "007789:kgcdoom.esm", "plugin": "kgcdoom.esm"}, "agree": "record-old" },
+    { "id": "l05", "old": ["Live", "kgcdoom.esm", "008B5B:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "008B5B:kgcdoom.esm", "plugin": "kgcdoom.esm"}, "agree": "record-old" },
+    { "id": "l06", "old": ["Live", "kgcdoom.esm", "007606:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "007606:kgcdoom.esm", "plugin": "kgcdoom.esm"}, "agree": "record-old" },
+    { "id": "l07", "old": ["Live", "kgcdoom.esm", "00B691:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "00B691:kgcdoom.esm", "plugin": "kgcdoom.esm"}, "agree": "record-old" },
+    { "id": "l08", "old": ["Live", "kgcdoom.esm", "0075A4:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "0075A4:kgcdoom.esm", "plugin": "kgcdoom.esm"}, "agree": "record-old" },
+    { "id": "l09", "old": ["Live", "kgcdoom.esm", "007638:kgcdoom.esm"], "tool": "sfs_record", "params": {"record": "007638:kgcdoom.esm", "plugin": "kgcdoom.esm"}, "agree": "record-old" },
+    { "id": "l10", "old": ["Live", "kgcdoom.esm", "kgcDoom_MQ01"], "tool": "sfs_record", "params": {"record": "kgcDoom_MQ01", "plugin": "kgcdoom.esm"}, "agree": "record-old" },
+    { "id": "l11", "old": ["Live", "atom74.esm", "00083A:atom74.esm"], "tool": "sfs_record", "params": {"record": "00083A:atom74.esm", "plugin": "atom74.esm"}, "agree": "record-old" },
+    { "id": "l12", "old": ["Live", "darkstar.esm", "0E5767:Starfield.esm"], "tool": "sfs_record", "params": {"record": "0E5767:Starfield.esm", "plugin": "darkstar.esm"}, "agree": "record-old" },
+    { "id": "l13", "old": ["Live", "N12_EnergyShields.esm", "2457C2:Starfield.esm"], "tool": "sfs_record", "params": {"record": "2457C2:Starfield.esm", "plugin": "N12_EnergyShields.esm"}, "agree": "record-old" },
+    { "id": "l14", "old": ["Live", "Starfield.esm", "000015:Starfield.esm"], "tool": "sfs_record", "params": {"record": "000015:Starfield.esm", "plugin": "Starfield.esm"}, "agree": "record-old" },
+    { "id": "r01", "old": ["Live", "kgcdoom.esm", "00772F:kgcdoom.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "00772F:kgcdoom.esm", "in": "kgcdoom.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r02", "old": ["Live", "kgcdoom.esm", "007730:kgcdoom.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "007730:kgcdoom.esm", "in": "kgcdoom.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r03", "old": ["Live", "kgcdoom.esm", "007752:kgcdoom.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "007752:kgcdoom.esm", "in": "kgcdoom.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r04", "old": ["Refs", "0076BA:kgcdoom.esm"], "tool": "sfs_refs", "params": {"record": "0076BA:kgcdoom.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r05", "old": ["Live", "kgcdoom.esm", "007750:kgcdoom.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "007750:kgcdoom.esm", "in": "kgcdoom.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r06", "old": ["Live", "kgcdoom.esm", "00762D:kgcdoom.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "00762D:kgcdoom.esm", "in": "kgcdoom.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r07", "old": ["Live", "kgcdoom.esm", "00B9AE:kgcdoom.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "00B9AE:kgcdoom.esm", "in": "kgcdoom.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r08", "old": ["Refs", "000001:N12_EnergyShields.esm"], "tool": "sfs_refs", "params": {"record": "000001:N12_EnergyShields.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r09", "old": ["Refs", "000014:N12_EnergyShields.esm"], "tool": "sfs_refs", "params": {"record": "000014:N12_EnergyShields.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r10", "old": ["Refs", "000027:N12_EnergyShields.esm"], "tool": "sfs_refs", "params": {"record": "000027:N12_EnergyShields.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r11", "old": ["Refs", "00083A:atom74.esm"], "tool": "sfs_refs", "params": {"record": "00083A:atom74.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r12", "old": ["Refs", "000807:atom74.esm"], "tool": "sfs_refs", "params": {"record": "000807:atom74.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r13", "old": ["Live", "darkstar.esm", "00176D:darkstar.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "00176D:darkstar.esm", "in": "darkstar.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r14", "old": ["Live", "darkstar.esm", "000804:darkstar.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "000804:darkstar.esm", "in": "darkstar.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r15", "old": ["Live", "darkstar.esm", "00176F:darkstar.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "00176F:darkstar.esm", "in": "darkstar.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r16", "old": ["Live", "darkstar.esm", "001708:darkstar.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "001708:darkstar.esm", "in": "darkstar.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r17", "old": ["Live", "SFBGS003.esm", "000007:SFBGS003.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "000007:SFBGS003.esm", "in": "SFBGS003.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r18", "old": ["Live", "SFBGS003.esm", "00009E:SFBGS003.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "00009E:SFBGS003.esm", "in": "SFBGS003.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    { "id": "r19", "old": ["Refs", "00004F:SFBGS003.esm"], "tool": "sfs_refs", "params": {"record": "00004F:SFBGS003.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r20", "old": ["Refs", "04A0A0:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "04A0A0:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r21", "old": ["Refs", "000B23:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "000B23:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r22", "old": ["Refs", "0600F6:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "0600F6:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r23", "old": ["Refs", "0065B8:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "0065B8:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r24", "old": ["Refs", "00B964:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "00B964:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r25", "old": ["Refs", "006E08:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "006E08:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r26", "old": ["Refs", "0060AC:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "0060AC:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r27", "old": ["Refs", "004241:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "004241:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r28", "old": ["Refs", "02E9BB:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "02E9BB:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r29", "old": ["Refs", "001D9E:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "001D9E:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r30", "old": ["Refs", "00262F:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "00262F:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r31", "old": ["Refs", "0076D4:Starfield.esm"], "tool": "sfs_refs", "params": {"record": "0076D4:Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-old" },
+    { "id": "r32", "old": ["Live", "Starfield.esm", "003321:Starfield.esm", "--refs"], "tool": "sfs_refs", "params": {"record": "003321:Starfield.esm", "in": "Starfield.esm", "world": true, "limit": 2000}, "agree": "refs-live" },
+    {"id": "fields-weapon", "old": ["Fields", "kgcdoom.esm", "Weapon"], "tool": "sfs_describe", "params": {"what": "Weapon", "all": true, "max_chars": 8000000}, "agree": "describe-fields"},
+    {"id": "fields-armor", "old": ["Fields", "darkstar.esm", "Armor"], "tool": "sfs_describe", "params": {"what": "Armor", "all": true, "max_chars": 8000000}, "agree": "describe-fields"},
+    {"id": "fields-constructibleobject", "old": ["Fields", "atom74.esm", "ConstructibleObject"], "tool": "sfs_describe", "params": {"what": "ConstructibleObject", "all": true, "max_chars": 8000000}, "agree": "describe-fields"},
+    {"id": "fields-weaponmodification", "old": ["Fields", "atom74.esm", "WeaponModification"], "tool": "sfs_describe", "params": {"what": "WeaponModification", "all": true, "max_chars": 8000000}, "agree": "describe-fields"},
+    {"id": "fields-book", "old": ["Fields", "kgcdoom.esm", "Book"], "tool": "sfs_describe", "params": {"what": "Book", "all": true, "max_chars": 8000000}, "agree": "describe-fields"},
+    {"id": "fields-keyword", "old": ["Fields", "darkstar.esm", "Keyword"], "tool": "sfs_describe", "params": {"what": "Keyword", "all": true, "max_chars": 8000000}, "agree": "describe-fields"},
+    {"id": "fields-leveleditem", "old": ["Fields", "kgcdoom.esm", "LeveledItem"], "tool": "sfs_describe", "params": {"what": "LeveledItem", "all": true, "max_chars": 8000000}, "agree": "describe-fields"},
+    {"id": "fields-npc", "old": ["Fields", "kgcdoom.esm", "Npc"], "tool": "sfs_describe", "params": {"what": "Npc", "all": true, "max_chars": 8000000}, "agree": "describe-fields"}
+  ],
+  "explained": [
+    {
+      "agree": "refs-live",
+      "match": "^refs lists .* \\[\\w+\\] in .* through .*; Live --refs gave no answer \\(.*\\)\\. Asked for that record's links, today's Live --links lists the target \\(",
+      "why": "refs is right. Today's Live --refs on Starfield.esm walks the cells through an overlay to confirm a placed reference, and needs more than the 6 GB a service worker may hold: the service stops it, so it gives no answer here. Run by itself on 2026-11-11 (outside the service, through heavy.sh) it listed the same 7 placed references of ChairUtilityB01_DeskEatDrink (003321:Starfield.esm). Checked on every run, for every such row: asked for that record's links, today's own Live --links lists the target."
+    },
+    {
+      "agree": "refs-old",
+      "match": "\\[MagicEffect\\]: Refs has 2 link\\(s\\) \\(Archetype\\.Association x1, Archetype\\.AssociationKey x1\\); refs has 1 \\(Archetype\\.Association x1\\)$",
+      "why": "refs is right: one link. The file's MGEF DATA subrecord holds the target's FormID once. Mutagen shows those four bytes as two properties, Archetype.Association (a link) and Archetype.AssociationKey; today's converter writes both, the record's JSON writes Association. Checked 2026-11-11 against the file: the 262 bytes of abLegendaryModifier_Medic_Cloak (030758:SFBGS00D.esm) at 0x21C53 hold 59 07 03 01 once, at the start of DATA."
+    },
+    {
+      "agree": "refs-old",
+      "match": "^refs lists .* \\[\\w+\\] in .* through .*; Refs doesn't\\. Asked for that record's links, today's Live --links lists the target \\(",
+      "why": "refs is right, and Refs' answer is short: the record is of a type today's SFSearch doesn't store (NpcModification and other OMOD kinds, DefaultObject, placed references of the game's own plugins and more), so its links aren't in the stored Refs table. Checked on every run, for every such row: asked for that record's links, today's own Live --links (Mutagen, today's converter) lists the target."
+    },
+    {
+      "agree": "refs-live",
+      "match": "^refs lists .* \\[\\w+\\] in .* through .*; Live --refs doesn't\\. Asked for that record's links, today's Live --links lists the target \\(",
+      "why": "refs is right. Today's Live --refs confirms a hit inside a cell only when it is a placed reference: a navmesh or a cell whose bytes match is listed under 'Not confirmed as links'. Checked on every run, for every such row: asked for that record's links, today's own Live --links lists the target."
+    },
+    {
+      "agree": "refs-live",
+      "match": "\\[(Quest|Cell|DialogTopic|Worldspace)\\]: Live --refs has \\d+ link\\(s\\) \\(.*(Scenes|DialogTopics|Responses|Temporary|Persistent)\\[\\*\\]\\..*\\); refs has \\d+ \\(",
+      "why": "Both are right: they list the same links at different records. Today's converter writes the records inside a quest or a cell (its scenes, topics and responses; its placed references) into that record, so their links are listed as the quest's or the cell's. refs lists each of those records as a row of its own, as the header index has them. Checked 2026-11-11 for SFBGS003_DialogueTAHQ (000CF4:SFBGS003.esm) and SFBGS003_Koios (000007:SFBGS003.esm): Live --refs gives the quest 7 links (1 alias, 3 in scenes, 3 in responses); refs gives the quest 1, three SCEN rows and three INFO rows. And for kgcDoomShipPerseusLongswordCreatedInterior (00762D:kgcdoom.esm) and its location (00B9AE:kgcdoom.esm): Live --refs gives the cell 6 links (its own Location and 5 PersistentLocation of references in it); refs gives the cell 1 and five ACHR rows."
+    },
+    {
+      "agree": "find-names",
+      "match": "^find lists .* \\[(REFR|ACHR|NAVM)\\]( for \\w+)?; Names doesn't\\. Asked by its FormKey, Names names the same record with the same type$",
+      "why": "find is right, and Names' answer is short. For a FormID given with no plugin, today's Names takes its list of plugins from the load-order index (LoadOrderIndex.PluginsWithLocalId). That index holds no placed references (REFR, ACHR) of the game's own plugins and no navmeshes, so a plugin whose record with that ID is one of those is left out; only Starfield.esm is always tried. Checked on every run, for every such row: asked for the same record by its full FormKey, today's Names reads that plugin's own record list and names the same record with the same type."
+    },
+    {
+      "agree": "find-names",
+      "match": "Names answered \"not a FormID\": it takes no EditorIDs\\)\\. Asked by its FormKey, Names names the same record with the same type$",
+      "why": "find is right. It takes EditorIDs; today's Names takes FormIDs only and answers 'not a FormID' for kgcDoom_MQ01, SFTA03 and ResInorgCommonIron (recorded commands 207 and 244). Checked on every run: asked by the FormKey find gives, today's Names names the same record with the same type."
+    },
+    {
+      "agree": "loadorder-order",
+      "match": "^Ecliptic_Merc_Z_fix2?\\.esm: overrides of another type than their base is 2 in LoadOrder, 5 in loadorder$",
+      "why": "loadorder is right: 5. Each of the two fixes overrides 000813, 000814, 000817, 00081E and 000820 of Starfield.esm with an ARMO record. 000817 and 000820 are WWED records there, which today's load-order index sees. 000813, 000814 and 00081E are placed references (REFR), which that index doesn't hold for the game's own plugins, so it counts 2. Checked 2026-11-11 with today's own command: Names \"000813:Starfield.esm 000814:Starfield.esm 00081E:Starfield.esm\" answers PlacedObject for all three, and WWiseEventData for 000817 and 000820."
+    },
+    {
+      "agree": "describe-fields",
+      "match": "^Fields has the path \"(EDID - Editor ID|Record Header)\"; describe has no such path$",
+      "why": "Neither is a field of the record. They are two headings of today's stored form, in xEdit's words: the record's header and its EditorID. describe has EditorID as a field of every record type, and the header's own values as MajorRecordFlagsRaw, FormVersion, Version2 and VersionControl."
+    },
+    {
+      "agree": "describe-fields",
+      "match": "^Fields has the path (Signature|IsDeleted|IsCompressed|MajorFlags); describe has no such path$",
+      "why": "Values today's converter works out from the record header and writes into its stored form. The schema has what the file holds: MajorRecordFlagsRaw (IsDeleted and IsCompressed are bits of it) and StarfieldMajorRecordFlags. The signature is the record type itself."
+    },
+    {
+      "agree": "describe-fields",
+      "match": "^Fields has the path [\\w\\[\\]\\*\\.]+\\.File\\.((AssetTypeInstance|DataRelativePath|Type)\\.[\\w\\[\\]\\*]+|Extension|GivenPath|IsNull); describe has no such path$",
+      "why": "A file path. The schema has it as one value, an AssetLink (Model.File, subrecord MODL), which describe lists. Today's stored form spells out the parts Mutagen works out from that path: its folder, its extension, the path under Data. Only GivenPath is what the file holds."
+    },
+    {
+      "agree": "describe-fields",
+      "match": "^Fields has the path [\\w\\[\\]\\*\\.]+\\.Versioning; describe has no such path$",
+      "why": "Versioning says how long a data block is written, not a value of the record (M7's note: layout). The schema lists the block's fields (Transforms.InventoryIcon and the others), not this."
+    },
+    {
+      "agree": "describe-fields",
+      "match": "^Fields has the path Components\\[\\*\\]\\.Type; describe has no such path$",
+      "why": "The kind of a component. describe writes the kind into the path: Components[*]{ModelComponent}.Model.File."
+    },
+    {
+      "agree": "describe-fields",
+      "match": "^Fields has the path Conditions\\[\\*\\]\\.Data\\.(FirstParameter|SecondParameter|Function); describe has no such path$",
+      "why": "A condition's data is one of several hundred kinds, one for each condition function. describe doesn't spell out a field that can hold that many kinds: it lists the condition's own fields, and describe ConditionData lists the kinds. Function is the kind's name, not a field."
+    },
+    {
+      "agree": "describe-fields",
+      "match": "^Fields has the path WorldModel\\[\\*\\]\\.(MaterialSwaps\\[\\*\\]|LightLayer|FlagsVestigial|Flags); describe has no such path$",
+      "why": "A gendered item. Today's stored form writes WorldModel as a list of two; the schema has WorldModel.Male and WorldModel.Female, each with these fields (WorldModel.Male.LightLayer, WorldModel.Male.Flags)."
+    }
+  ],
+  "example": [
+    { "command": "header", "tool": "run", "params": { "args": "{args}" } }
+  ]
+}

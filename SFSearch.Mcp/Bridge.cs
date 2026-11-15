@@ -15,22 +15,6 @@ public static class Bridge
 
     /// <summary>How long one tool call waits before handing back a job number.</summary>
     const int CallBudgetMs = 45000;
-    /// <summary>Answers longer than this go to a file; the call returns the start and the path.</summary>
-    const int InlineLimit = 20000;
-
-    public static async Task<CallToolResult> Run(string[] args, IProgress<ProgressNotificationValue>? progress, CancellationToken ct)
-    {
-        if (args.Length == 0) return Error("No command given.");
-        // Commands only read, so one cut off by a service restart is simply sent again (once).
-        for (int attempt = 0; ; attempt++)
-        {
-            var first = await Call(new Request { Op = "run", Args = args, Cwd = Environment.CurrentDirectory, Agent = Agent, WaitMs = 4000 }, ct);
-            if (first.Job != null) JobArgs[first.Job] = args;
-            var result = await Follow(first, progress, ct);
-            if (attempt > 0 || !LostToRestart(result)) return result;
-            progress?.Report(new ProgressNotificationValue { Progress = 0, Message = "the service restarted; asking again" });
-        }
-    }
 
     const string StoppedMark = "the service stopped before this command finished";
     const string LostMark = "was lost. Ask again.";
@@ -38,35 +22,102 @@ public static class Bridge
     static bool LostToRestart(CallToolResult r) =>
         r.IsError == true && r.Content.OfType<TextContentBlock>().Any(t => t.Text.Contains(StoppedMark) || t.Text.Contains(LostMark) || t.Text.StartsWith("No job "));
 
-    public static async Task<CallToolResult> Collect(string job, int waitSeconds, IProgress<ProgressNotificationValue>? progress, CancellationToken ct)
+    // ---------------------------------------------------------------- The 12 tools: the service's structured form
+    /// <summary>An answer comes back in pages of this many characters (about 6,000 tokens) unless the call's max_chars says more.</summary>
+    const int PageChars = 24000;
+    /// <summary>Room on top of a tool's own budget, so the service cuts only what a tool didn't already cut itself.</summary>
+    const int PageSlack = 8000;
+    static readonly System.Text.RegularExpressions.Regex ServiceCursor = new(@"^j[0-9a-f]+-\d+@\d+$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// One call of a new tool: its name and named arguments go to the service as they are, and the structured answer
+    /// is rendered as the output contract's text (or, for format json, as one JSON object). There is one cursor for
+    /// the caller: whether a [more] line's cursor is the service's (a page of a long answer it keeps) or the tool's
+    /// own (the next rows), it is passed back the same way, and this method tells them apart.
+    /// </summary>
+    public static async Task<CallToolResult> Tool(string tool, Dictionary<string, object?> pars, string? cursor, string? format, int? maxChars, bool allowHeavy,
+        IProgress<ProgressNotificationValue>? progress, CancellationToken ct)
     {
-        var first = await Call(new Request { Op = "job", Job = job, WaitMs = 4000 }, ct);
-        var result = await Follow(first, progress, ct, Math.Clamp(waitSeconds, 0, 45) * 1000);
-        // A job cut off by a service restart: this adapter remembers what it was, so it asks again
-        if (LostToRestart(result) && JobArgs.TryGetValue(job, out var args))
+        if (!TryFormat(format, out bool json, out var bad)) return bad!;
+        int page = Math.Max(maxChars ?? 0, PageChars) + PageSlack;
+        var p = pars.ToDictionary(kv => kv.Key, kv => System.Text.Json.JsonSerializer.SerializeToElement(kv.Value));
+        if (json) p["format"] = System.Text.Json.JsonSerializer.SerializeToElement("json");
+        cursor = string.IsNullOrWhiteSpace(cursor) ? null : cursor.Trim().Trim('"');
+        bool servicePage = cursor != null && ServiceCursor.IsMatch(cursor);
+        if (cursor != null && !servicePage) p["cursor"] = System.Text.Json.JsonSerializer.SerializeToElement(cursor);
+        for (int attempt = 0; ; attempt++)
         {
+            string key = Wire.NewKey();
+            var request = servicePage
+                ? new Request { Op = "run", Cursor = cursor, PageChars = page, Agent = Agent }
+                : new Request { Op = "run", Tool = tool, Params = p, Structured = true, PageChars = page, AllowHeavy = allowHeavy, Cwd = Environment.CurrentDirectory, Agent = Agent, WaitMs = 4000, Key = key };
+            Reply first;
+            try { first = await Call(request, ct); }
+            catch (OperationCanceledException)
+            {
+                try { await Wire.CallAsync(Home, new Request { Op = "cancel", Key = key }, 2000, CancellationToken.None); }
+                catch (Exception e) when (e is TimeoutException or IOException or UnauthorizedAccessException) { }
+                throw;
+            }
+            var result = await FollowParts(first, json, page, progress, ct);
+            // A service restart loses a job; commands only read, so the call is sent again once
+            if (attempt > 0 || servicePage || !LostToRestart(result)) return result;
             progress?.Report(new ProgressNotificationValue { Progress = 0, Message = "the service restarted; asking again" });
-            return await Run(args, progress, ct);
         }
-        return result;
     }
 
-    /// <summary>The command behind each job number this adapter handed out (jobs are kept an hour by the service).</summary>
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string[]> JobArgs = new();
-
-    public static async Task<CallToolResult> Status(CancellationToken ct)
+    static bool TryFormat(string? format, out bool json, out CallToolResult? bad)
     {
-        var r = await Call(new Request { Op = "status" }, ct);
-        return r.Error != null ? Error(r.Error) : Text(r.Out);
+        json = string.Equals(format, "json", StringComparison.OrdinalIgnoreCase);
+        bad = json || string.IsNullOrWhiteSpace(format) || string.Equals(format, "text", StringComparison.OrdinalIgnoreCase) ? null
+            : Error($"Error: there is no format '{format}'. Fix: use text (the default) or json.");
+        return bad == null;
     }
 
-    static async Task<CallToolResult> Follow(Reply r, IProgress<ProgressNotificationValue>? progress, CancellationToken ct, int budgetMs = CallBudgetMs)
+    /// <summary>sfs_job for the new tools: collect a job's answer in the same parts, or cancel it.</summary>
+    public static async Task<CallToolResult> Job(string job, int waitSeconds, bool cancel, string? format, IProgress<ProgressNotificationValue>? progress, CancellationToken ct)
+    {
+        if (!TryFormat(format, out bool json, out var bad)) return bad!;
+        job = job.Trim().Trim('"');
+        if (cancel)
+        {
+            var c = await Call(new Request { Op = "cancel", Job = job }, ct);
+            if (c.Error != null) return Error($"Error: {c.Error.TrimEnd('.')}. Fix: check the job number; answers are kept for an hour, and not across a service restart.");
+            return Text(c.Out.Trim().Length > 0 ? c.Out : $"Job {job} was cancelled.\n");
+        }
+        var first = await Call(new Request { Op = "job", Job = job, WaitMs = 4000, Structured = true, PageChars = PageChars + PageSlack }, ct);
+        return await FollowParts(first, json, PageChars + PageSlack, progress, ct, Math.Clamp(waitSeconds, 0, 45) * 1000);
+    }
+
+    /// <summary>
+    /// sfs_status for the new tools. The detailed part (the indexes, the scratch folder, what is open) is made by a
+    /// worker; when every worker is busy for 8 s, the service's own lines are the answer and say so.
+    /// </summary>
+    public static async Task<CallToolResult> StatusNew(string? format, CancellationToken ct)
+    {
+        if (!TryFormat(format, out bool json, out var bad)) return bad!;
+        string key = Wire.NewKey();
+        var p = new Dictionary<string, System.Text.Json.JsonElement>();
+        if (json) p["format"] = System.Text.Json.JsonSerializer.SerializeToElement("json");
+        var r = await Call(new Request { Op = "run", Tool = "sfs_status", Params = p, Structured = true, Agent = Agent, WaitMs = 8000, Key = key }, ct);
+        if (r.Done && r.Error == null) return Shape(r, json);
+        if (!r.Done)
+        {
+            try { await Wire.CallAsync(Home, new Request { Op = "cancel", Key = key }, 2000, CancellationToken.None); }
+            catch (Exception e) when (e is TimeoutException or IOException or UnauthorizedAccessException) { }
+        }
+        var s = await Call(new Request { Op = "status", Structured = true }, ct);
+        if (s.Error != null) return Error(s.Error);
+        return Text(s.Out + "[notes] No worker was free within 8 s, so the indexes, the scratch folder's size and the open plugins aren't shown. Ask again.\n");
+    }
+
+    static async Task<CallToolResult> FollowParts(Reply r, bool json, int page, IProgress<ProgressNotificationValue>? progress, CancellationToken ct, int budgetMs = CallBudgetMs)
     {
         var clock = Stopwatch.StartNew();
         int tick = 0;
         while (!r.Done)
         {
-            if (r.Error != null) return Error(r.Error);
+            if (r.Error != null) return Error(ErrorLine(r.Error));
             progress?.Report(new ProgressNotificationValue { Progress = ++tick, Message = $"{r.State ?? "running"} ({clock.Elapsed.TotalSeconds:0} s)" });
             if (ct.IsCancellationRequested)
             {
@@ -74,37 +125,26 @@ public static class Bridge
                 return Error($"Cancelled (job {r.Job}).");
             }
             if (clock.ElapsedMilliseconds >= budgetMs)
-                return Text($"Still working on it (job {r.Job}: {r.State}, {r.Ms / 1000} s so far). The service keeps going: call sfs_job with job \"{r.Job}\" to get the answer. "
-                    + "A first read of a big plugin (Starfield.esm) can take a minute; later questions about it are fast.");
-            try { r = await Call(new Request { Op = "job", Job = r.Job, WaitMs = 4000 }, ct); }
-            catch (OperationCanceledException) { continue; } // loop sends the cancel
+                return Text($"Still working on it (job {r.Job}: {r.State ?? "running"}, {r.Ms / 1000} s so far). The service keeps going: call sfs_job with job \"{r.Job}\" to collect the answer, or with cancel=true to stop it.\n");
+            try { r = await Call(new Request { Op = "job", Job = r.Job, WaitMs = 4000, Structured = true, PageChars = page }, ct); }
+            catch (OperationCanceledException) { continue; } // the loop sends the cancel
         }
-        if (r.Error != null) return Error(r.Error);
-        return Shape(r);
+        // The service couldn't run the request at all (no such job, busy, a cursor it no longer keeps): one line, with what to do
+        if (r.Error != null) return Error(ErrorLine(r.Error));
+        return Shape(r, json);
     }
 
-    static CallToolResult Shape(Reply r)
+    static string ErrorLine(string error) =>
+        error.StartsWith("Error:", StringComparison.Ordinal) ? error
+        : $"Error: {error.TrimEnd('.', ' ')}. Fix: {(error.StartsWith("No job", StringComparison.Ordinal) ? "check the job number: answers are kept for an hour, and not across a service restart" : error.Contains("busy", StringComparison.OrdinalIgnoreCase) ? "ask again in a moment" : "ask again; sfs_status shows whether the service is well")}.";
+
+    /// <summary>A structured reply as the tool's result: the contract's text, or one JSON object.</summary>
+    static CallToolResult Shape(Reply r, bool json)
     {
-        var sb = new StringBuilder(r.Out);
-        if (!string.IsNullOrWhiteSpace(r.Err))
-        {
-            if (sb.Length > 0 && sb[^1] != '\n') sb.Append('\n');
-            sb.Append("\n[notes]\n").Append(r.Err.TrimEnd()).Append('\n');
-        }
-        string text = sb.ToString();
-        if (text.Trim().Length == 0) text = r.Code == 0 ? "(no output)" : $"(no output, exit code {r.Code})";
-        if (text.Length > InlineLimit)
-        {
-            string dir = Path.Combine(Home, "Service", "results");
-            Directory.CreateDirectory(dir);
-            string file = Path.Combine(dir, $"{DateTime.Now:yyyyMMdd_HHmmss}_{r.Job}.md");
-            File.WriteAllText(file, text, new UTF8Encoding(false));
-            var lines = text.Split('\n');
-            var head = new StringBuilder();
-            foreach (var l in lines) { if (head.Length + l.Length > 6000) break; head.Append(l).Append('\n'); }
-            text = head + $"\n… The full answer is {lines.Length:N0} lines ({text.Length / 1024:N0} KB), saved to:\n{file}\nRead that file for the rest, or narrow the question (a WHERE, a LIMIT, fewer columns).\n";
-        }
-        bool failed = r.Code != 0 && (r.Out.Trim().Length == 0 || r.Out.TrimStart().StartsWith("Error:")); // a command that only printed an error
+        string text = json ? Wire.RenderJson(r) : Wire.Render(r);
+        if (text.Trim().Length == 0) text = r.Code == 0 ? "(no output)\n" : $"(no output, exit code {r.Code})\n";
+        // "Not run" (a heavy call that wasn't allowed) is an answer, not an error: it says the cost and how to allow it
+        bool failed = r.Failure != null || r.Code != 0 && r.Heavy == null && (r.Answer ?? r.Out).Trim().Length == 0;
         return new CallToolResult { Content = [new TextContentBlock { Text = text }], IsError = failed };
     }
 

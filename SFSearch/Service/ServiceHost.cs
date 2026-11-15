@@ -28,14 +28,35 @@ namespace SFSearch.Service
         static int Workers => Cfg.Workers;
         static int MaxWorkersWithWaiting => Workers * 2;            // workers waiting on another's build don't count against Workers
         static int MinIdle => Math.Min(2, Workers);
+        /// <summary>
+        /// An idle worker above <see cref="Workers"/> is retired after this long (2026-11-13, fix S21). Such workers are
+        /// started only while others wait for the heavy lane or for another's build; once none waits, they are spare.
+        /// </summary>
+        static readonly TimeSpan ExtraIdle = TimeSpan.FromSeconds(10);
+        static long _extraRetired;
         static TimeSpan JobTimeout => TimeSpan.FromMinutes(Cfg.JobTimeoutMinutes);
         static long RecycleMB => Cfg.WorkerRecycleMB;
         static long HardMB => Cfg.WorkerMaxMB;
         static int RecycleJobs => Cfg.WorkerRecycleCommands;
         static int QueueLimit => Cfg.QueueLimit;
-        static long DataCapMB => Cfg.DataCapGB * 1024L;
+        static long ServiceMaxMB => Cfg.ServiceMaxMB;
+        static TimeSpan HeavyTimeout => TimeSpan.FromMinutes(Cfg.HeavyJobTimeoutMinutes);
+        static long FloorMB => Cfg.MemoryFloorMB;
 
-        static string _home = "", _dataDir = "", _logDir = "", _exe = "";
+        // The memory guard (2026-11-12, fix S17): Windows' available memory is looked at four times a second. Under the
+        // floor while agents' commands run, the indexer gives way first, then the biggest ordinary command is
+        // stopped with one clear line. One at a time: the next only once that worker is gone and either memory came back
+        // or it is still short 5 s later.
+        static bool _short;
+        static DateTime _shortSince = DateTime.MinValue, _bgPausedAt = DateTime.MinValue, _nextStopAllowed = DateTime.MinValue;
+        static Worker? _lastStopped;
+        static long _ownMB, _shortStops, _shortPauses, _shortEpisodes, _lowestAvailMB = long.MaxValue;
+        /// <summary>A command holding less than this (MB) isn't stopped for the PC's sake: it would free next to nothing.</summary>
+        const long ShortStopMinMB = 256;
+        /// <summary>A page of a long answer when the caller asked for a cursor's next page without saying how big.</summary>
+        const int DefaultPageChars = 20000;
+
+        static string _home = "", _logDir = "", _exe = "", _scratch = "", _scratchNote = "";
         static readonly DateTime Started = DateTime.Now;
         static readonly object Gate = new();
         static readonly CancellationTokenSource Stopping = new();
@@ -45,18 +66,43 @@ namespace SFSearch.Service
         static int _rr, _workerSeq;
         static long _jobSeq;
         static readonly List<Worker> _workers = new();
-        static readonly Dictionary<string, DateTime> _lastUsed = new(StringComparer.OrdinalIgnoreCase);
         static long _served, _failed, _retried, _killed, _crashed, _rejected;
 
-        // Warm-up: low-priority jobs in their own lane, taken only when no agent is waiting
-        const string WarmLane = "~warmup";
-        static bool WarmupOn => Cfg.Warmup.Enabled;
-        static DateTime _warmDoneAt = DateTime.MaxValue;
         static DateTime _lastAgent = DateTime.Now;
-        static string _warmState = "waiting for a quiet moment";
-        static readonly Queue<string> _warmTargets = new();
-        static int _warmTotal, _warmDone;
         static IntPtr _jobObject;
+
+        // The indexer: one more low-priority lane, for the header pass, content hashes and link index of the later
+        // milestones. One job at a time, only when no agent is waiting; a running one gives way when an agent has to wait.
+        const string IndexLane = "~index";
+        static long _indexRan, _indexGaveWay;
+        // The header index of the new tools (milestone M5): built in the indexer lane when the service starts. While the
+        // service is idle it is checked again every 10 minutes (every plugin's quick stamp: about 30 ms), and once an
+        // hour every file is hashed again (about half a second with the files in Windows' cache). SFSEARCH_INDEX=0 turns
+        // all of it off: the first tool call that needs the index then builds it itself.
+        static bool IndexOn => Environment.GetEnvironmentVariable("SFSEARCH_INDEX") != "0";
+        static readonly TimeSpan IndexSweepEvery = TimeSpan.FromMinutes(60);
+        // A test may make the idle check come sooner (SFSEARCH_TEST_HOOKS=1, SFSEARCH_TEST_INDEX_EVERY=<seconds>): the
+        // `historylook` service test waits for the service's own look
+        static readonly int? TestIndexEvery = Environment.GetEnvironmentVariable("SFSEARCH_TEST_HOOKS") == "1" && int.TryParse(Environment.GetEnvironmentVariable("SFSEARCH_TEST_INDEX_EVERY"), out int s) && s > 0 ? s : null;
+        static readonly TimeSpan IndexCheckEvery = TestIndexEvery is int t ? TimeSpan.FromSeconds(t) : TimeSpan.FromMinutes(10);
+        static readonly TimeSpan IndexQuiet = TestIndexEvery is int q ? TimeSpan.FromSeconds(Math.Min(30, q)) : TimeSpan.FromSeconds(30);
+        // changes2's history (2026-11-13, fix S11): the header index's jobs also take a look for it, unless historyLook is off
+        static bool HistoryOn => Cfg.HistoryLook;
+        static string _historyState = "no look yet";
+        static DateTime _indexLast = DateTime.MinValue, _indexLastSweep = DateTime.Now;
+        static string _indexState = "not built yet";
+        // The link index of the refs tool (milestone M5, second half): after every job of the header index, the plugins
+        // that have no link file yet are walked, in the same lane. SFSEARCH_LINKS=0 turns it off: refs then searches bytes.
+        static bool LinksOn => IndexOn && Environment.GetEnvironmentVariable("SFSEARCH_LINKS") != "0";
+        static string _linksState = "not built yet";
+        static bool IsBackground(string lane) => lane == IndexLane;
+
+        // The heavy lane: one heavy command at a time, and only when Windows has its estimate plus the spare available
+        static Job? _heavy;
+        static readonly List<Worker> _heavyWaiters = new();
+        static long _heavyRan, _heavyNoMemory, _heavyNotAllowed;
+        /// <summary>Calls cancelled by their key before the service had made their job (kept a minute).</summary>
+        static readonly Dictionary<string, DateTime> _cancelledKeys = new();
 
         sealed class Job
         {
@@ -70,7 +116,30 @@ namespace SFSearch.Service
             public bool Cancelled;
             public Worker? On;
             public readonly TaskCompletionSource<Reply> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            public string Short => string.Join(' ', Args).Replace('\n', ' ') is var s && s.Length > 90 ? s[..90] + "…" : string.Join(' ', Args).Replace('\n', ' ');
+            // The structured form
+            public string? Tool;
+            public Dictionary<string, System.Text.Json.JsonElement>? Params;
+            public string? Key;
+            // Heavy: the caller's OK, the estimate (the caller's, or the one the command asked with), and whether it has the lane
+            public bool AllowHeavy;
+            public int HeavyMB;
+            public bool HeavyHeld;
+            public DateTime? HeavySince;
+            // Indexer: when it was asked to give way, and how often it has
+            public DateTime? YieldAsked;
+            public int GaveWay;
+            // What the command said about its answer, for the structured reply
+            public SourceInfo[]? Source;
+            public string[]? Read;
+            public int HeaderLines = -1;
+            public FailInfo? Failure;
+            public HeavyInfo? Heavy;
+            /// <summary>The tool's own "more": rows it left out, and the cursor it takes for the next ones.</summary>
+            public MoreInfo? ToolMore;
+            public long MemMB, QueuedMs;
+            public int[]? LineStarts;
+            string Text => Tool != null ? Tool + " " + (Params == null ? "" : System.Text.Json.JsonSerializer.Serialize(Params)) : string.Join(' ', Args);
+            public string Short => Text.Replace('\n', ' ') is var s && s.Length > 90 ? s[..90] + "…" : Text.Replace('\n', ' ');
         }
 
         sealed class Worker
@@ -80,12 +149,23 @@ namespace SFSearch.Service
             public NamedPipeServerStream Pipe = null!;
             public StreamWriter? W;
             public bool Ready, Blocked, Retiring;
+            /// <summary>Plugins this worker held open as Mutagen overlays when its last command ended.</summary>
+            public int OpenPlugins;
             public string? BlockedOn;
             public Job? Current;
             public int Served;
             public long MemMB;
             public string? KillReason;
             public readonly Queue<string> Tail = new();
+            /// <summary>Set while its command waits for the heavy lane: the estimate it asked with.</summary>
+            public int? HeavyAsk;
+            /// <summary>Stopped so an agent's command could run: its indexer job is queued again, not counted as a crash.</summary>
+            public bool Preempted;
+            public bool LowPriority;
+            /// <summary>When it last finished a command (or became ready): the idle workers above the setting go longest idle first.</summary>
+            public DateTime IdleSince = DateTime.Now;
+            /// <summary>Set when its command was stopped because the PC was short of memory: what Windows had available then (MB).</summary>
+            public long? ShortOfMemoryMB;
         }
 
         // ---------------------------------------------------------------- Start
@@ -93,12 +173,11 @@ namespace SFSearch.Service
         {
             // Many callers wait on pipes at once: start with enough threads that none waits for the pool to grow
             ThreadPool.SetMinThreads(128, 128);
-            _home = Sfs.HomeDir;
-            _dataDir = ServiceWorker.DataFolder(_home);
+            _home = Home.Dir;
             _logDir = Path.Combine(_home, "Service", "logs");
             _exe = Environment.ProcessPath ?? "SFSearch.exe";
-            Directory.CreateDirectory(_dataDir);
             Directory.CreateDirectory(_logDir);
+            Directory.CreateDirectory(Path.GetDirectoryName(Wire.MarkerPath(_home))!); // an empty home: the marker file below lives there
             using var single = new Mutex(false, @"Local\sfsearch_service_" + Wire.Hash(_home));
             bool owner;
             try { owner = single.WaitOne(0); } catch (AbandonedMutexException) { owner = true; }
@@ -106,13 +185,21 @@ namespace SFSearch.Service
             AppDomain.CurrentDomain.UnhandledException += (_, e) => Log("CRASH (coordinator): " + e.ExceptionObject);
             TaskScheduler.UnobservedTaskException += (_, e) => { Log("Unobserved: " + e.Exception.GetBaseException().Message); e.SetObserved(); };
             _jobObject = CreateKillOnCloseJob();
-            LoadUsage();
             CleanOldLogs();
-            File.WriteAllText(Path.Combine(_home, "Cache", "service.txt"), $"{Environment.ProcessId}|{DateTime.Now:o}|{_exe}");
-            Log($"Service started: process {Environment.ProcessId}, {Workers} workers, data in {_dataDir}");
+            PrepareScratch();
+            File.WriteAllText(Wire.MarkerPath(_home), $"{Environment.ProcessId}|{DateTime.Now:o}|{_exe}");
+            Log($"Service started: process {Environment.ProcessId}, {Workers} workers");
+            if (Home.OldDataLine(_home) is { } oldData) Log(oldData);
+            Log($"Scratch folder {_scratch}: {_scratchNote}. Workers together may hold {ServiceMaxMB} MB; a worker is stopped above {HardMB} MB.");
+            Log(Cfg.MemoryLines()); // with the rewrite of an older sfsearch.json, when this start made it (fix S20)
+            MemoryInfo.OwnMB = () => Interlocked.Read(ref _ownMB);
             try
             {
-                lock (Gate) Pump();
+                lock (Gate)
+                {
+                    if (IndexOn) QueueIndex("build");
+                    Pump();
+                }
                 var accept = Task.Run(AcceptLoop);
                 var watch = Task.Run(Watchdog);
                 Task.WaitAny(new[] { accept, watch }.Select(t => t.ContinueWith(_ => { })).ToArray());
@@ -137,9 +224,53 @@ namespace SFSearch.Service
                     j.Done.TrySetResult(new Reply { Done = true, Job = j.Id, Code = 2, Err = "Error: the service stopped before this command finished.\n" });
                 foreach (var w in _workers.ToList()) { w.KillReason = "service stopping"; try { w.Proc.Kill(true); } catch (Exception) { } }
             }
-            SaveUsage();
-            try { var m = Path.Combine(_home, "Cache", "service.txt"); if (File.Exists(m)) File.Delete(m); } catch (IOException) { }
+            try { var m = Wire.MarkerPath(_home); if (File.Exists(m)) File.Delete(m); } catch (IOException) { }
             Log("Service stopped.");
+        }
+
+        // ---------------------------------------------------------------- The scratch folder
+        internal const string ScratchMarker = ".sfsearch-scratch";
+
+        /// <summary>
+        /// Makes `scratch\` under the home and empties it. It holds working files that are only good while this service
+        /// runs. A folder with files in it and no marker of ours wasn't made by SFSearch: it is left exactly as it is.
+        /// </summary>
+        static void PrepareScratch()
+        {
+            _scratch = ServiceWorker.ScratchFolder(_home);
+            try
+            {
+                Directory.CreateDirectory(_scratch);
+                string marker = Path.Combine(_scratch, ScratchMarker);
+                var entries = Directory.GetFileSystemEntries(_scratch);
+                if (entries.Length > 0 && !File.Exists(marker))
+                {
+                    _scratchNote = "it holds files SFSearch didn't put there, so it was NOT emptied (move them, and it will be at the next start)";
+                    return;
+                }
+                int files = 0, left = 0;
+                long bytes = 0;
+                var inside = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
+                foreach (var entry in entries)
+                {
+                    if (Path.GetFileName(entry).Equals(ScratchMarker, StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        if (Directory.Exists(entry))
+                        {
+                            foreach (var f in new DirectoryInfo(entry).EnumerateFiles("*", inside)) { files++; bytes += f.Length; }
+                            Directory.Delete(entry, true);
+                        }
+                        else { bytes += new FileInfo(entry).Length; File.Delete(entry); files++; }
+                    }
+                    catch (IOException) { left++; }
+                    catch (UnauthorizedAccessException) { left++; }
+                }
+                File.WriteAllText(marker, "SFSearch's scratch folder. The service empties it every time it starts: don't keep anything here.\n");
+                _scratchNote = $"emptied at start ({files} file(s), {bytes / 1048576} MB removed{(left > 0 ? $"; {left} item(s) couldn't be removed" : "")})";
+            }
+            catch (IOException e) { _scratchNote = "couldn't be prepared: " + e.Message; }
+            catch (UnauthorizedAccessException e) { _scratchNote = "couldn't be prepared: " + e.Message; }
         }
 
         // ---------------------------------------------------------------- Requests
@@ -206,38 +337,176 @@ namespace SFSearch.Service
             switch ((req.Op ?? "").ToLowerInvariant())
             {
                 case "ping": return new Reply { Done = true, Out = $"{Environment.ProcessId}" };
-                case "status": return new Reply { Done = true, Out = Status() };
-                case "stop": return new Reply { Done = true, Out = "Service stopped. Commands use the stored databases again.\n" };
-                case "cancel": return Cancel(req.Job);
+                // The structured form asks for the fuller status of the new tools (sfs_status): today's lines, then the indexes and what each worker holds open
+                case "status": return new Reply { Done = true, Out = Status(req.Structured) };
+                case "stop": return new Reply { Done = true, Out = "Service stopped. Commands still run without it: each reads what it needs from the plugin files.\n" };
+                case "cancel": return Cancel(req.Job, req.Key);
+                case "more": return More(req);
                 case "job":
                     {
+                        if (req.Cursor != null) return More(req);
                         Job? j;
                         lock (Gate) _jobs.TryGetValue(req.Job ?? "", out j);
-                        if (j == null) return new Reply { Done = true, Code = 2, Error = $"No job {req.Job} (results are kept for an hour)." };
-                        return await Wait(j, req.WaitMs);
+                        if (j == null) return Shape(null, new Reply { Done = true, Code = 2, Error = $"No job {req.Job} (results are kept for an hour)." }, req);
+                        return Shape(j, await Wait(j, req.WaitMs), req);
                     }
                 case "run":
                     {
-                        if (req.Args == null || req.Args.Length == 0) return new Reply { Done = true, Code = 2, Error = "No command given." };
+                        if (req.Cursor != null) return More(req);
+                        bool hasArgs = req.Args is { Length: > 0 };
+                        if (!hasArgs && string.IsNullOrWhiteSpace(req.Tool)) return Shape(null, new Reply { Done = true, Code = 2, Error = "No command given." }, req);
                         Job job;
                         lock (Gate)
                         {
+                            if (req.Key != null && _cancelledKeys.Remove(req.Key))
+                                return Shape(null, new Reply { Done = true, Code = 4, Err = "Cancelled before it started.\n" }, req);
                             int queued = _lanes.Values.Sum(l => l.Count);
                             if (queued >= QueueLimit)
                             {
                                 _rejected++;
-                                return new Reply { Done = true, Code = 3, Error = $"The service is busy: {queued} commands are waiting. Try again shortly." };
+                                return Shape(null, new Reply { Done = true, Code = 3, Error = $"The service is busy: {queued} commands are waiting. Try again shortly." }, req);
                             }
-                            _lastAgent = DateTime.Now;
-                            job = new Job { Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}", Agent = string.IsNullOrWhiteSpace(req.Agent) ? "cli" : req.Agent!, Args = req.Args, Cwd = req.Cwd };
+                            bool index = string.Equals(req.Lane, "index", StringComparison.OrdinalIgnoreCase);
+                            if (!index) _lastAgent = DateTime.Now;
+                            job = new Job
+                            {
+                                Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}",
+                                Agent = index ? IndexLane : string.IsNullOrWhiteSpace(req.Agent) ? "cli" : req.Agent!,
+                                Args = req.Args ?? Array.Empty<string>(), Cwd = req.Cwd,
+                                Tool = string.IsNullOrWhiteSpace(req.Tool) ? null : req.Tool, Params = req.Params, Key = req.Key,
+                                // A caller that gives the estimate itself has said yes to a heavy run
+                                AllowHeavy = req.AllowHeavy || req.HeavyMB > 0 || (req.Args?.Any(a => a.Equals("--allow-heavy", StringComparison.OrdinalIgnoreCase)) ?? false)
+                                    // The run tool's own command line (sfs_run: args) may carry the flag
+                                    || (req.Params != null && req.Params.Any(kv => kv.Key.Equals("args", StringComparison.OrdinalIgnoreCase) && kv.Value.ValueKind == System.Text.Json.JsonValueKind.Array
+                                        && kv.Value.EnumerateArray().Any(a => a.ValueKind == System.Text.Json.JsonValueKind.String && string.Equals(a.GetString(), "--allow-heavy", StringComparison.OrdinalIgnoreCase))))
+                                    // A tool's own argument (sfs_record: allow_heavy) says yes too
+                                    || (req.Params != null && req.Params.Any(kv => kv.Key.Equals("allow_heavy", StringComparison.OrdinalIgnoreCase) && (kv.Value.ValueKind == System.Text.Json.JsonValueKind.True || kv.Value.ValueKind == System.Text.Json.JsonValueKind.String && kv.Value.GetString() is "true" or "1" or "yes"))),
+                                HeavyMB = req.HeavyMB >= Cfg.HeavyMinMB ? req.HeavyMB : 0,
+                            };
                             _jobs[job.Id] = job;
-                            Enqueue(job, front: false);
-                            Pump();
+                            // Heavy by the caller's own estimate, with the lane free: memory is checked now, so it fails at
+                            // once. With the lane taken it waits its turn, and memory is checked when its turn comes.
+                            if (job.HeavyMB > 0 && _heavy == null && !HeavyFits(job.HeavyMB, out long avail)) RefuseHeavy(job, avail);
+                            else
+                            {
+                                Enqueue(job, front: false);
+                                Pump();
+                            }
                         }
-                        return await Wait(job, req.WaitMs);
+                        return Shape(job, await Wait(job, req.WaitMs), req);
                     }
-                default: return new Reply { Done = true, Code = 2, Error = $"Unknown request '{req.Op}'." };
+                default: return Shape(null, new Reply { Done = true, Code = 2, Error = $"Unknown request '{req.Op}'." }, req);
             }
+        }
+
+        // ---------------------------------------------------------------- The structured form: parts and pages
+        /// <summary>The reply as the caller asked for it: as it always was, or in parts (and one page of the answer).</summary>
+        static Reply Shape(Job? job, Reply r, Request req) => req.WantsParts && r.Done ? Page(job, r, 0, req.PageChars) : r;
+
+        /// <summary>The next page of a finished job's answer. A cursor is the job and the line to go on from.</summary>
+        static Reply More(Request req)
+        {
+            string cursor = req.Cursor ?? "";
+            int at = cursor.LastIndexOf('@');
+            Job? j = null;
+            int line = 0;
+            lock (Gate)
+                if (at > 0 && int.TryParse(cursor[(at + 1)..], out line) && line >= 0) _jobs.TryGetValue(cursor[..at], out j);
+            if (j == null || !j.Done.Task.IsCompletedSuccessfully)
+            {
+                const string gone = "Error: that cursor is no longer kept (answers are kept for an hour, and not across a service restart). Fix: run the command again.";
+                return new Reply { Done = true, Code = 2, Error = gone, Failure = new FailInfo { Message = gone, Fix = "run the command again." } };
+            }
+            return Page(j, j.Done.Task.Result, line, req.PageChars > 0 ? req.PageChars : DefaultPageChars);
+        }
+
+        static Reply Page(Job? job, Reply r, int start, int pageChars)
+        {
+            var s = new Reply { Done = true, Job = r.Job, Code = r.Code, Ms = r.Ms, Error = r.Error };
+            var notes = r.Err.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Trim().Length > 0).ToArray();
+            s.Notes = notes.Length > 0 ? notes : null;
+            s.Failure = job?.Failure ?? FailureOf(r);
+            string text = r.Out;
+            if (job == null) { s.Answer = text; return s; }
+            s.Source = job.Source;
+            s.Heavy = job.Heavy;
+            s.Cost = new CostInfo { Ms = r.Ms, QueuedMs = job.QueuedMs, MemMB = job.MemMB, Read = job.Read };
+            if (pageChars <= 0 && start == 0) { s.Answer = text; s.More = job.ToolMore; return s; }
+            if (pageChars <= 0) pageChars = DefaultPageChars;
+            int[] starts;
+            int header;
+            lock (job)
+            {
+                starts = job.LineStarts ??= LineStarts(text);
+                if (job.HeaderLines < 0) job.HeaderLines = TableHeaderLines(text, starts);
+                header = Math.Min(job.HeaderLines, starts.Length - 1);
+            }
+            int lines = starts.Length - 1;
+            int first = Math.Min(Math.Max(start, header), lines);
+            string head = header > 0 ? text[..starts[header]] : "";
+            int end = first, len = head.Length;
+            // Whole lines only, and at least one: a line longer than the page is a page by itself
+            while (end < lines && (end == first || len + starts[end + 1] - starts[end] <= pageChars)) { len += starts[end + 1] - starts[end]; end++; }
+            s.Answer = head + text[starts[first]..starts[end]];
+            if (first > header || end < lines)
+            {
+                s.More = new MoreInfo { From = first - header + 1, Shown = end - first, Total = lines - header, Unit = header > 0 ? "rows" : "lines", Cursor = end < lines ? $"{job.Id}@{end}" : null };
+                // One cursor for the caller (milestone M8). The tool itself left rows out too: this page is counted in the
+                // tool's own rows, and when the service's pages end, the next cursor is the tool's. A caller passes
+                // whichever cursor it was given back to the same tool and never has to tell the two kinds apart.
+                if (job.ToolMore is { } tm)
+                {
+                    bool sameUnit = tm.Unit == s.More.Unit;
+                    s.More = new MoreInfo
+                    {
+                        From = sameUnit ? tm.From + s.More.From - 1 : s.More.From, Shown = s.More.Shown, Total = sameUnit ? tm.Total : s.More.Total, Unit = s.More.Unit,
+                        Cursor = end < lines ? s.More.Cursor : tm.Cursor,
+                    };
+                    if (!sameUnit && end >= lines && tm.Cursor != null)
+                        s.Notes = (s.Notes ?? Array.Empty<string>()).Append($"That is the end of this page of the answer ({tm.Shown:N0} of {tm.Total:N0} {tm.Unit}). The cursor gives the next ones.").ToArray();
+                }
+            }
+            else s.More = job.ToolMore;
+            return s;
+        }
+
+        /// <summary>Where each line of the text starts, with the text's length last. No lines for an empty text.</summary>
+        static int[] LineStarts(string text)
+        {
+            if (text.Length == 0) return new[] { 0 };
+            var starts = new List<int> { 0 };
+            for (int i = text.IndexOf('\n'); i >= 0 && i + 1 < text.Length; i = text.IndexOf('\n', i + 1)) starts.Add(i + 1);
+            starts.Add(text.Length);
+            return starts.ToArray();
+        }
+
+        /// <summary>2 when the whole answer is one Markdown table (a header line, a |---| line, then rows), else 0.</summary>
+        static int TableHeaderLines(string text, int[] starts)
+        {
+            int lines = starts.Length - 1;
+            if (lines < 3 || text[0] != '|') return 0;
+            var rule = text.AsSpan(starts[1], starts[2] - starts[1]).Trim();
+            if (rule.Length < 3 || rule[0] != '|' || rule.IndexOf('-') < 0 || rule.IndexOfAnyExcept("|-: ") >= 0) return 0;
+            for (int i = 2; i < lines; i++)
+                if (text[starts[i]] != '|') return 0;
+            return 2;
+        }
+
+        /// <summary>The error of a reply, with its fix when the line has one ("Error: ... Fix: ...").</summary>
+        static FailInfo? FailureOf(Reply r)
+        {
+            static FailInfo Parse(string line)
+            {
+                line = line.Trim();
+                int f = line.IndexOf(" Fix: ", StringComparison.Ordinal);
+                return new FailInfo { Message = line, Fix = f >= 0 ? line[(f + 6)..].Trim() : null };
+            }
+            if (r.Error != null) return Parse(r.Error);
+            if (r.Code == 0) return null;
+            foreach (var text in new[] { r.Out, r.Err })
+                foreach (var line in text.Split('\n'))
+                    if (line.TrimStart().StartsWith("Error:", StringComparison.Ordinal)) return Parse(line);
+            return null;
         }
 
         static async Task<Reply> Wait(Job job, int waitMs)
@@ -250,16 +519,27 @@ namespace SFSearch.Service
                 int ahead = 0;
                 if (job.Started == null && _lanes.TryGetValue(job.Agent, out var lane))
                     ahead = _lanes.Values.Sum(l => l.Count) - 1;
-                string state = job.Started == null ? "queued" : job.On?.Blocked == true ? $"waiting for another command's first read of {job.On.BlockedOn}" : "running";
+                string state = job.Started == null ? (job.HeavyMB > 0 && _heavy != null ? "queued behind another heavy command" : "queued")
+                    : job.On?.HeavyAsk != null ? "waiting for the heavy lane (one heavy command at a time)"
+                    : job.On?.Blocked == true ? $"waiting for another command's first read of {job.On.BlockedOn}" : "running";
                 return new Reply { Done = false, Job = job.Id, Ahead = Math.Max(0, ahead), State = state, Ms = (long)(DateTime.Now - job.Created).TotalMilliseconds };
             }
         }
 
-        static Reply Cancel(string? id)
+        static Reply Cancel(string? id, string? key)
         {
             lock (Gate)
             {
-                if (id == null || !_jobs.TryGetValue(id, out var j)) return new Reply { Done = true, Code = 2, Error = $"No job {id}." };
+                Job? j = null;
+                if (id != null) _jobs.TryGetValue(id, out j);
+                if (j == null && key != null)
+                {
+                    j = _jobs.Values.FirstOrDefault(x => x.Key == key);
+                    // The call may not have reached the service yet: remember the key, and refuse it when it does
+                    if (j == null) { _cancelledKeys[key] = DateTime.Now; return new Reply { Done = true, Out = "Cancelled.\n" }; }
+                    id = j.Id;
+                }
+                if (j == null) return new Reply { Done = true, Code = 2, Error = $"No job {id}." };
                 if (j.Done.Task.IsCompleted) return new Reply { Done = true, Job = id, Out = "Already finished.\n" };
                 j.Cancelled = true;
                 if (j.Started == null)
@@ -279,60 +559,240 @@ namespace SFSearch.Service
             if (front) lane.AddFirst(job); else lane.AddLast(job);
         }
 
+        static bool AgentsWaiting() => _lanes.Any(kv => !IsBackground(kv.Key) && kv.Value.Count > 0);
+        static bool IndexRunning() => _workers.Any(w => w.Current?.Agent == IndexLane);
+        static bool AgentRunning() => _workers.Any(w => w.Current is { } j && !IsBackground(j.Agent));
+
+        /// <summary>
+        /// May this lane hand out a job now? Agents always. The indexer only when no agent is waiting, one job at a time.
+        /// </summary>
+        static bool LaneOpen(string name, bool agentsWaiting, bool indexRunning)
+        {
+            if (!IsBackground(name)) return true;
+            if (agentsWaiting) return false;
+            // The PC is short of memory and agents' commands run: the indexer waits until memory is back
+            if (_short && AgentRunning()) return false;
+            if (name == IndexLane) return !indexRunning;
+            return !indexRunning && !(_lanes.TryGetValue(IndexLane, out var il) && il.Count > 0);
+        }
+
+        /// <summary>Jobs that could start now if a worker were free: not those waiting their turn for the heavy lane or behind agents.</summary>
+        static int Startable()
+        {
+            bool agents = AgentsWaiting(), index = IndexRunning();
+            int n = 0;
+            foreach (var kv in _lanes)
+                if (LaneOpen(kv.Key, agents, index))
+                    n += kv.Key == IndexLane ? Math.Min(1, kv.Value.Count) : kv.Value.Count(j => j.HeavyMB == 0 || _heavy == null);
+            return n;
+        }
+
         static Job? TakeNext()
         {
-            // Agents first: the warm-up lane only when every other line is empty
-            bool agentsWaiting = _lanes.Any(kv => kv.Key != WarmLane && kv.Value.Count > 0);
+            // Agents first: the indexer's lane only when every agent's line is empty
+            bool agentsWaiting = AgentsWaiting(), indexRunning = IndexRunning();
             for (int k = 0; k < _laneOrder.Count; k++)
             {
                 _rr = (_rr + 1) % _laneOrder.Count;
                 var lane = _lanes[_laneOrder[_rr]];
-                if (lane.Count == 0 || (agentsWaiting && _laneOrder[_rr] == WarmLane)) continue;
-                var job = lane.First!.Value;
-                lane.RemoveFirst();
-                return job;
+                if (lane.Count == 0 || !LaneOpen(_laneOrder[_rr], agentsWaiting, indexRunning)) continue;
+                for (var node = lane.First; node != null;)
+                {
+                    var next = node.Next;
+                    var job = node.Value;
+                    if (job.HeavyMB == 0) { lane.Remove(node); return job; }
+                    // Heavy by the caller's estimate. One at a time: while the lane is taken it keeps its place and the
+                    // agent's other commands go ahead. When its turn comes, Windows must have the memory, or it fails now.
+                    if (_heavy == null)
+                    {
+                        lane.Remove(node);
+                        if (HeavyFits(job.HeavyMB, out long avail)) { TakeHeavy(job); return job; }
+                        RefuseHeavy(job, avail);
+                    }
+                    node = next;
+                }
             }
             return null;
         }
 
+        static long WorkersMB() => _workers.Where(w => !w.Retiring).Sum(w => w.MemMB);
+
         static void Pump()
         {
             if (Stopping.IsCancellationRequested) return;
-            int queued = _lanes.Values.Sum(l => l.Count);
-            while (queued > 0)
+            while (Startable() > 0)
             {
-                var free = _workers.FirstOrDefault(w => w.Ready && w.Current == null && !w.Retiring);
+                bool busy = _workers.Any(w => w.Current != null);
+                if (!MemoryOk() && busy) break;
+                if (WorkersMB() > ServiceMaxMB)
+                {
+                    // The workers together are over the service's limit. Idle ones give their memory back first, biggest
+                    // first. If the busy ones alone are over it, nothing new starts until one finishes.
+                    foreach (var idle in _workers.Where(w => w.Ready && w.Current == null && !w.Retiring && w.MemMB > 256).OrderByDescending(w => w.MemMB).ToList())
+                    {
+                        if (WorkersMB() <= ServiceMaxMB) break;
+                        Retire(idle, $"the workers together held more than the service's {ServiceMaxMB} MB");
+                    }
+                    if (WorkersMB() > ServiceMaxMB && busy) break;
+                }
+                // Never more commands at once than the setting (fix S21): workers above it exist only while others wait
+                // for the heavy lane or another's build, and don't count while they wait
+                if (_workers.Count(w => w.Current != null && !w.Blocked) >= Workers) break;
+                // The worker idle the shortest time: the others stay idle, and those above the setting are retired
+                var free = _workers.Where(w => w.Ready && w.Current == null && !w.Retiring).OrderByDescending(w => w.IdleSince).FirstOrDefault();
                 if (free == null) break;
-                if (!MemoryOk() && _workers.Any(w => w.Current != null)) break;
                 var job = TakeNext();
                 if (job == null) break;
-                queued--;
                 Assign(free, job);
             }
+            int queued = Startable();
             int running = _workers.Count(w => w.Current != null && !w.Blocked);
             int spare = _workers.Count(w => w.Current == null && !w.Retiring);
-            while ((queued > spare || spare < MinIdle) && running + spare < Workers && _workers.Count < MaxWorkersWithWaiting && MemoryOk())
+            while ((queued > spare || spare < MinIdle) && running + spare < Workers && _workers.Count < MaxWorkersWithWaiting && MemoryOk()
+                && (WorkersMB() <= ServiceMaxMB || !_workers.Any(w => w.Current != null)))
             {
                 Spawn();
                 spare++;
             }
+            // An agent has to wait and no worker is free or on its way: the indexer's job gives way. It is asked first
+            // (a job that saves its work and returns is queued again); the watchdog stops one that hasn't after 2 s.
+            if ((spare == 0 || running >= Workers) && AgentsWaiting() && _lanes.Any(kv => !IsBackground(kv.Key) && kv.Value.Any(j => j.HeavyMB == 0 || _heavy == null)))
+            {
+                var idx = _workers.FirstOrDefault(w => w.Current is { } j && j.Agent == IndexLane && j.YieldAsked == null);
+                if (idx != null)
+                {
+                    idx.Current!.YieldAsked = DateTime.Now;
+                    Tell(idx, new WorkOrder { Kind = "yield", Job = idx.Current.Id });
+                    Log($"job {idx.Current.Id} [{IndexLane}] asked to give way: an agent is waiting.");
+                }
+            }
+        }
+
+
+        /// <summary>One line to a worker. A worker that can't be reached is stopped: Gone() then deals with its command.</summary>
+        static void Tell(Worker w, WorkOrder order)
+        {
+            try
+            {
+                if (w.W == null) throw new IOException("the worker isn't connected");
+                w.W.WriteLine(Wire.Serialize(order));
+                w.W.Flush();
+            }
+            catch (Exception e) when (e is IOException or ObjectDisposedException)
+            {
+                try { w.Proc.Kill(true); } catch (Exception) { } // like a crash: Gone() runs the command again on another worker
+            }
+        }
+
+        static void Retire(Worker w, string why)
+        {
+            w.Retiring = true;
+            Log($"Worker {w.Id} retired: {why} ({w.MemMB} MB, {w.Served} commands).");
+            try { w.Pipe.Dispose(); } catch (Exception) { } // its loop ends and it exits
+        }
+
+        static void SetPriority(Worker w, bool low)
+        {
+            if (w.LowPriority == low) return;
+            w.LowPriority = low;
+            try { w.Proc.PriorityClass = low ? ProcessPriorityClass.BelowNormal : ProcessPriorityClass.Normal; }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { }
         }
 
         static void Assign(Worker w, Job job)
         {
             job.On = w;
             job.Started = DateTime.Now;
+            if (job.Attempts == 0) job.QueuedMs = (long)(DateTime.Now - job.Created).TotalMilliseconds;
             job.Attempts++;
+            job.YieldAsked = null;
             w.Current = job;
-            var order = new WorkOrder { Job = job.Id, Args = job.Args, Cwd = job.Cwd };
-            try
+            if (job.Agent == IndexLane) { _indexRan++; SetPriority(w, low: true); }
+            Tell(w, new WorkOrder { Job = job.Id, Args = job.Args, Cwd = job.Cwd, Tool = job.Tool, Params = job.Params, AllowHeavy = job.AllowHeavy, HeavyMB = job.HeavyHeld ? job.HeavyMB : 0 });
+        }
+
+        // ---------------------------------------------------------------- The heavy lane (call with Gate held)
+        /// <summary>What Windows must have available for a job of this estimate: the estimate plus the spare.</summary>
+        static long HeavyNeed(int estimateMB) => estimateMB + (long)Cfg.HeavySpareMB;
+
+        /// <summary>True when Windows has the memory now. Uses "available" (free plus standby), the figure Task Manager shows.</summary>
+        static bool HeavyFits(int estimateMB, out long availableMB)
+        {
+            availableMB = MemoryInfo.AvailableMB();
+            return availableMB < 0 || availableMB >= HeavyNeed(estimateMB);
+        }
+
+        static void TakeHeavy(Job job)
+        {
+            _heavy = job;
+            job.HeavyHeld = true;
+            job.HeavySince = DateTime.Now;
+            _heavyRan++;
+            Log($"job {job.Id} [{job.Agent}] has the heavy lane: about {job.HeavyMB} MB, {MemoryInfo.AvailableMB()} MB available.");
+        }
+
+        /// <summary>A job that is heavy by its caller's estimate, and Windows doesn't have the memory: it fails now, with one line.</summary>
+        static void RefuseHeavy(Job job, long availableMB)
+        {
+            _heavyNoMemory++;
+            string line = JobContext.NoMemoryLine(HeavyNeed(job.HeavyMB), availableMB);
+            job.Heavy = new HeavyInfo { EstimateMB = job.HeavyMB, Reason = "no_memory", AvailableMB = availableMB };
+            job.Failure = new FailInfo { Message = line, Fix = "try again later, or close other programs." };
+            Log($"job {job.Id} [{job.Agent}] refused: about {job.HeavyMB} MB plus {Cfg.HeavySpareMB} MB spare, {availableMB} MB available: {job.Short}");
+            Finish(job, new Reply { Done = true, Job = job.Id, Code = JobContext.NoMemoryCode, Out = line + "\n" });
+        }
+
+        /// <summary>A running command says its next part is heavy. Answer grant or deny, or keep it waiting its turn.</summary>
+        static void AskHeavy(Worker w, Job job, int estimateMB, string? what)
+        {
+            if (job.HeavyHeld)
             {
-                w.W!.WriteLine(Wire.Serialize(order));
-                w.W.Flush();
+                // It has the lane already. A bigger estimate than it was admitted with needs the memory checked again.
+                if (estimateMB <= job.HeavyMB || HeavyFits(estimateMB, out _)) { job.HeavyMB = Math.Max(job.HeavyMB, estimateMB); Tell(w, new WorkOrder { Kind = "grant", Job = job.Id, HeavyMB = estimateMB }); }
+                else DenyHeavy(w, job, estimateMB, "no_memory");
+                return;
             }
-            catch (Exception e) when (e is IOException or ObjectDisposedException)
+            if (!job.AllowHeavy) { DenyHeavy(w, job, estimateMB, "not_allowed"); return; }
+            if (_heavy != null)
             {
-                try { w.Proc.Kill(true); } catch (Exception) { } // like a crash: Gone() runs the command again on another worker
+                w.Blocked = true;
+                w.BlockedOn = $"the heavy lane (job {_heavy.Id} has it)";
+                w.HeavyAsk = estimateMB;
+                _heavyWaiters.Add(w);
+                return;
+            }
+            DecideHeavy(w, job, estimateMB);
+        }
+
+        static void DecideHeavy(Worker w, Job job, int estimateMB)
+        {
+            w.HeavyAsk = null; w.Blocked = false; w.BlockedOn = null;
+            if (!HeavyFits(estimateMB, out _)) { DenyHeavy(w, job, estimateMB, "no_memory"); return; }
+            job.HeavyMB = estimateMB;
+            TakeHeavy(job);
+            Tell(w, new WorkOrder { Kind = "grant", Job = job.Id, HeavyMB = estimateMB });
+        }
+
+        static void DenyHeavy(Worker w, Job job, int estimateMB, string reason)
+        {
+            long avail = MemoryInfo.AvailableMB();
+            if (reason == "not_allowed") _heavyNotAllowed++; else _heavyNoMemory++;
+            Log($"job {job.Id} [{job.Agent}] heavy part not run ({reason}): about {estimateMB} MB, {avail} MB available: {job.Short}");
+            Tell(w, new WorkOrder { Kind = "deny", Job = job.Id, HeavyMB = estimateMB, Reason = reason, AvailableMB = avail, NeedMB = HeavyNeed(estimateMB) });
+        }
+
+        /// <summary>The job is over (finished, stopped, or about to run again): free the lane and let the next one in.</summary>
+        static void ReleaseHeavy(Job job)
+        {
+            if (!job.HeavyHeld) return;
+            job.HeavyHeld = false;
+            if (_heavy != job) return;
+            _heavy = null;
+            while (_heavy == null && _heavyWaiters.Count > 0)
+            {
+                var w = _heavyWaiters[0];
+                _heavyWaiters.RemoveAt(0);
+                if (w.Current != null && w.HeavyAsk is { } est && _workers.Contains(w)) DecideHeavy(w, w.Current, est);
             }
         }
 
@@ -352,6 +812,7 @@ namespace SFSearch.Service
             };
             foreach (var a in new[] { "service", "worker", _home, pipeName }) psi.ArgumentList.Add(a);
             psi.Environment["SFSEARCH_HOME"] = _home;
+            psi.Environment["SFSEARCH_SCRATCH"] = _scratch;
             try { w.Proc = Process.Start(psi)!; }
             catch (Exception e) { Log("Couldn't start a worker: " + e.Message); w.Pipe.Dispose(); return; }
             try { w.Proc.StandardInput.Close(); } catch (Exception) { } // nothing a command does can wait on input
@@ -401,23 +862,63 @@ namespace SFSearch.Service
         {
             switch (e.Evt)
             {
-                case "ready": w.Ready = true; break;
+                case "ready": w.Ready = true; w.IdleSince = DateTime.Now; break;
                 case "blocked": w.Blocked = true; w.BlockedOn = e.On; break;
                 case "unblocked": w.Blocked = false; w.BlockedOn = null; break;
+                case "heavy":
+                    if (w.Current is { } asking && asking.Id == e.Job) AskHeavy(w, asking, e.EstimateMB, e.What);
+                    break;
                 case "done":
                     {
                         var job = w.Current;
-                        w.Current = null; w.Blocked = false; w.Served++; w.MemMB = e.MemMB;
-                        foreach (var u in e.Used ?? Array.Empty<string>()) _lastUsed[u] = DateTime.Now;
-                        if (job != null && job.Id == e.Job)
+                        w.Current = null; w.Blocked = false; w.Served++; w.IdleSince = DateTime.Now; w.MemMB = MemoryInfo.Scaled(e.MemMB); w.OpenPlugins = e.OpenPlugins;
+                        w.HeavyAsk = null; _heavyWaiters.Remove(w);
+                        SetPriority(w, low: false);
+                        if (job != null && job.Id == e.Job && e.Yielded && job.Agent == IndexLane && !job.Cancelled)
                         {
+                            // An indexer job that stopped early for an agent: back to the front of its lane, to go on later
+                            ReleaseHeavy(job);
+                            job.Started = null; job.On = null; job.YieldAsked = null; job.GaveWay++; job.Attempts = Math.Max(0, job.Attempts - 1);
+                            _indexGaveWay++;
+                            Enqueue(job, front: true);
+                            Log($"job {job.Id} [{job.Agent}] gave way after {e.Ms} ms; queued again: {job.Short}");
+                        }
+                        else if (job != null && job.Id == e.Job)
+                        {
+                            job.Source = e.Source; job.Read = e.Read; job.Failure = e.Failure; job.Heavy = e.Heavy; job.MemMB = e.MemMB; job.ToolMore = e.More;
+                            if (e.HeaderLines > 0) job.HeaderLines = e.HeaderLines;
                             string err = e.Err ?? "";
                             if (Sf1EditOpen()) err += "[session] SF1Edit is open. Plugins it saves are read again on the next command; tell the user if a result looks out of date.\n";
                             Finish(job, new Reply { Done = true, Job = job.Id, Out = e.Out ?? "", Err = err, Code = e.Code, Ms = e.Ms });
                             _served++;
                             if (e.Code != 0) _failed++;
                             Log($"job {job.Id} [{job.Agent}] w{w.Id} {e.Ms} ms exit {e.Code} mem {e.MemMB} MB: {job.Short}");
-                            if (job.Agent == WarmLane) WarmNext(job, e.Out ?? "");
+                            if (job.Agent == IndexLane && job.Args.Length > 0 && job.Args[0] == "__index")
+                            {
+                                _indexState = (e.Out ?? "").Split((char)10)[0].Trim();
+                                _indexLast = DateTime.Now;
+                                Log("Indexer: " + _indexState);
+                                // The look for changes2's history, when it was asked for (fix S11)
+                                if ((e.Out ?? "").Split((char)10).Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("history:")) is { } look)
+                                {
+                                    _historyState = look["history:".Length..].Trim();
+                                    Log("History: " + _historyState);
+                                }
+                                // The header index is up to date: now the link index, for every plugin that has no link file yet
+                                if (LinksOn && e.Code == 0) QueueLinks();
+                                // After every look of the header index: the material paths materials2 tells from what Data
+                                // names (fix S33h), gathered again when an archive, a loose .mat file or a plugin changed
+                                // (S33g: the plugins' records are read too); near-instant when the scratch folder already
+                                // holds them for the files as they are. One at a time.
+                                if (e.Code == 0 && !MaterialPathsPending()) QueueIndexerJob("__materialpaths");
+                            }
+                            else if (job.Agent == IndexLane && job.Args.Length > 0 && job.Args[0] == "__materialpaths")
+                                Log("Indexer: " + (e.Out ?? "").Split((char)10)[0].Trim());
+                            else if (job.Agent == IndexLane && job.Args.Length > 0 && job.Args[0] == "__links")
+                            {
+                                _linksState = (e.Out ?? "").Split((char)10)[0].Trim();
+                                Log("Indexer: " + _linksState);
+                            }
                         }
                         if (w.MemMB > RecycleMB || w.Served >= RecycleJobs)
                         {
@@ -431,59 +932,55 @@ namespace SFSearch.Service
             Pump();
         }
 
-        /// <summary>After 30 s with no agent command and nothing queued, plan the warm-up (call with Gate held).</summary>
-        static void WarmStart()
+        /// <summary>Queues the header index's job in the indexer lane (call with Gate held): "build" at start, "sweep" while idle.</summary>
+        static void QueueIndex(string what)
         {
-            var wc = Cfg.Warmup;
-            if (!wc.Enabled) return;
-            // After a game or mod update the changed files are read again: the plan is made again every few quiet minutes
-            // (plugins already read cost a few milliseconds each)
-            bool again = _warmState.StartsWith("done") && wc.RewarmAfterUpdates && DateTime.Now - _warmDoneAt > TimeSpan.FromMinutes(wc.RewarmCheckMinutes);
-            if (_warmState != "waiting for a quiet moment" && !again) return;
-            if (DateTime.Now - _lastAgent < TimeSpan.FromSeconds(wc.IdleSeconds) || _lanes.Values.Any(l => l.Count > 0) || _workers.Any(w => w.Current != null)) return;
-            _warmTargets.Clear(); _warmTotal = 0; _warmDone = 0; _warmDoneAt = DateTime.MaxValue;
-            _warmState = "planning (bringing the load-order index up to date)";
-            // The plugins agents asked about most recently (remembered across restarts in usage.txt), newest first
-            var recent = _lastUsed.OrderByDescending(kv => kv.Value).Select(kv => ServiceDb.PluginOf(kv.Key))
-                .Distinct(StringComparer.OrdinalIgnoreCase).Take(wc.RecentCount);
-            QueueWarm(new[] { "__warmup", "plan" }.Concat(recent).ToArray());
+            var job = new Job { Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}", Agent = IndexLane, Args = HistoryOn ? new[] { "__index", what, "--history" } : new[] { "__index", what }, Cwd = _home };
+            _jobs[job.Id] = job;
+            _indexLast = DateTime.Now;
+            Enqueue(job, front: false);
         }
 
+        /// <summary>A material-path job is queued or running (call with Gate held): another isn't queued beside it.</summary>
+        static bool MaterialPathsPending() => _jobs.Values.Any(j => j.Finished == null && j.Agent == IndexLane && j.Args.Length > 0 && j.Args[0] == "__materialpaths");
 
-        static void QueueWarm(string[] args)
+        /// <summary>Queues a one-off job in the indexer lane (call with Gate held).</summary>
+        static void QueueIndexerJob(params string[] args)
         {
-            var job = new Job { Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}", Agent = WarmLane, Args = args, Cwd = _home };
+            var job = new Job { Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}", Agent = IndexLane, Args = args, Cwd = _home };
             _jobs[job.Id] = job;
             Enqueue(job, front: false);
         }
 
-        /// <summary>One warm-up job finished: queue the next plugin, one at a time.</summary>
-        static void WarmNext(Job job, string output)
+        /// <summary>
+        /// Queues the link index's job in the indexer lane (call with Gate held), unless one is waiting or running. It
+        /// walks the plugins that have no link file yet, gives way when an agent has to wait, and is queued again then.
+        /// </summary>
+        static void QueueLinks()
         {
-            if (job.Args.Length > 1 && job.Args[1] == "plan")
-            {
-                foreach (var line in output.Split((char)10))
-                    if (line.StartsWith("warm: ")) _warmTargets.Enqueue(line[6..].Trim());
-                _warmTotal = _warmTargets.Count;
-            }
-            else _warmDone++;
-            if (_warmTargets.Count > 0)
-            {
-                string next = _warmTargets.Dequeue();
-                _warmState = $"reading {next} ({_warmDone + 1} of {_warmTotal})";
-                QueueWarm(new[] { "__warmup", next });
-            }
-            else
-            {
-                _warmState = $"done: {_warmDone} plugin(s) read, plus the load-order index";
-                _warmDoneAt = DateTime.Now;
-                Log("Warm-up " + _warmState);
-            }
+            static bool IsLinks(Job j) => j.Args.Length > 0 && j.Args[0] == "__links";
+            if (_lanes.TryGetValue(IndexLane, out var lane) && lane.Any(IsLinks)) return;
+            if (_workers.Any(w => w.Current is { } j && j.Agent == IndexLane && IsLinks(j))) return;
+            var job = new Job { Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}", Agent = IndexLane, Args = new[] { "__links", "build" }, Cwd = _home };
+            _jobs[job.Id] = job;
+            Enqueue(job, front: false);
+        }
+
+        /// <summary>While nothing is asked: check the header index again every ten minutes, and hash every file again once an hour (call with Gate held).</summary>
+        static void IndexSweep()
+        {
+            if (!IndexOn || DateTime.Now - _indexLast < IndexCheckEvery || DateTime.Now - _lastAgent < IndexQuiet) return;
+            if (_lanes.Values.Any(l => l.Count > 0) || _workers.Any(w => w.Current != null)) return;
+            bool sweep = DateTime.Now - _indexLastSweep >= IndexSweepEvery;
+            if (sweep) _indexLastSweep = DateTime.Now;
+            QueueIndex(sweep ? "sweep" : "check");
         }
 
         static void Gone(Worker w)
         {
             _workers.Remove(w);
+            _heavyWaiters.Remove(w);
+            w.HeavyAsk = null;
             try { w.Pipe.Dispose(); } catch (Exception) { }
             var job = w.Current;
             w.Current = null;
@@ -493,7 +990,25 @@ namespace SFSearch.Service
                 lock (w.Tail) tail = string.Join("\n", w.Tail.TakeLast(12));
                 int exit = -1;
                 try { exit = w.Proc.HasExited ? w.Proc.ExitCode : -1; } catch (Exception) { }
-                if (w.KillReason != null)
+                if (w.Preempted && !job.Cancelled)
+                {
+                    // An indexer job stopped so an agent's command could run: it goes back to the front of its lane
+                    ReleaseHeavy(job);
+                    job.Started = null; job.On = null; job.YieldAsked = null; job.GaveWay++; job.Attempts = Math.Max(0, job.Attempts - 1);
+                    _indexGaveWay++;
+                    Enqueue(job, front: true);
+                    Log($"job {job.Id} [{job.Agent}] stopped to let an agent through; queued again: {job.Short}");
+                }
+                else if (w.ShortOfMemoryMB is { } availMB && !job.Cancelled)
+                {
+                    // Stopped because the PC as a whole ran short: one clear line, the memory exit code, and it can be asked again
+                    _killed++;
+                    string line = ShortOfMemoryLine(availMB);
+                    job.Failure = new FailInfo { Message = line, Fix = "ask again; close other programs if it happens again." };
+                    Log($"job {job.Id} [{job.Agent}] stopped: the PC was short of memory ({availMB} MB available, the floor {FloorMB} MB): {job.Short}");
+                    Finish(job, new Reply { Done = true, Job = job.Id, Code = JobContext.NoMemoryCode, Err = line + "\n" });
+                }
+                else if (w.KillReason != null)
                 {
                     _killed++;
                     Log($"job {job.Id} [{job.Agent}] stopped ({w.KillReason}): {job.Short}");
@@ -506,11 +1021,14 @@ namespace SFSearch.Service
                     if (job.Attempts < 2)
                     {
                         _retried++;
+                        ReleaseHeavy(job); // it asks for the lane again on its second run
                         job.Started = null; job.On = null;
                         Enqueue(job, front: true);
                     }
                     else
+                    {
                         Finish(job, new Reply { Done = true, Job = job.Id, Code = 6, Err = $"Error: SFSearch crashed on this command twice (exit code {exit}). Last output:\n{tail}\n" });
+                    }
                 }
             }
             else if (!w.Retiring && w.KillReason == null && !Stopping.IsCancellationRequested)
@@ -524,6 +1042,7 @@ namespace SFSearch.Service
             job.Finished = DateTime.Now;
             job.On = null;
             job.Done.TrySetResult(reply);
+            ReleaseHeavy(job);
         }
 
         static void Kill(Worker w, string reason)
@@ -536,80 +1055,91 @@ namespace SFSearch.Service
         static async Task Watchdog()
         {
             var lastGc = DateTime.MinValue;
+            long tick = 0;
             while (!Stopping.IsCancellationRequested)
             {
-                try { await Task.Delay(1000, Stopping.Token); } catch (OperationCanceledException) { break; }
+                // Memory four times a second; time limits, clean-up and the indexer's idle checks once a second
+                try { await Task.Delay(250, Stopping.Token); } catch (OperationCanceledException) { break; }
+                bool second = ++tick % 4 == 0;
                 try
                 {
                     lock (Gate)
                     {
                         foreach (var w in _workers.ToList())
                         {
-                            if (w.Current is { } job && job.Started is { } st && DateTime.Now - st > JobTimeout)
-                                Kill(w, $"it ran longer than the {JobTimeout.TotalMinutes:0}-minute limit");
-                            else if (w.Current != null)
+                            if (w.Current != null)
                             {
-                                try
-                                {
-                                    w.Proc.Refresh();
-                                    long mb = w.Proc.PrivateMemorySize64 / 1048576;
-                                    w.MemMB = mb;
-                                    if (mb > HardMB) Kill(w, $"it used more than {HardMB / 1024} GB of memory");
-                                }
-                                catch (InvalidOperationException) { }
+                                long mb = MemoryInfo.PrivateMB(w.Proc);
+                                if (mb < 0 || w.KillReason != null) continue;
+                                w.MemMB = mb;
+                                long hard = HardFor(w.Current);
+                                if (mb > hard)
+                                    Kill(w, w.Current.HeavyHeld ? $"it used more than {MemoryInfo.GB(hard)} GB of memory (its estimate was {MemoryInfo.GB(w.Current.HeavyMB)} GB)"
+                                        : $"it used more than {MemoryInfo.GB(hard)} GB of memory, this PC's limit for one command (workerMaxMB). Fix: ask for less at once (a narrower question, or the new tools), or raise workerMaxMB in sfsearch.json if this PC has the memory to spare");
+                            }
+                            else if (w.Ready && !w.Retiring && second && MemoryInfo.PrivateMB(w.Proc) is var idle and >= 0)
+                                w.MemMB = idle; // idle workers count toward the service's total too
+                        }
+                        Interlocked.Exchange(ref _ownMB, _workers.Sum(w => w.MemMB));
+                        Guard();
+                        if (!second) { Pump(); continue; }
+                        foreach (var w in _workers.ToList())
+                        {
+                            // A heavy command has the heavy lane's own time limit, counted from when it got the lane
+                            var limit = w.Current is { HeavyHeld: true } ? HeavyTimeout : JobTimeout;
+                            if (w.Current is { } job && (job.HeavyHeld ? job.HeavySince ?? job.Started : job.Started) is { } st && DateTime.Now - st > limit)
+                                Kill(w, $"it ran longer than the {limit.TotalMinutes:0}-minute limit");
+                            else if (w.Current is { YieldAsked: { } asked, Cancelled: false } && DateTime.Now - asked > TimeSpan.FromSeconds(2) && w.KillReason == null && AgentsWaiting())
+                            {
+                                // An indexer job that didn't give way by itself
+                                w.Preempted = true;
+                                Kill(w, "an agent was waiting");
                             }
                         }
+                        foreach (var k in _cancelledKeys.Where(kv => DateTime.Now - kv.Value > TimeSpan.FromMinutes(1)).Select(kv => kv.Key).ToList())
+                            _cancelledKeys.Remove(k);
                         foreach (var id in _jobs.Where(kv => kv.Value.Finished is { } f && DateTime.Now - f > TimeSpan.FromHours(1)).Select(kv => kv.Key).ToList())
                             _jobs.Remove(id);
                         foreach (var lane in _lanes.Where(kv => kv.Value.Count == 0).Select(kv => kv.Key).ToList())
                             if (!_jobs.Values.Any(j => j.Agent == lane && !j.Done.Task.IsCompleted)) { _lanes.Remove(lane); _laneOrder.Remove(lane); }
                         if (_rr >= _laneOrder.Count) _rr = 0;
+                        RetireExtraIdle();
                         Pump();
                     }
-                    if (DateTime.Now - lastGc > TimeSpan.FromSeconds(60)) { lastGc = DateTime.Now; CleanData(); }
-                    lock (Gate) WarmStart();
+                    if (DateTime.Now - lastGc > TimeSpan.FromSeconds(60)) { lastGc = DateTime.Now; CleanFiles(); }
+                    lock (Gate) { IndexSweep(); Pump(); }
                 }
                 catch (Exception e) { Log("Watchdog: " + e); }
             }
         }
 
-        /// <summary>Deletes databases of plugin copies that are gone or changed, half-written builds, and the least recently used past the size cap. Files still open are left for the next round.</summary>
-        static void CleanData()
+        /// <summary>
+        /// Workers above the setting that have been idle <see cref="ExtraIdle"/> are retired, longest idle first, down to
+        /// the setting (call with Gate held; 2026-11-13, fix S21). Not while a worker waits for the heavy lane or another's
+        /// build: the extra workers are there for that. Before, they stayed for the rest of the run (a service set to 4
+        /// kept 7), each holding 14 to 300 MB, and took commands above the setting.
+        /// </summary>
+        static void RetireExtraIdle()
         {
-            // Answers the MCP adapter saved to files, and --stdin files: a week is enough
+            if (_workers.Any(w => w.Blocked) || _heavyWaiters.Count > 0) return;
+            int live = _workers.Count(w => !w.Retiring);
+            if (live <= Workers) return;
+            foreach (var w in _workers.Where(w => w.Ready && w.Current == null && !w.Retiring && DateTime.Now - w.IdleSince >= ExtraIdle).OrderBy(w => w.IdleSince).ToList())
+            {
+                if (live <= Workers) break;
+                _extraRetired++;
+                Retire(w, $"idle for {(DateTime.Now - w.IdleSince).TotalSeconds:0} s, one more than the {Workers} workers set (started while others waited)");
+                live--;
+            }
+        }
+
+        /// <summary>Answers the MCP adapter saved to files, and --stdin files: deleted after a week.</summary>
+        static void CleanFiles()
+        {
             foreach (var dir in new[] { Path.Combine(_home, "Service", "results"), Path.Combine(_home, "Service", "tmp") })
                 if (Directory.Exists(dir))
                     foreach (var f in Directory.GetFiles(dir))
                         if (DateTime.Now - File.GetLastWriteTime(f) > TimeSpan.FromDays(7)) TryDelete(f);
-            var files = Directory.GetFiles(_dataDir);
-            string data = Program.GetDataFolderPathPublic();
-            long total = 0;
-            var keep = new List<FileInfo>();
-            foreach (var f in files)
-            {
-                var fi = new FileInfo(f);
-                string name = fi.Name;
-                if (name.Contains(".tmp-") && DateTime.Now - fi.LastWriteTime > TimeSpan.FromHours(1)) { TryDelete(f); continue; }
-                if (!name.EndsWith(".db", StringComparison.OrdinalIgnoreCase) || !name.Contains('@')) { total += fi.Length; continue; }
-                string plugin = ServiceDb.PluginOf(name);
-                string? current = ServiceDb.StampedName(plugin, Path.Combine(data, plugin));
-                // SQLite lets Windows delete a file that's open, so a database is only removed once no command has used it for
-                // 15 minutes (the longest command is 10): a command still reading the old copy of a changed plugin finishes first.
-                bool recent = _lastUsed.TryGetValue(name, out var usedAt) && DateTime.Now - usedAt < TimeSpan.FromMinutes(15);
-                if (!name.Equals(current, StringComparison.OrdinalIgnoreCase) && !recent) { if (TryDelete(f)) { Log($"Removed {name}: its plugin changed or is gone."); continue; } }
-                total += fi.Length;
-                keep.Add(fi);
-            }
-            long cap = DataCapMB * 1048576;
-            if (total <= cap) return;
-            foreach (var fi in keep.OrderBy(f => _lastUsed.TryGetValue(f.Name, out var t) ? t : f.LastWriteTime))
-            {
-                if (total <= cap) break;
-                if (_lastUsed.TryGetValue(fi.Name, out var used) && DateTime.Now - used < TimeSpan.FromMinutes(10)) continue;
-                long len = fi.Length;
-                if (TryDelete(fi.FullName)) { total -= len; Log($"Removed {fi.Name} ({len / 1048576} MB): least recently used, data folder over {DataCapMB / 1024} GB."); }
-            }
-            SaveUsage();
         }
 
         static bool TryDelete(string f)
@@ -624,53 +1154,47 @@ namespace SFSearch.Service
             catch (UnauthorizedAccessException) { return false; }
         }
 
-        static string UsageFile => Path.Combine(_home, "Service", "usage.txt");
-
-        static void LoadUsage()
-        {
-            try
-            {
-                if (!File.Exists(UsageFile)) return;
-                foreach (var line in File.ReadAllLines(UsageFile))
-                {
-                    var p = line.Split('|');
-                    if (p.Length == 2 && DateTime.TryParse(p[1], null, System.Globalization.DateTimeStyles.RoundtripKind, out var t)) _lastUsed[p[0]] = t;
-                }
-            }
-            catch (IOException) { }
-        }
-
-        static void SaveUsage()
-        {
-            try
-            {
-                List<string> lines;
-                lock (Gate) lines = _lastUsed.Select(kv => $"{kv.Key}|{kv.Value:o}").ToList();
-                File.WriteAllLines(UsageFile, lines);
-            }
-            catch (IOException) { }
-        }
-
         // ---------------------------------------------------------------- Status, log, memory
-        static string Status()
+        static string Status(bool full = false)
         {
             var sb = new StringBuilder();
             lock (Gate)
             {
                 sb.AppendLine($"Service running since {Started:yyyy-MM-dd HH:mm} (process {Environment.ProcessId}). Answered {_served} command(s): {_failed} with errors, {_crashed} worker crash(es), {_retried} retried, {_killed} stopped (time, memory or cancel), {_rejected} turned away (busy).");
-                sb.AppendLine($"Workers: {_workers.Count} (up to {Workers} running at once; {MinIdle} kept ready). Each command may take {JobTimeout.TotalMinutes:0} min; a worker is replaced after {RecycleJobs} commands or {RecycleMB / 1024.0:0.#} GB.");
+                sb.AppendLine($"Workers: {_workers.Count} (up to {Workers} running at once; {MinIdle} kept ready{(_extraRetired > 0 ? $"; {_extraRetired} started while others waited retired once idle" : "")}). Each command may take {JobTimeout.TotalMinutes:0} min; a worker is replaced after {RecycleJobs} commands or {RecycleMB / 1024.0:0.#} GB.");
                 foreach (var w in _workers.OrderBy(w => w.Id))
                 {
                     string state = !w.Ready ? "starting" : w.Current == null ? "idle" : w.Blocked ? $"waiting for {w.BlockedOn}" : $"running {(DateTime.Now - w.Current.Started!.Value).TotalSeconds:0} s";
                     sb.AppendLine($"  worker {w.Id} (process {w.Proc.Id}): {state}, {w.Served} done, {w.MemMB} MB{(w.Current != null ? $" — [{w.Current.Agent}] {w.Current.Short}" : "")}");
                 }
                 int queued = _lanes.Values.Sum(l => l.Count);
-                sb.AppendLine($"Warm-up: {(WarmupOn ? _warmState : "off (sfsearch.json, or SFSEARCH_WARMUP=0)")}.");
                 sb.AppendLine($"Queue: {queued} waiting{(queued > 0 ? ": " + string.Join(", ", _lanes.Where(kv => kv.Value.Count > 0).Select(kv => $"{kv.Key} {kv.Value.Count}")) : "")}.");
+                int heavyQueued = _heavyWaiters.Count + _lanes.Values.Sum(l => l.Count(j => j.HeavyMB > 0));
+                sb.AppendLine($"Heavy lane: {(_heavy == null ? "free" : $"job {_heavy.Id} [{_heavy.Agent}], about {MemoryInfo.GB(_heavy.HeavyMB)} GB, {(DateTime.Now - (_heavy.HeavySince ?? DateTime.Now)).TotalSeconds:0} s so far")}; {heavyQueued} waiting their turn. "
+                    + $"Since start: {_heavyRan} run, {_heavyNoMemory} refused (memory short), {_heavyNotAllowed} not run (the caller hadn't allowed a heavy run). A heavy command may take {HeavyTimeout.TotalMinutes:0} min.");
+                var idx = _workers.FirstOrDefault(w => w.Current?.Agent == IndexLane);
+                int idxQueued = _lanes.TryGetValue(IndexLane, out var il) ? il.Count : 0;
+                sb.AppendLine($"Indexer: {(idx != null ? $"running on worker {idx.Id}" : "idle")}; {idxQueued} waiting. Since start: {_indexRan} run(s), gave way to an agent {_indexGaveWay} time(s).");
+                sb.AppendLine($"History (changes2): {(!IndexOn ? "no look by the service (SFSEARCH_INDEX=0): only changes2 takes one" : !HistoryOn ? "no look by the service (historyLook is off in sfsearch.json, or SFSEARCH_HISTORY=0): only changes2 takes one" : $"looked at with the header index, at the start and every {IndexCheckEvery.TotalMinutes:0.#} min while idle; the last: {_historyState}")}");
+                long total = MemoryInfo.TotalMB(), together = WorkersMB();
+                long avail = MemoryInfo.AvailableMB();
+                sb.AppendLine($"Memory: the workers together hold {together} MB of the {ServiceMaxMB} MB the service may use{(together > ServiceMaxMB ? " (over: no new command starts until some is given back)" : "")}. "
+                    + $"A worker is stopped above {HardMB / 1024.0:0.#} GB. Windows has {avail} MB available of {total} MB{(avail >= 0 && avail < FloorMB ? $", under the floor of {FloorMB} MB" : _short ? ", just above the floor: new commands wait" : "")}. "
+                    + $"Since start: the PC ran short {_shortEpisodes} time(s){(_shortEpisodes > 0 ? $" (lowest {_lowestAvailMB} MB available)" : "")}, the indexer gave way {_shortPauses} time(s) for it, {_shortStops} command(s) stopped for it.");
+                foreach (var line in Cfg.MemoryLines().Split('\n')) sb.AppendLine(line);
             }
-            long bytes = 0; int dbs = 0;
-            foreach (var f in Directory.GetFiles(_dataDir)) { bytes += new FileInfo(f).Length; if (f.EndsWith(".db", StringComparison.OrdinalIgnoreCase)) dbs++; }
-            sb.AppendLine($"Data folder: {_dataDir}, {dbs} database(s), {bytes / 1048576} MB (cap {DataCapMB / 1024} GB). Log: {LogFile}");
+            sb.AppendLine($"Scratch folder: {_scratch}, {_scratchNote}.");
+            if (full)
+            {
+                lock (Gate)
+                {
+                    sb.AppendLine($"Header index job: {(IndexOn ? _indexState : "off (SFSEARCH_INDEX=0): the first tool call builds the index")}");
+                    sb.AppendLine($"Link index job: {(LinksOn ? _linksState : "off (SFSEARCH_LINKS=0): refs searches bytes, and find has no in-game names")}");
+                    sb.AppendLine($"Open plugins (Mutagen overlays the new tools keep open), by worker: {(_workers.Count == 0 ? "no worker" : string.Join(", ", _workers.OrderBy(w => w.Id).Select(w => $"worker {w.Id}: {w.OpenPlugins}")))}.");
+                }
+            }
+            sb.AppendLine($"Log: {LogFile}");
+            if (Home.OldDataLine(_home) is { } oldData) sb.AppendLine(oldData);
             string dll = Path.Combine(_home, "bin", "Release", "net10.0", "SFSearch.dll");
             var mine = File.GetLastWriteTime(Path.Combine(AppContext.BaseDirectory, "SFSearch.dll"));
             if (File.Exists(dll) && File.GetLastWriteTime(dll) > mine.AddSeconds(5))
@@ -708,19 +1232,92 @@ namespace SFSearch.Service
             return _sfOpen;
         }
 
-        /// <summary>False when the PC is short of memory: no new work starts until some frees up.</summary>
+        /// <summary>False when the PC is short of memory: no new work starts (while other work runs) until some frees up.</summary>
         static bool MemoryOk()
         {
-            if (!OperatingSystem.IsWindows()) return true;
-            var m = new MemoryStatusEx { Length = (uint)Marshal.SizeOf<MemoryStatusEx>() };
-            return !GlobalMemoryStatusEx(ref m) || m.AvailPhys > 2L * 1024 * 1024 * 1024;
+            long available = MemoryInfo.AvailableMB();
+            return available < 0 || available > Cfg.HoldNewWorkBelowMB;
+        }
+
+        /// <summary>
+        /// What a command may hold before it is stopped (MB): one command's limit; a heavy command its estimate and half
+        /// again (the spare at most); the indexer's jobs at least 3 GB (the header index peaks at 1.9 GB, the link index at
+        /// 2.3 GB), so a small PC's lower limit doesn't stop them.
+        /// </summary>
+        static long HardFor(Job job) =>
+            job.HeavyHeld ? Math.Max(HardMB, job.HeavyMB + Math.Min(job.HeavyMB / 2, (long)Cfg.HeavySpareMB))
+            : job.Agent == IndexLane ? Math.Max(HardMB, ServiceConfig.IndexAllowanceMB)
+            : HardMB;
+
+        /// <summary>The one line a command fails with when it was stopped because the PC as a whole ran short of memory.</summary>
+        static string ShortOfMemoryLine(long availableMB) =>
+            $"Error: the PC was short of memory ({MemoryInfo.GB(Math.Max(0, availableMB))} GB free), so this command was stopped. Fix: ask again; close other programs if it happens again.";
+
+        /// <summary>
+        /// The memory guard (call with Gate held, four times a second). Under the floor while agents' commands run: first
+        /// the indexer's jobs give way (asked, then stopped after a second; they are queued again), then the
+        /// biggest ordinary command is stopped. Heavy commands are judged against their own allowance, not here. One stop
+        /// at a time: the next waits until that worker is gone, and until memory came back or 5 s have passed still short.
+        /// </summary>
+        static void Guard()
+        {
+            long avail = MemoryInfo.AvailableMB();
+            if (avail < 0) return;
+            long floor = FloorMB;
+            bool agents = AgentRunning();
+            if (avail >= floor)
+            {
+                // Back above the floor: a later shortage may stop a command at once. Background lanes open again with some room.
+                if (_lastStopped == null || !_workers.Contains(_lastStopped)) { _nextStopAllowed = DateTime.MinValue; _lastStopped = null; }
+                if (_short && avail >= Cfg.HoldNewWorkBelowMB) { _short = false; Log($"Memory: back to {avail} MB available (the floor is {floor} MB)."); }
+                return;
+            }
+            if (!_short) { _short = true; _shortSince = DateTime.Now; _shortEpisodes++; Log($"Memory: {avail} MB available, under the floor of {floor} MB{(agents ? "" : "; only the indexer runs, so nothing is stopped")}."); }
+            _lowestAvailMB = Math.Min(_lowestAvailMB, avail);
+            if (!agents) return; // only background work runs: the indexer has its own allowance; nothing is stopped for it alone
+
+            // 1. The indexer gives way first
+            bool background = false;
+            foreach (var w in _workers.Where(w => w.Current is { } j && IsBackground(j.Agent) && w.KillReason == null))
+            {
+                background = true;
+                var job = w.Current!;
+                if (job.YieldAsked == null)
+                {
+                    job.YieldAsked = DateTime.Now;
+                    _shortPauses++;
+                    Tell(w, new WorkOrder { Kind = "yield", Job = job.Id });
+                    Log($"job {job.Id} [{job.Agent}] asked to give way: the PC is short of memory ({avail} MB available).");
+                }
+                else if (DateTime.Now - job.YieldAsked.Value > TimeSpan.FromSeconds(1))
+                {
+                    w.Preempted = true;
+                    Kill(w, "the PC was short of memory");
+                }
+                _bgPausedAt = DateTime.Now;
+            }
+            if (background) return;
+            // Give Windows a moment to count what the indexer gave back before judging again
+            if (DateTime.Now - _bgPausedAt < TimeSpan.FromSeconds(1)) return;
+
+            // 2. One stop at a time
+            if (_lastStopped != null && _workers.Contains(_lastStopped)) return;
+            if (DateTime.Now < _nextStopAllowed) return;
+
+            // 3. The biggest ordinary command. Not one holding the heavy lane (its own allowance), not one already ending.
+            var biggest = _workers
+                .Where(w => w.Current is { } j && !IsBackground(j.Agent) && !j.HeavyHeld && !j.Cancelled && w.KillReason == null && w.MemMB >= ShortStopMinMB)
+                .OrderByDescending(w => w.MemMB).FirstOrDefault();
+            if (biggest == null) return;
+            _shortStops++;
+            biggest.ShortOfMemoryMB = avail;
+            Log($"Memory: {avail} MB available, under the floor of {floor} MB: stopping job {biggest.Current!.Id} [{biggest.Current.Agent}], the biggest command ({biggest.MemMB} MB).");
+            Kill(biggest, "the PC was short of memory");
+            _lastStopped = biggest;
+            _nextStopAllowed = DateTime.Now.AddSeconds(5);
         }
 
         // ---------------------------------------------------------------- Windows: workers die with the service
-        [StructLayout(LayoutKind.Sequential)]
-        struct MemoryStatusEx { public uint Length, MemoryLoad; public ulong TotalPhys, AvailPhys, TotalPageFile, AvailPageFile, TotalVirtual, AvailVirtual, AvailExtendedVirtual; }
-
-        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx m);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr attrs, string? name);
         [DllImport("kernel32.dll")] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, uint length);
         [DllImport("kernel32.dll")] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);

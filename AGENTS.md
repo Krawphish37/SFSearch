@@ -1,26 +1,25 @@
 # SFSearch: instructions for coding agents
 
-SFSearch reads Starfield plugins (`.esm`, `.esp`) and answers lookups, load-order questions, diffs, asset checks and patch checks. Use it for all Starfield plugin data instead of writing a parser.
+SFSearch reads Starfield plugins (`.esm`, `.esp`) live and answers lookups, load-order questions, comparisons, asset checks and patch checks. Use it for all Starfield plugin data instead of writing a parser. It never changes a plugin.
 
-**Use the `sfsearch` MCP tools when they're loaded** (`sfs_query`, `sfs_names`, `sfs_record`, `sfs_refs`, `sfs_conflicts`, `sfs_loadorder`, `sfs_fields`, `sfs_run` and the rest). Otherwise run the command line from any folder:
+**Use the `sfsearch` MCP tools when they're loaded:** `sfs_find`, `sfs_record`, `sfs_describe`, `sfs_query`, `sfs_refs`, `sfs_compare`, `sfs_loadorder`, `sfs_check`, `sfs_saved`, `sfs_run`, `sfs_job`, `sfs_status`. Otherwise run the command line from any folder:
 ```powershell
-& "<SFSearch folder>\SFSearch\sfs.cmd" <Command> [Args...]
+& "<SFSearch folder>\SFSearch\sfs.cmd" <verb> [arguments]
 ```
-`sfs.cmd --help` lists every command.
+The verbs are `find`, `record`, `describe`, `query2`, `refs2`, `compare`, `loadorder2`, `check2`, `saved`, and the reports `leveled2`, `dialogue2`, `sources2`, `archive2`, `assets2`, `materials2`, `scripts2`, `changes2`. `<verb> --help` shows a verb's options.
 
-**Before your first lookup, read `agent-docs/skills/sfsearch/SKILL.md`.** It says which tool answers which question and lists the traps that give wrong answers with no error. Its `references/` folder has the database layout (read before writing SQL) and the larger commands in depth.
+**Before your first lookup, read `agent-docs/skills/sfsearch/SKILL.md`.** It says which tool answers which question and how to read an answer. Its `references/` folder has SQL (`sql.md`: read before writing a query), each tool in depth (`research.md`), and the new call for every old tool and command (`old-tools.md`).
 
-Rules that catch most mistakes:
-1. The same six digits are usually different records in different plugins. Use `sfs_names`, and write `EditorID (FormID:plugin)` to the user.
-2. Don't guess JSON paths in `Data`: `sfs_fields` lists them for a record type.
-3. Add `ORDER BY` whenever row order matters; the service doesn't store rows in file order.
-4. A call that returns a job number is still working: collect it with `sfs_job`.
-5. Read the `[notes]` lines under an answer (a missing master, a plugin changed on disk, SF1Edit open, a patch built for an older master) and pass them on when they matter.
-6. On the command line, quote FormIDs in PowerShell, and keep inline SQL on one line (or use `--file`).
+The rules:
+1. **Write every record as `EditorID (FormID:plugin)`.** The same six digits are different records in different plugins; `sfs_find` lists them all.
+2. **Don't guess field names.** `sfs_describe` gives them, with xEdit's name beside each.
+3. **Read the `[notes]` lines** under an answer (a missing master, a patch built for an older master, a part that wasn't searched) and pass on what matters. `[source]` says which copy of which plugins was read.
+4. **`[more]` means the answer was cut:** repeat the call with its cursor.
+5. **`Not run. …` means the work is heavy** and states its cost. Repeat with `allow_heavy` when the cost is acceptable; ask the user first when it is many GB.
+6. **A call that returns a job number is still working:** collect it with `sfs_job`.
+7. **Links are FormKeys.** In SQL, match one by name with `edid(column) = '…'`.
+8. On the command line, quote FormIDs, and end inline SQL with `;` (or use `--file`).
 
-SFSearch never changes a plugin. Its databases (`Cache\`, `Service\data\`) hold game and mod data: never commit, upload or share them.
+**Nothing about a record is stored.** SFSearch keeps working files in `SFSearch\scratch\` (emptied at every service start), two small things in `SFSearch\kept\` (decompiled scripts, a history log), and the service's log and long answers saved to files in `SFSearch\Service\`. A folder `SFSearch\Cache\` or `SFSearch\Service\data\` is left over from 1.x and isn't used. All of these hold game and mod data: never commit, upload or share them.
 
-**`SFSearch\sfsearch.json` belongs to the user.** Change it only when they ask (warm-up, item filter, limits). If you're changing SFSearch's own code, read `DEVELOPING.md` first.
-
-## When a record type isn't stored
-Some types only get a basic row by default (cells, statics, dialogue and others). For a few records, read them straight from the file (`sfs_record` with view `file`). For SQL or many records, store the type with `sfs_add` (`Add <plugin> <Type>`): no rebuild needed. Ask the user first before `--all`, or before adding multi-gigabyte types (SurfaceTree, NavigationMesh, Cell, Worldspace, PlacedObject) to Starfield.esm or ShatteredSpace.esm.
+**`SFSearch\sfsearch.json` belongs to the user.** Change it only when they ask. If you're changing SFSearch's own code, read `DEVELOPING.md` first.

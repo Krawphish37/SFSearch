@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Generates schema.db from Mutagen's own record definitions. See design/agent-first/notes/M1.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>schemagen</AssemblyName>
+    <RootNamespace>SFSearch.SchemaGen</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The Mutagen build the schema is made for. Its record definitions (the Loqui XML under loqui\, in the package
+         since fixes.14, C182) are read from the restored package. The build fails when the package's nuspec doesn't
+         name the compiled assembly's version and commit, or when an XML file differs from the package's .nupkg. -->
+    <MutagenVersion>0.55.0-fixes.17</MutagenVersion>
+    <SchemaPackageDir>$(NuGetPackageRoot)mutagen.bethesda.starfield\$(MutagenVersion)</SchemaPackageDir>
+    <SchemaPairs>$(MSBuildProjectDirectory)\inputs\xedit-pairs-2026-11-14.tsv</SchemaPairs>
+    <SchemaEvidence>$(MSBuildProjectDirectory)\inputs\unknown-fields-r4-2026-11-10.tsv</SchemaEvidence>
+    <SchemaAnnotations>$(MSBuildProjectDirectory)\annotations.tsv</SchemaAnnotations>
+    <SchemaReport>$(MSBuildProjectDirectory)\reports\unmatched-pairs.tsv</SchemaReport>
+    <!-- The Creation Kit's names (to-do F30, GAPS S41): display names, tooltips, ranges, Hidden flags of the engine's
+         reflected classes, fields and enum members, kept in the repo. `schemagen ck-import <dump.json> inputs` makes
+         the file from a new CK dump (see the README); the dump itself isn't read by the build. -->
+    <SchemaCkNames>$(MSBuildProjectDirectory)\inputs\ck-names-1.16.244.0.tsv</SchemaCkNames>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="[$(MutagenVersion)]" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <InternalsVisibleTo Include="SFSearch.SchemaGen.Tests" />
+  </ItemGroup>
+
+  <!-- schema.db is a product of the build: made right after compiling, beside the program. -->
+  <ItemGroup>
+    <SchemaInput Include="$(SchemaPackageDir)\loqui\**\*.xml;$(SchemaPackageDir)\mutagen.bethesda.starfield.nuspec;$(SchemaPairs);$(SchemaEvidence);$(SchemaAnnotations);$(SchemaCkNames)" />
+  </ItemGroup>
+  <Target Name="GenerateSchema" AfterTargets="Build" Inputs="@(SchemaInput);$(TargetPath)" Outputs="$(OutDir)schema.db">
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; build --package &quot;$(SchemaPackageDir)&quot; --pairs &quot;$(SchemaPairs)&quot; --evidence &quot;$(SchemaEvidence)&quot; --annotations &quot;$(SchemaAnnotations)&quot; --ck-names &quot;$(SchemaCkNames)&quot; --report &quot;$(SchemaReport)&quot; --out &quot;$(OutDir)schema.db&quot;" />
+  </Target>
+
+</Project>

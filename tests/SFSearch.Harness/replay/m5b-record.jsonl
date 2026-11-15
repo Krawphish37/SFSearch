@@ -1,0 +1,48 @@
+{"id":"rec01","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm"}}
+{"id":"rec02","tool":"sfs_record","params":{"record":"DarkStar_Mk3_MagShear","max_chars":3000}}
+{"id":"rec03","tool":"sfs_record","params":{"record":"0003C2","plugin":"darkstar.esm","max_chars":3000}}
+{"id":"rec04","tool":"sfs_record","params":{"record":"000CF2"}}
+{"id":"rec05","tool":"sfs_record","params":{"record":"Eon","max_chars":4000}}
+{"id":"rec06","tool":"sfs_record","params":{"record":"Eon","plugin":"Starfield.esm","max_chars":4000}}
+{"id":"rec07","tool":"sfs_record","params":{"record":"0476C4:Starfield.esm","view":"versions"}}
+{"id":"rec08","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"fields","fields":"AttackDamage, HasScope, Keywords[0], WAMM, AmmoType"}}
+{"id":"rec09","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"fields","fields":"BaseDamage"}}
+{"id":"rec10","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"json","max_chars":3000}}
+{"id":"rec11","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"raw","max_chars":3000}}
+{"id":"rec12","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"evidence","fields":"AttackDamage, AmmoType"}}
+{"id":"rec13","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"verify"}}
+{"id":"rec14","tool":"sfs_record","params":{"record":"000FF1:Starfield.esm","plugin":"Starfield.esm"}}
+{"id":"rec15","tool":"sfs_record","params":{"record":"000FF1:Starfield.esm","plugin":"Starfield.esm","view":"json"}}
+{"id":"rec16","tool":"sfs_record","params":{"record":"000FF1:Starfield.esm","plugin":"Starfield.esm","view":"raw","max_chars":2000}}
+{"id":"rec17","tool":"sfs_record","params":{"record":"000FF1:Starfield.esm","view":"versions"}}
+{"id":"rec18","tool":"sfs_record","params":{"record":"12163A:Starfield.esm"}}
+{"id":"rec19","tool":"sfs_record","params":{"record":"00762D:kgcdoom.esm","max_chars":4000}}
+{"id":"rec20","tool":"sfs_record","params":{"record":"kgcDoom_MQ01","max_chars":6000}}
+{"id":"rec21","tool":"sfs_record","params":{"record":"FFFFFF:Starfield.esm"}}
+{"id":"rec22","tool":"sfs_record","params":{"record":"0003C2","plugin":"nope.esm"}}
+{"id":"rec23","tool":"sfs_record","params":{"record":"QuantumHarness"}}
+{"id":"rec24","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"xml"}}
+{"id":"rec25","tool":"sfs_record","params":{"record":"kgcDoom_WEAP_SuperShotgun","view":"fields","fields":"Name","language":"German"}}
+{"id":"rec26","tool":"sfs_record","params":{"record":"kgcDoom_WEAP_SuperShotgun","view":"fields","fields":"Name"}}
+{"id":"rec27","tool":"sfs_record","params":{"record":"000003C2","max_chars":2000}}
+{"id":"rec28","tool":"sfs_record","params":{"record":"0E5767:Starfield.esm","plugin":"darkstar.esm","max_chars":3000}}
+{"id":"rec29","tool":"sfs_record","params":{"record":"0E5767:Starfield.esm","view":"versions"}}
+{"id":"rec30","tool":"sfs_record","params":{"record":"000867","plugin":"MissionsGalore.esm"}}
+{"id":"rec31","tool":"sfs_record","params":{"record":"ShipTerminalMod_Show_ModSettings_MissionsGalore","plugin":"MissionsGalore.esm"}}
+{"id":"rec32","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","colour":"red"}}
+{"id":"rec33","tool":"sfs_record","params":{"record":"000007:Starfield.esm","max_chars":5000}}
+{"id":"rec34","tool":"sfs_record","params":{"record":"028C5B:SFBGS050.esm","view":"fields","fields":"Components[*].SpaceshipAIActor, EditorID"}}
+{"id":"rec35","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"fields"}}
+{"id":"rec36","tool":"sfs_record","params":{"record":"000806:CrimsonX_Z.esm","plugin":"darkstarpatch_crimsonx.esm","max_chars":2500}}
+{"id":"rec37","tool":"sfs_record","params":{"record":"000834:N12_EnergyShields.esm","view":"fields","fields":"FormVersion, Version2, ArmorRating"}}
+{"id":"rec38","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"json","max_chars":3000,"cursor":"1.0000"}}
+{"id":"rec39","tool":"sfs_record","params":{"record":""}}
+{"id":"rec40","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","plugin":"Starfield.esm"}}
+{"id":"rec41","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"json","max_chars":3000,"cursor":"73.feae"}}
+{"id":"rec42","tool":"sfs_record","params":{"record":"0003C2:darkstar.esm","view":"json","max_chars":3000,"cursor":"99999.feae"}}
+{"id":"rec43","tool":"sfs_record","params":{"record":"028C5B:SFBGS050.esm","view":"fields","fields":"Components[*].SpaceshipAIActor, Components[*].NoSuchField"}}
+{"id":"rec44","tool":"sfs_record","params":{"record":"000863:darkstarpatch_bublumi.esm"}}
+{"id":"rec45","tool":"sfs_record","params":{"record":"000863:darkstarpatch_bublumi.esm","view":"raw"}}
+{"id":"rec46","tool":"sfs_record","params":{"record":"Eon","view":"fields","fields":"Name","language":"ja"}}
+{"id":"rec47","tool":"sfs_record","params":{"record":"Eon","plugin":"Starfield.esm","view":"fields","fields":"Name","language":"Japanese"}}
+{"id":"rec48","tool":"sfs_record","params":{"record":"111EA8:Starfield.esm","view":"fields","fields":"Name","language":"German"}}

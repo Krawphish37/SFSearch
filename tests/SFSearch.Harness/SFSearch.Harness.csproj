@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- sfsharness: the test harness of the agent-first design (milestone M12 of design\agent-first\PLAN.md).
+       One command (sfsharness all) runs the golden replay, the 16-trap acceptance test, the round-trip check and the
+       soak test, and prints one table. It is a client: it starts SFSearch on a test home outside the repo and never
+       touches the user's own SFSearch folder or the game's Data folder (which it only reads).
+       The data it runs is in replay\, mapping\, traps\ and polish\: commands and expectations. The author's agent
+       benchmark (a dev tool: its code and data) isn't in the public repository; without it the harness skips it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>sfsharness</AssemblyName>
+    <RootNamespace>SFSearch.Harness</RootNamespace>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <!-- The round-trip check reads and writes a plugin through the same Mutagen build SFSearch uses -->
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.17" />
+    <!-- 'sfsharness agree' reads record types (Mutagen name to signature) from the schema.db beside the SFSearch under test -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <!-- The message format shared with the SFSearch service -->
+    <Compile Include="..\..\SFSearch\Service\Protocol.cs" Link="Protocol.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The tests of milestone M6 (the SQL layer). They read the real Data folder, so they are a program with the
+       Data folder as its argument, like sfsindex-tests and sfsrecord-tests. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>sfsquery-tests</AssemblyName>
+    <RootNamespace>SFSearch.Query.Tests</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- .NET makes hot code fast only after 100 ms in which no new code ran for the first time. While record types
+         are read for the first time that moment keeps moving away, and Mutagen's readers and the JSON serializers
+         run in their slow first form for seconds. With no wait: the first placed-objects read of a new process took
+         6 s, not 8.5 s, and half the processor time (design/agent-first/notes/perf-reads.md). A host of these
+         libraries wants the same line. -->
+    <RuntimeHostConfigurationOption Include="System.Runtime.TieredCompilation.CallCountingDelayMs" Value="0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SFSearch.Query\SFSearch.Query.csproj" />
+  </ItemGroup>
+
+</Project>

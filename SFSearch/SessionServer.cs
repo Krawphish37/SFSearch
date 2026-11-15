@@ -19,7 +19,7 @@ namespace SFSearch
         /// <summary>True inside a service worker.</summary>
         public static bool Active;
 
-        public static bool IsRunning() => !Active && Wire.RunningService(Sfs.HomeDir) != null;
+        public static bool IsRunning() => !Active && Wire.RunningService(Home.Dir) != null;
 
         public static void Command(List<string> args)
         {
@@ -28,16 +28,16 @@ namespace SFSearch
             {
                 case "start": Start(); break;
                 case "restart":
-                    if (Wire.RunningService(Sfs.HomeDir) != null) Stop(quiet: true);
+                    if (Wire.RunningService(Home.Dir) != null) Stop(quiet: true);
                     Start();
                     break;
                 case "stop": Stop(quiet: false); break;
                 case "status":
-                    if (Wire.RunningService(Sfs.HomeDir) == null) { Console.WriteLine("The service isn't running. Commands use the stored databases (or build only what they need with --live)."); return; }
+                    if (Wire.RunningService(Home.Dir) == null) { Console.WriteLine("The service isn't running. Commands still run: each reads what it needs from the plugin files."); if (Home.OldDataLine(Home.Dir) is { } oldData) Console.WriteLine(oldData); return; }
                     Console.Write(Call(new Request { Op = "status" }).Out);
                     break;
                 case "config":
-                    Console.WriteLine(ServiceConfig.Describe(Sfs.HomeDir));
+                    Console.WriteLine(ServiceConfig.Describe(Home.Dir));
                     break;
                 default:
                     Console.WriteLine("Usage: SFSearch Service start | stop | restart | status | config   (Session is the same command. For agents: while the service runs, every command goes to it. Settings: sfsearch.json)");
@@ -47,7 +47,7 @@ namespace SFSearch
 
         static void Stop(bool quiet)
         {
-            var p = Wire.RunningService(Sfs.HomeDir);
+            var p = Wire.RunningService(Home.Dir);
             if (p == null) { if (!quiet) Console.WriteLine("The service isn't running."); return; }
             var r = Call(new Request { Op = "stop" });
             if (!p.WaitForExit(30000)) { try { p.Kill(true); } catch (Exception) { } } // it lets running commands finish first (up to 15 s)
@@ -57,7 +57,7 @@ namespace SFSearch
         public static void Start()
         {
             // Several agents may start it at the same moment: one at a time; the others find it running.
-            using var gate = new Mutex(false, @"Local\sfsearch_start_" + Wire.Hash(Sfs.HomeDir));
+            using var gate = new Mutex(false, @"Local\sfsearch_start_" + Wire.Hash(Home.Dir));
             try { gate.WaitOne(TimeSpan.FromSeconds(90)); } catch (AbandonedMutexException) { }
             try { StartLocked(); }
             finally { try { gate.ReleaseMutex(); } catch (ApplicationException) { } }
@@ -65,7 +65,7 @@ namespace SFSearch
 
         static void StartLocked()
         {
-            if (Wire.RunningService(Sfs.HomeDir) is { } p) { Console.WriteLine($"The service is already running (process {p.Id}). Every command goes to it until 'Service stop'."); return; }
+            if (Wire.RunningService(Home.Dir) is { } p) { Console.WriteLine($"The service is already running (process {p.Id}). Every command goes to it until 'Service stop'."); return; }
             // Run from a copy of the program, so sfs.cmd can still rebuild SFSearch while the service runs.
             string bin = AppContext.BaseDirectory;
             string exeName = Path.GetFileName(Environment.ProcessPath ?? "SFSearch.exe");
@@ -95,16 +95,16 @@ namespace SFSearch
             }
             string exe = Path.Combine(copy, exeName);
             // A hidden window of its own, so it never holds the caller's console open
-            Process.Start(new ProcessStartInfo(exe, $"service run \"{Sfs.HomeDir}\"") { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden });
+            Process.Start(new ProcessStartInfo(exe, $"service run \"{Home.Dir}\"") { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden });
             var clock = Stopwatch.StartNew();
             while (clock.Elapsed.TotalSeconds < 30)
             {
-                if (Wire.RunningService(Sfs.HomeDir) is { } started)
+                if (Wire.RunningService(Home.Dir) is { } started)
                 {
                     try
                     {
-                        Wire.CallAsync(Sfs.HomeDir, new Request { Op = "ping" }, 2000, CancellationToken.None).GetAwaiter().GetResult();
-                        Console.WriteLine($"Service started (process {started.Id}). Every SFSearch command now goes to it until 'Service stop'. Each plugin's record types are read the first time a command needs them and kept in Service\\data.");
+                        Wire.CallAsync(Home.Dir, new Request { Op = "ping" }, 2000, CancellationToken.None).GetAwaiter().GetResult();
+                        Console.WriteLine($"Service started (process {started.Id}). Every SFSearch command now goes to it until 'Service stop'. Plugins are read live; working files are in the scratch folder, which was emptied now.");
                         return;
                     }
                     catch (Exception e) when (e is IOException or TimeoutException) { }
@@ -117,9 +117,9 @@ namespace SFSearch
 
         static Reply Call(Request req)
         {
-            req.Cwd ??= Sfs.CallerCwd;
+            req.Cwd ??= Home.CallerCwd;
             req.Agent ??= Environment.GetEnvironmentVariable("SFSEARCH_AGENT") ?? "cli";
-            try { return Wire.CallAsync(Sfs.HomeDir, req, 30000, CancellationToken.None).GetAwaiter().GetResult(); }
+            try { return Wire.CallAsync(Home.Dir, req, 30000, CancellationToken.None).GetAwaiter().GetResult(); }
             catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException)
             {
                 return new Reply { Done = true, Code = 2, Error = $"Error: the service couldn't be reached ({e.Message}). 'SFSearch Service status' tells whether it runs; 'Service stop' then 'Service start' restarts it." };
@@ -135,21 +135,29 @@ namespace SFSearch
             string? tmp = null;
             if (si >= 0)
             {
-                string dir = Path.Combine(Sfs.HomeDir, "Service", "tmp");
+                string dir = Path.Combine(Home.Dir, "Service", "tmp");
                 Directory.CreateDirectory(dir);
                 tmp = Path.Combine(dir, $"stdin_{Environment.ProcessId}_{DateTime.Now.Ticks}.sql");
                 File.WriteAllText(tmp, Console.In.ReadToEnd());
                 list[si] = "--file";
                 list.Insert(si + 1, tmp);
             }
+            // Ctrl+C here stops the command in the service too (by the call's key: the job number isn't known yet)
+            string key = Wire.NewKey();
+            ConsoleCancelEventHandler onBreak = (_, _) =>
+            {
+                try { Wire.CallAsync(Home.Dir, new Request { Op = "cancel", Key = key }, 2000, CancellationToken.None).GetAwaiter().GetResult(); }
+                catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException) { }
+            };
+            Console.CancelKeyPress += onBreak;
             try
             {
-                var r = Call(new Request { Op = "run", Args = list.ToArray(), WaitMs = -1 });
+                var r = Call(new Request { Op = "run", Args = list.ToArray(), WaitMs = -1, Key = key });
                 // Commands only read: one cut off by a service restart is sent again once, when the service is back
                 if (r.Err.Contains("the service stopped before this command finished") || (r.Error != null && r.Error.Contains("couldn't be reached")))
                 {
-                    for (int i = 0; i < 60 && Wire.RunningService(Sfs.HomeDir) == null; i++) Thread.Sleep(500);
-                    if (Wire.RunningService(Sfs.HomeDir) != null) r = Call(new Request { Op = "run", Args = list.ToArray(), WaitMs = -1 });
+                    for (int i = 0; i < 60 && Wire.RunningService(Home.Dir) == null; i++) Thread.Sleep(500);
+                    if (Wire.RunningService(Home.Dir) != null) r = Call(new Request { Op = "run", Args = list.ToArray(), WaitMs = -1, Key = key });
                 }
                 try { Console.OutputEncoding = new UTF8Encoding(false); } catch (IOException) { }
                 if (r.Error != null) { Console.Error.WriteLine(r.Error); return r.Code == 0 ? 2 : r.Code; }
@@ -157,7 +165,11 @@ namespace SFSearch
                 Console.Error.Write(r.Err);
                 return r.Code;
             }
-            finally { if (tmp != null) try { File.Delete(tmp); } catch (IOException) { } }
+            finally
+            {
+                Console.CancelKeyPress -= onBreak;
+                if (tmp != null) try { File.Delete(tmp); } catch (IOException) { }
+            }
         }
     }
 }

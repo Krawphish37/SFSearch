@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The SQL layer: milestone M6 of design\agent-first\PLAN.md (ARCHITECTURE.md section 8).
+       A library: scratch tables filled live through SFSearch.Records, typed views and list views made from
+       schema.db, three scopes, the checks before a query runs, and one answer object. Nothing is kept between runs. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SFSearch.Query</RootNamespace>
+    <Version>0.1.0</Version>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SFSearch.Records\SFSearch.Records.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <InternalsVisibleTo Include="sfsquery-tests" />
+    <InternalsVisibleTo Include="sfsquery" />
+    <!-- The shipped stored queries (milestone M10) travel with this library, in a folder queries\ beside the program -->
+    <None Include="..\queries\*.sql" Link="queries\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>

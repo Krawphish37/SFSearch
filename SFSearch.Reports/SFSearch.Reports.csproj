@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Checks and reports: part of milestone M11 of design\agent-first\PLAN.md.
+       A library: check (is this plugin built right), leveled (what can this leveled list give), dialogue (what do
+       this quest's characters say) and sources (how does the player get this plugin's items), on the new layers:
+       SFSearch.Index (who holds a record, who wins, what is wrong with a plugin), SFSearch.Records (plugins held
+       open, every record as full-profile JSON), SFSearch.Compare (overrides that change nothing) and schema.db
+       (which record types a link may point at). Nothing mod-specific is in it, and nothing is stored.
+       The rest of M11 (notes\M11b.md): archive, assets, materials, scripts and changes, on Mutagen's archive reader,
+       the schema's path fields and the header index. Two small kept folders hold no record data: decompiled script
+       source and the history log. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The GRUP-header view walks a mapped plugin file (Groups.cs, GAPS S40) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>SFSearch.Reports</RootNamespace>
+    <Version>0.1.0</Version>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SFSearch.Compare\SFSearch.Compare.csproj" />
+    <InternalsVisibleTo Include="sfsreport-tests" />
+    <InternalsVisibleTo Include="sfsreport" />
+  </ItemGroup>
+
+</Project>

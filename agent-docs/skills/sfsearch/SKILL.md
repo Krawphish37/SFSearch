@@ -1,130 +1,143 @@
 ---
 name: sfsearch
-description: How to look up, compare and check Starfield .esm data with SFSearch, a plugin database tool for agents (the sfsearch MCP tools, or sfs.cmd). Covers which command answers which question, the traps that give wrong answers, and where the database layout and research commands are documented. Load before any .esm lookup, FormID name lookup, load-order or "who wins" question, patch check (Delta, Diff), mod-update check or mod reverse-engineering. Never write scripts to parse plugins instead.
+description: Read this before any lookup in a Starfield plugin (.esm, .esp). SFSearch reads the plugins live and answers what a FormID, EditorID or in-game name is, shows records and fields, runs SQL, finds what points at a record, says who wins in the load order and what each plugin changes, compares patches, and checks a plugin, its assets and its scripts. This guide says which sfsearch tool (sfs_find, sfs_record, sfs_describe, sfs_query and eight more, or the sfs.cmd command line) answers which question and how to read the answer. Never write a script to parse a plugin instead.
 ---
 
 # SFSearch
 
-SFSearch is a tool for reading Starfield plugins. It turns each `.esm` into a local database (`SFSearch\Cache\<plugin>.db`) and has commands to look up, compare and check records. Use it for every `.esm` lookup and every patch check. Don't write Python or C# scripts to parse plugins or Mutagen JSON: SFSearch already does that, and its answers have been checked.
+SFSearch reads Starfield plugins live through Mutagen and answers questions about them. Nothing about a record is stored, so no answer is stale. Use it for every plugin lookup, comparison and check; don't write a parser.
 
-## Running it
-**The `sfsearch` MCP tools are the main way in** (set up as the repo's README says; the server is `SFSearch.Mcp`). Each tool takes plain values, so there are no PowerShell quoting traps: FormIDs stay text and SQL can span lines. The first call starts the SFSearch service by itself.
+It never changes a plugin. Use the `sfsearch` MCP tools when they are loaded; otherwise the command line (below). The first call starts the SFSearch service by itself.
 
-| Tool | Answers |
-|---|---|
-| `sfs_names` | What these FormIDs or EditorIDs are, in every plugin that has them |
-| `sfs_record` | One record: `view` fields (Inspect), xedit (Read), json (Dump) or file (Live, with `links`, `chain`, `subrecords`) |
-| `sfs_refs`, `sfs_conflicts` | What points at a record; who wins it in the load order and who edits it |
-| `sfs_query` | SQL on plugins; `with_masters`, `with`, `load_order` (attaches `lo`), `scripts` (attaches `scr`) |
-| `sfs_fields` | Every JSON path a record type has in `Data`, with counts and a sample: run it before writing `json_extract` for a type you haven't queried |
-| `sfs_q` | The saved queries (`flst`, `vmad`, `appr`, `kw`, `templates`, `cobj`, `omod`, `arma`, `new`, `overrides`; `list`) |
-| `sfs_loadorder`, `sfs_changes`, `sfs_scripts` | The load order with runtime slots; what changed since last time and which patches are at risk; Papyrus source |
-| `sfs_delta`, `sfs_diff`, `sfs_plugin_diff`, `sfs_header`, `sfs_stats`, `sfs_profile`, `sfs_add`, `sfs_verifydb` | As the commands below |
-| `sfs_check`, `sfs_archive`, `sfs_leveled`, `sfs_materials`, `sfs_dialogue` | Check a plugin for errors; look inside BA2 archives; unfold a leveled list; meshes to materials to textures; a quest's dialogue (as the commands below) |
-| `sfs_run` | Any other command, as a list of arguments |
-| `sfs_job`, `sfs_status` | Collect a long answer; the service's health |
+## Which tool answers which question
+Each example call was run as written. `references/research.md` shows what the tools print.
 
-- **A call waits up to 45 s.** A first read of a big plugin can take longer (Starfield.esm up to about a minute): the call then returns a job number, and `sfs_job` collects the answer. The service keeps working either way.
-- **Answers over about 20,000 characters go to a file** in `SFSearch\Service\results`; the call returns the start, the size and the path. Read the file, or narrow the query.
-- **Lines under `[notes]`** are warnings: a missing master, a plugin changed on disk, SF1Edit open, a patch whose overrides don't match their base. Pass them on when they matter.
-
-**The command line still works**, for scripts and when MCP isn't loaded:
-```powershell
-& "<SFSearch folder>\SFSearch\sfs.cmd" <Command> [Args...]
-```
-- `sfs.cmd` works from any folder and rebuilds SFSearch by itself when its code has changed. While the service runs, every command goes to it.
-- **`sfs.cmd --help` lists every command and flag**, and `sfs.cmd Q --list` lists the saved query macros. Look there for flags. This skill doesn't repeat them.
-- Every command takes `--json` / `--csv` (the default is a Markdown table), `--maxwidth N` and `--raw` (no `[EditorID]` labels after FormKeys).
-- A record can be given by EditorID or FormKey (`000CF2:darkstar.esm`, or just `CF2` inside its own plugin). A plugin is found in the Data folder by file name; most commands also take a full path.
-
-### The service (what the MCP tools use)
-- **Many agents at once.** A coordinator hands each command to one of several worker programs (8 by default), so commands run side by side; each agent gets its own place in the queue. Only commands that need the same plugin's record type read for the first time wait for each other. Tested 2026-11-07 with 32 clients at once and workers killed on purpose.
-- **Crashes stay small.** A worker that crashes is replaced and its command runs once more; a command past 10 minutes, or a worker past 12 GB, is stopped with a clear error. Nothing hangs.
-- **Its data** is in `SFSearch\Service\data`: one database per plugin, named after the exact copy of the plugin it was read from, filled one record type at a time as commands need them, kept between restarts (40 GB cap, least recently used dropped first). The stored databases in `Cache` are never used or changed by it.
-- **It doesn't lock plugins.** SF1Edit and Vortex can save between commands. A plugin changed on disk is read again, and the answer says so. It never shuts itself down when idle, and an open SF1Edit only adds a note.
-- **Warm-up:** after 30 s with no agent command it reads, in the background and only while no agent is waiting, the load-order index and the common types (weapons, armor, recipes, OMODs, keywords, lists) of the base game files (Starfield.esm, ShatteredSpace.esm) and the 15 plugins agents asked about most recently. Nothing is tied to one mod list, so it suits any load order. After a game or mod update it reads the changed files again. `Service status` shows how far it got.
-- **Settings: `SFSearch\sfsearch.json`**, every line explained inside. It covers the warm-up (on or off, what to read: plugin names, patterns such as `SFBGS*.esm`, `@base`, `@official`, `@recent`, `@loaded`; which types; after updates) the service's limits (workers, time limit, memory, queue, data cap), the **item filter** (`itemFilter`: how weapons and armor are sorted into groups and what counts as junk; defaults are the built-in rules (the All-in-One Patcher's `UniversalItemFilter`), and a database built with different rules is rebuilt by itself), and `champollion` (the path to `Champollion.exe` for `Scripts`; otherwise `SFSEARCH_CHAMPOLLION`, `tools\champollion\` in the home folder). Saved edits apply without a restart. `sfs.cmd Service config` (or `sfs_run ["Service","config"]`) shows what's in effect. The user owns this file: change it only when asked.
-- **Which Data folder:** `SFSEARCH_DATA`, then `Cache\DataPath.txt`, then the Steam or Xbox install found by itself. `sfs.cmd SetData "<path to Data>"` writes `DataPath.txt`.
-- `sfs.cmd Service status | stop | restart | start`. **After SFSearch is rebuilt, `Service status` says the service runs the old build: `Service restart`.** Its log is `Service\logs\service-<date>.log`.
-
-### Other ways to get the data (same commands, same answers)
-| Way | How | When |
+| The question | Tool | Example call |
 |---|---|---|
-| Stored databases | Run `sfs.cmd` commands with no service running | A plugin's database is built the first time it's needed and kept in `Cache` |
-| `--live` | Add `--live` to any command (no service running) | One-off checks with no plugin database kept: about 1 s for most mods, up to about a minute when a command needs all of Starfield.esm |
+| What is this FormID, FormKey or EditorID? (several at once) | `sfs_find` | `{"query": "0003E6 000AA2", "in": "darkstar.esm"}` |
+| A FormID with no plugin named: which plugins have it? | `sfs_find` | `{"query": "000CF2"}` lists every record with that ID and picks none |
+| What is it called in game? Which record has this in-game name? | `sfs_find` | `{"query": "Super Shotgun", "in": "kgcdoom.esm"}` |
+| Which records have this text or character in a name, description, book, dialogue line, quest log entry, game setting or perk text? Text outside plain ASCII? | `sfs_find` | `{"text": "(?i)galaxy handbook"}`, `{"text": "[^\\x00-\\x7F]", "from": "stored"}`; `"language": "de"` searches the German strings files; `"world": true` adds map markers' names |
+| Which weapons (or any type) does a plugin hold? | `sfs_find` | `{"type": "WEAP", "in": "kgcdoom.esm"}` |
+| Is a plugin Full, Medium or Small? Loaded? Its console prefix, masters, room for new records, records per type (new and overrides)? Can I trust it? | `sfs_loadorder` | `{"view": "plugin", "plugin": "atom74.esm"}` |
+| The load order. Which plugins have problems (a missing master, a patch built for an older master)? | `sfs_loadorder` | `{}`, `{"view": "problems"}` |
+| What changed in Data since last time? Which patches are at risk? | `sfs_loadorder` | `{"view": "changes"}` |
+| Show me one record | `sfs_record` | `{"record": "kgcDoom_WEAP_SuperShotgun"}` |
+| One value: its damage, its keywords, what a recipe makes, its templates | `sfs_record` | `{"record": "kgcDoom_WEAP_SuperShotgun", "view": "fields", "fields": "AttackDamage,Keywords"}` |
+| Prove a value from the file's bytes | `sfs_record` | `{"record": "kgcDoom_WEAP_SuperShotgun", "view": "evidence", "fields": "AttackDamage"}` |
+| A plugin file outside Data (a backup, a test build, a downloaded mod) | `sfs_record`, `sfs_compare` | `{"record": "kgcDoom_WEAP_SuperShotgun", "plugin": "C:/backup/kgcdoom.esm"}`; `sfs_compare` with `"kind": "plugins"` takes two paths |
+| Every subrecord as the file has it; a record Mutagen can't read | `sfs_record` | `{"record": "000863:darkstarpatch_bublumi.esm", "view": "raw"}`: header and each subrecord's bytes, from the file itself |
+| What is this field called? What fields does a record type have? An enum's values? | `sfs_describe` | `{"what": "WEAP", "filter": "damage"}` |
+| Reflected data (a REFL subrecord: atmospheres, weather settings, image spaces, fog volumes, effect sequences, LOD and material components) | `sfs_record`, `sfs_describe` | The card decodes it under `Decoded`: `{"record": "0EC2B1:Starfield.esm"}` shows `Image Space: Day (pImageSpaceDay): IS_Atmo_Orange_LUT_Day (13DAAF:Starfield.esm)`; `"view": "evidence", "fields": "ReflectionDiff.Decoded.Settings.Misc.pImageSpaceDay"` gives its bytes. `{"what": "BGSAtmosphere::MiscSettings"}` lists a reflected class's fields, with the Creation Kit's name beside the engine's |
+| How many, or which, records of a plugin fit a condition? | `sfs_query` | `{"plugins": "kgcdoom.esm", "sql": "SELECT count(*) AS N FROM Weapon_Keywords WHERE edid(Value) = 'kgcDoom_Tag_WeaponTypeDoom'"}` |
+| The same over what the game uses (the winners of the load order) | `sfs_query` | `{"sql": "SELECT count(*) AS N FROM Weapon"}` |
+| Recipes, keywords, attach points, templates, FormLists, OMODs, armor meshes, leveled lists, new records, overrides, broken links: ready-made | `sfs_saved` | `{"action": "list"}`, then `{"action": "run", "name": "cobj", "args": {"plugin": "kgcdoom.esm"}}` |
+| What points at this record? Does anything use it? | `sfs_refs` | `{"record": "0076BE:kgcdoom.esm", "in": "kgcdoom.esm"}` |
+| What does this record point at? | `sfs_refs` | `{"record": "kgcDoom_WEAP_CrucibleBlade", "direction": "out"}` |
+| Who wins this record, and what does each plugin change? | `sfs_compare` | `{"kind": "versions", "record": "2377CF:Starfield.esm"}` |
+| What does this plugin or patch change in its masters? In one record? | `sfs_compare` | `{"kind": "plugin_vs_masters", "a": "darkstarpatch_atom74.esm", "detail": true}`; add `"filter": "<EditorID text, FormKey or type>"` |
+| How do two records differ? | `sfs_compare` | `{"kind": "records", "a": "219447:Starfield.esm", "b": "0082B0:darkstar.esm"}` |
+| What does a patch change in one record of its master? | `sfs_compare` | `{"kind": "records", "a": "atom74.esm", "record": "ccAtom74Mk2", "b": "darkstarpatch_atom74.esm"}` |
+| What changed between two versions of a mod? My patch against a reference patch? | `sfs_compare` | `{"kind": "plugins", "a": "<old file>", "b": "<new file>"}`, `{"kind": "patch_vs_reference", "a": "<my patch>", "b": "<reference patch>"}` |
+| Is this plugin built right? | `sfs_check` | `{"plugin": "atom74.esm"}` |
+| How many overrides change nothing (ITMs)? | `sfs_check` | `{"plugin": "darkstar.esm", "what": "itm"}` |
+| Are the meshes and other files there? The textures behind the materials? | `sfs_check` | `{"plugin": "atom74.esm", "what": "assets"}`, `"what": "materials"` |
+| What is this material made of (layers, texture sets, textures, parent), compiled or a `.mat` file, and which copy does the game use? Which materials (compiled and `.mat` files) use this texture? | `sfs_run` | `{"args": ["materials2", "--material", "materials\\water\\waterchoppylarge.mat"]}`, `{"args": ["materials2", "--texture", "textures\\water\\foamdefault_color.dds"]}`; add `"--all-paths"` when the answer says some materials' paths aren't told (a few seconds, once; then kept) |
+| Does Mutagen read and write this plugin without loss? | `sfs_check` | `{"plugin": "atom74.esm", "what": "roundtrip"}` |
+| How does the player get this item? | `sfs_run` | `{"args": ["sources2", "kgcdoom.esm", "--item", "kgcDoom_WEAP_SuperShotgun"]}` |
+| What can this leveled list give? | `sfs_run` | `{"args": ["leveled2", "kgcDoom_LL_Weapon_SuperShotgun_HighestQuality"]}` |
+| What do this quest's characters say? | `sfs_run` | `{"args": ["dialogue2", "kgcDoom_MQ01"]}` |
+| What is in a mod's archives? Which archive has this file? | `sfs_run` | `{"args": ["archive2", "atom74.esm"]}` |
+| What do this mod's Papyrus scripts do? | `sfs_run` | `{"args": ["scripts2", "atom74.esm"]}` |
+| What values does this field take across plugins (zeros, top values, are they FormIDs, strings IDs or floats)? The unknown fields of a type? The GRUP headers? | `sfs_run` | `{"args": ["profile", "Planet.OrbitalData.Unknown1", "--in", "@official"]}`, `{"args": ["profile", "--unknown", "--type", "NPC_", "--in", "@official"]}`, `{"args": ["profile", "--groups", "--in", "kgcdoom.esm"]}` |
+| An add-on's command; any verb's full options | `sfs_run` | `{"args": ["help"]}`, `{"args": ["refs2", "--help"]}` |
+| A call came back "Still working on it (job …)" | `sfs_job` | `{"job": "<the job number>"}`; `"cancel": true` stops it |
+| Is the service healthy? Are the indexes ready? | `sfs_status` | `{}` |
 
-The load-order index (`Cache\_loadorder.db`), the history (`Cache\History.db`) and decompiled scripts (`Cache\Scripts.db`) are kept in `Cache` in every way.
+Try a purpose-built tool first. Write SQL for what they don't cover, and read `references/sql.md` before you do.
 
-## Which command answers which question
-| Question | Command |
+## How to read an answer
+Every tool answers in the same parts. A real call and its answer:
+```text
+> sfs_find {"type": "KYWD", "in": "kgcdoom.esm", "limit": 3}
+| Record | Type | Name | Held by (winner first) |
+| :--- | :--- | :--- | :--- |
+| kgcDoom_ma_Spacesuit_Praetor_Body (0076BA:kgcdoom.esm) | KYWD Keyword |  | kgcdoom.esm |
+| kgcDoom_Tag_SpeechChallenge_Mitch03 (0076BB:kgcdoom.esm) | KYWD Keyword |  | kgcdoom.esm |
+| kgcDoom_ap_Quality (0076BC:kgcdoom.esm) | KYWD Keyword | Quality | kgcdoom.esm |
+[more] 3 of 42 rows shown. Next: cursor "3.a819".
+[source] kgcdoom.esm 3.5 MB, key 9561e0c8; load order (224 loaded, plugins.txt) 9 KB, key b730711a
+[cost] 32 ms; read the header index of 370 plugins (checked in 23 ms)
+```
+- **`[more]`**: the answer was cut. Repeat the call with the same arguments and `cursor` set to the text in quotes. A cursor only works for the question that gave it. Nothing is cut without this line.
+- **`[notes]`**: warnings and reasons. Read them every time, and pass on the ones that matter. Problems of a plugin (a patch built for an older master) come first. An answer with no rows says why here.
+- **`[source]`**: which copy of which plugins the answer was read from: size, a key of the file's content, and the path when the file is outside Data. Every tool writes a size the same way: 1 KB is 1,024 bytes; whole KB rounded down under 1 MB (53,235 bytes is `51 KB`), one decimal for MB, two for GB.
+- **`[cost]`**: the time, and what had to be read. The first question about a record type reads it (Starfield.esm's 7,131 NPCs: 0.2 s); later ones find it ready.
+- **An error is one line:** `Error: <what is wrong>. Fix: <what to do>.` Do what the fix says.
+- **`Not run. … about N s and M GB of memory.`** The work is heavy (over 10 s, 2 GB or a million records) and wasn't started. Repeat the call with `allow_heavy: true` if the cost is acceptable. Ask the user first when it is many GB: Starfield.esm's round trip is about 71 s and 13.8 GB.
+- **`Still working on it (job …)`**: a call waits up to 45 s. Collect the answer with `sfs_job`.
+- **Shared arguments:** `limit` or `rows` (rows a page, default 40), `max_chars` (default 24,000), `language` (default English), `format: "json"` (the parts as fields; `sfs_query`, `sfs_saved`, `sfs_compare`, `sfs_check` and the reports give their rows as values).
+
+## The rules that still matter
+1. **Write every record as `EditorID (FormID:plugin)`,** as the tools print it. Never a bare FormID in a reply or a note. A record that has no EditorID is printed `[no EditorID] (FormID:plugin)`; a link to one of the game's own built-in forms as `PlayerRef [built into the game] (000014:Starfield.esm)`.
+2. **Don't guess field names.** `sfs_describe` gives the name SQL, `sfs_record` and the cards use. A wrong name is answered with the nearest real ones.
+3. **Read `[notes]`.**
+4. **Links are FormKeys** (`0476C4:Starfield.esm`). To match a link by name in SQL, write `edid(column) = 'TheEditorID'`.
+5. **Say whose version you read.** `sfs_record` reads the version the game uses unless `plugin` names another, and its third line says which. A plugin that isn't loaded never wins.
+6. **A plugin is a file name in Data or the full path of a file elsewhere.** A record is a FormKey, an EditorID, or a FormID with its plugin.
+7. **`sfsearch.json` in the SFSearch folder is the user's.** Change it only when asked.
+
+## What is no longer a worry
+The 16 traps of the old guide are gone or caught. Each has a tested case (`tests\SFSearch.Harness\traps\traps.json`).
+
+| Was | Now |
 |---|---|
-| What is this FormID? (to write "EditorID (FormID)") | `Names "id1 id2" [--in p1,p2]` |
-| Show me one record | `Inspect <plugin> <record>` (fields), `Read` (xEdit layout), `Dump` (raw JSON) |
-| Read a record straight from the file, no cache | `Live <plugin> <record>` (`--chain`, `--links`, `--vs-cache`, `--subrecords`) |
-| One field from every record of a type, including what the cache skips (ship parts, dialogue, statics) | `Live <plugin> --sig <Type> --field "Components[*].SpaceshipAIActor"` (`--filter "EDID*"`, `--value text`, `--new`, `--empty`, `--all`). Never loop `Live` per record |
-| What points at this record, including types the cache skips | `Live <plugin> <record> --refs [--with p1,p2]`. Use `Refs` first: it's faster, and with no `--in` it searches every plugin in Data that can point at the record |
-| Compare two records | `Diff <p1> <p2> <rec1> [rec2] --summary` (`--expect f1,f2` exits 1 on any other change) |
-| What does this plugin change in its masters? | `Delta <plugin> [FormKey or EDID] [--detail] [--out f.md]` |
-| Who wins this record, and who edits it? | `Conflicts <record>`: in the real load order (plugins.txt), each row with what it changes against the one before; plugins in Data that aren't loaded are listed apart |
-| Which version of many records wins in game? | `Query --loadorder "<SQL>"` on `lo.Winners` (FormKey, Plugin, Signature, EditorID, Versions, Pos) or `lo.WinningRecords` (the winners' full `Data`, for the types the SQL names with `Signature = '…'`); `lo.Versions` lists every copy. Functions `winner(fk)`, `versions(fk)`. Columns in `references/database.md` |
-| The load order, with console prefixes | `LoadOrder [plugin] [--all]`: position, runtime slot (`0A`, `FD:03`, `FE:09A` → console `FE09Axxx`), size, records, missing or late masters |
-| What changed since last time? Is a patch broken by a mod update? | `Changes [plugin] [--since yyyy-mm-dd]`: mods added, removed or updated (Full ↔ Light, records added or removed), and patches at risk (trap 15). With a plugin: its history and the records its last update added or removed |
-| What does this mod's Papyrus do? | `Scripts <plugin> [--find text] [--show ScriptName]`: decompiled once with Champollion and kept; `Query --scripts` joins `scr.Scripts` / `scr.Lines` to records |
-| What points at this record? | `Refs <record> [--in plugins]` |
-| What can this leveled list give? | `Leveled <list> [--in plugin] [--depth N]`: every entry with level, count, chance of nothing and conditions, nested lists under it, each from the version that wins in the load order |
-| What do this quest's characters say? | `Dialogue <quest\|topic> [--in plugin]`: topics and lines with speaker, English text, conditions, and the scene, stage or speech challenge a line starts. Adds the plugin's dialogue types to its database the first time |
-| How does the player get this mod's items? | `Sources <plugin> [--item X] [--with p1,p2] [--scripts] [--out f.md]`: follows Refs back through leveled lists to quests, recipes (with conditions), vendors, LL injector scripts, containers, placed copies, NPCs; `--scripts` lists scripts calling AddItem / GetFormFromFile |
-| Is this plugin built right? (SF1Edit's Check for Errors) | `Check <plugin> [--all]`: missing masters, FormIDs too big for its size, links to missing or wrong-type records, links outside its masters, overrides whose type changed, deleted records, duplicate EditorIDs, ITMs. Links to the engine's built-in forms (Starfield.esm below 0x800, e.g. 000014, the player) and inside navmesh info maps (which keep entries for deleted navmeshes) are left out, with a note |
-| Header flags, masters, Light/Medium room left | `Header <plugin>` (also HEDR version and record count, and the ONAM list of overridden forms) |
-| How many records of each type? | `Stats <plugin>` |
-| Are all meshes and materials there? | `Assets <plugin> [--missing]` |
-| Are the textures behind its materials there? | `Materials <plugin> [--missing]`: the mod's meshes, the `.mat` files they use, and those materials' textures. Materials compiled into a `materialsbeta.cdb` (the game's own, or a mod's) are listed, not checked |
-| What is in a mod's archives? Which archive has this file? | `Archive <plugin\|file.ba2\|all>`: summary; `--list "*.mat"`; `--find text`; `--show <path>` prints a text file (`.mat`, `.psc`); `--extract <glob> --to <folder>` (never into Data). Notes loose copies the game uses instead. Texture sizes aren't shown (the reader reports them wrong) |
-| What changed between two versions of a plugin, or what does a patch change in the plugin it masters? | `PluginDiff <old> <new> [--detail]` |
-| Would a Mutagen read and save lose anything in this plugin? | `LossCheck <plugin or path> ... [--all] [--report file] [--samples N]` saves to a temp folder through both readers, never Data. LOST, CHANGED and ADDED are listed, and NOTE for a deleted record saved as its header only; order, FormID style and empty groups aren't counted. |
-| A type isn't in the database and I need more than `Live` gives (SQL, `Refs`, many records) | `Add <plugin> <Type> ...` stores it in full, with no rebuild. `Add <plugin> --list` shows what's missing, with row counts. `--all` gives the whole plugin. Safe to stop and run again; a rebuild adds the types back. |
-| Is this plugin's database right? | `VerifyDb <plugin> [--report file] [--samples N]` checks the rows in the database against the plugin file: every record present, headers, links, parents, read-back, field values. Prints PASS or the problems. Field checks sample up to 200 records per type. Starfield.esm with Climate added always shows 1 problem: ClimateNone (3D248E:Starfield.esm) has a `TNAM` one byte short, which is harmless. |
-| Full dossier before patching a new mod | `Profile <plugin> [--against <plugin>] [--out file.md]` |
-| Which add-on commands are installed (checks for one mod) | `Extensions`. Run them like any command; two add-ons with the same command: `<AddOn>.<Command>`, e.g. `DarkStar.Lint`. Over MCP: `sfs_run`. |
-| How does mod X build its Mk.II / Mk.III? | `MkDiff <plugin> --sig Armor` or `--sig Weapon` |
-| How are its quality tiers built? | `OmodCensus <plugin> "<EditorID glob>"` |
-| How are its recipes built? | `RecipeCensus <plugin> [--bench <keyword>] [--filter <glob>]` |
-| FormLists, scripts, APPR, keywords, templates, recipes, OMODs (with their mesh), armor meshes | `Q flst` / `vmad` / `appr` / `kw` / `templates` / `cobj` / `omod` / `arma` `<plugin> [filter]` |
-| Only the new, or only the override, records | `Q new` / `Q overrides <plugin> [Signature]` |
-| Every record of one type, quickly | `List <plugin> <Type\|*>`: FormKey, type, EditorID and name, sorted by FormKey |
-| Which JSON paths does this type have? | `Fields <plugin> <Type> [--filter text]`: every path in `Data` (arrays as `[*]`), how many records have it, a sample value |
-| Anything else | `Query <plugins> "<SQL>"` or `Query <plugins> --file x.sql` |
+| An unquoted FormID in PowerShell turned into a number | MCP takes text. On the command line an error says to quote it |
+| The same six digits in different plugins | A bare ID lists every record that has it and picks none |
+| New or override judged by a database's name | `IsOverride` comes from the record's FormKey. There are no databases |
+| Searching record data by EditorID found 0 | SQL gets a note that names `edid()`; `sfs_refs` takes either |
+| OMODs weren't `ObjectModification` | `ObjectModification` holds all 8 OMOD types, with a `Type` column |
+| Vanilla text came German first | Text is English, or the `language` asked for |
+| Two files of one name shared one database | Each file is read by its content; `[source]` shows the key and the path |
+| A plugin comparison dropped repeated EditorIDs | Pairs are by FormKey. With `match: "editorid"` a warning lists the repeated ones |
+| Many record types weren't stored | Every type is read on request; a big one says its cost first |
+| Inline SQL cut at a line break ran as a shorter query | MCP takes any SQL. The command line refuses inline SQL that doesn't end with `;` |
+| `json_each` per row was slow; the shell's 2-minute limit | Every list is a view with its own rows. A note says so; long work is a job |
+| A patch whose master was renamed couldn't be paired | An error names the expected master; `as` reads the file under that name |
+| Assets of a file outside Data read Data's archives silently | A note and `[source]` say which archives were read; `beside` reads the ones next to the file |
+| A missing master put FormIDs on the wrong plugin | An error names the master. Nothing is read through a guess |
+| A patch built before its master changed size read wrong | The warning leads `[notes]` of every answer that reads it |
+| SQL with no `ORDER BY` changed row order | A note says the order isn't fixed |
 
-Try the purpose-built command first. Write SQL only for what they don't cover.
+## The command line
+For scripts, and when the MCP tools aren't loaded:
+```powershell
+& "<SFSearch folder>\SFSearch\sfs.cmd" <verb> [arguments]
+```
+| Tool | Verb | | Tool | Verb |
+|---|---|---|---|---|
+| `sfs_find` | `find` | | `sfs_compare` | `compare` |
+| `sfs_record` | `record` | | `sfs_loadorder` | `loadorder2` |
+| `sfs_describe` | `describe` | | `sfs_check` | `check2` |
+| `sfs_query` | `query2` | | `sfs_saved` | `saved` |
+| `sfs_refs` | `refs2` | | `sfs_status`, `sfs_job` | `status`, `job` |
 
-## Traps that give wrong answers
-1. **Quote FormIDs in PowerShell** (the MCP tools don't need it). An unquoted `0003E6` is read as the number 3000000. One quoted string can hold many IDs: `Names "003A8F 0003E6"`.
-2. **The same six digits are usually different records** in Starfield.esm, darkstar.esm and DSM. `Names` lists every plugin that has a bare ID: pick from context, never just the first row.
-3. **New vs override: use the `IsOverride` column.** Never "the FormKey's plugin = the cache name". A plugin read by path gets a cache named `_file1_<name>.esm`, but its FormKeys keep `<name>.esm`.
-4. **Search raw data by FormKey, not by EditorID.** The `[EditorID]` after a FormKey is added only when printing. The stored data holds just `27CBC3:Starfield.esm`, so `Data LIKE '%Skill_SpacesuitDesign%'` or `instr(Data,'DarkStarDetected')` silently finds 0. Match `'%27CBC3:Starfield.esm%'` instead.
-5. **Armor and weapon OMODs** are stored as `ArmorModification` / `WeaponModification`, not `ObjectModification`.
-6. **Vanilla text inside `Data` is German first.** Use the `Name` column (already English) or `en(json_extract(Data,'$.Description'))`, never `->> '$[0]'`.
-7. **Caches follow the plugin file, but one name = one cache.** Each cache remembers the size, date and folder of the file it was built from and rebuilds by itself when any of them changes, even to an older date (a mod manager keeps the archive's date). Masters are refreshed too, so a mod update needs no manual cache deletion. Caches made before 2026-10-25 rebuild once on first use (Starfield.esm took about a minute). A path (`"C:\…\x.esm"`, a `.bak`) works in every command and gets its own `_file1_<name>` cache, apart from the Data copy's. Two different files with the same name read by path share that one cache and rebuild each time you switch, so for repeated comparisons copy them under unique names (`zold_x.esm`, `znew_x.esm`).
-8. **PluginDiff collapses repeated EditorIDs.** When the old file repeats an EditorID, removed duplicates show as neither Removed nor Added. Count records per type with `Query` to catch it.
-9. **Not every record type is cached in full.** Dialogue, scenes, navmeshes, cells, worldspaces, planets, biomes, statics, lights, sounds, visual records and ship-builder parts only get a `Forms` row (FormKey, type, EditorID). Parts share the type GenericBaseForm with whole ships, and are told apart by name (SM + letters + _, such as `SMS_` or `SMX_`; `Stats` shows the type as "Partly"). Whole ships, their spawn lists (LeveledBaseForm) and locations (Location, with encounter levels at `$.Owner.EncounterMinLevel`) are cached in full since 2026-11-04. In a plugin with more than 50,000 placed references (Starfield.esm, ShatteredSpace.esm, some big mods such as nfvc0003vigilance.esm; `Meta` `PlacedMode` tells) only placed objects with scripts are cached in full; placed NPCs always are, flags such as Starts Dead included. Why they're left out: terrain, navmeshes, cells, worldspaces and unscripted placed objects are huge in the big plugins, and no patcher reads them; planets, biomes, dialogue and scenes only matter for world and quest mods; statics, lights, sounds and visual records are small but rarely asked about. Read such a record with `Live`, or store its type in that plugin's database with `Add <plugin> <Type>` (no rebuild). Ask the user before `--all`, or before adding a multi-gigabyte type to Starfield.esm or ShatteredSpace.esm. Sizes in Starfield.esm: Static 2 s and 27 MB of text, Cell 61 s and 2.6 GB, NavigationMesh 88 s and 3 GB, SurfaceTree 4.7 GB; everything with `--all` takes about 20 minutes and 50 GB, mostly link rows from surface trees (197 million of 209 million). **Pack-ins (PackIn) and moveable statics (MoveableStatic) are cached in full since 2026-11-01**, with their own scripts (`Q vmad`) and keywords (`Q kw`, `Refs`). The objects a pack-in places are placed references in its storage cell: find them through `Forms.Parent` = the pack-in's `Cell`.
-10. **Inline SQL on the command line must be one line** (the MCP tools take any SQL). `sfs.cmd` cuts an argument at its first line break, and the cut query can still run and return a wrong answer with no error. Put longer SQL in `--file x.sql`, or pipe it in: `$sql | & sfs.cmd Query <plugin> --stdin`.
-11. **The 2-minute limit is the shell tool's timeout, not SFSearch's.** Slow SQL is usually `json_each` re-run for every row. Extract once into a temp table, index it, then join (pattern in `references/database.md`). If it's still slow, run it in the background.
-12. **PluginDiff needs the master link to check a patch.** When one file masters the other it compares each record with the same FormID, and leaves out what the patch doesn't contain. If the patch's master was renamed, it can't pair them and prints a WARNING that overrides weren't compared: give the plugin under the file name the patch masters.
-13. **Assets given a path checks the archives in Data.** It matches them by the plugin's real file name, so archives sitting beside a copy outside Data aren't read.
-14. **A missing Small master makes a plugin's FormIDs wrong.** Mutagen needs each master's size, and a missing file has none, so records read as overrides of the wrong plugin and links land on the wrong one. Every command warns (`WARNING ... needs master(s) that aren't in Data`) and `VerifyDb` counts it as a problem. Don't trust those results: put the master in Data and the database rebuilds by itself. `Live --loader gameenv` also shows a few false "unresolved" links: trust the normal `--links`.
-15. **A patch built before its master changed size reads wrong, with no warning.** FormIDs count masters by size, so when a Full master later becomes Light, the patch's records land on the wrong plugins. Signs: almost no new records (`IsOverride` = 1 on nearly everything), and overrides whose type differs from their base. **`Changes` lists them** ("Patches at risk"), `LoadOrder` notes them, and every command that reads such a plugin prints a WARNING, once the load-order index has checked it. Known (2026-11-07): darkstarpatch_bountyhunteroutfitz.esm and darkstarpatch_crimsonx.esm, both broken by later updates of the mods they patch.
-16. **SQL with no `ORDER BY` can list rows in a different order each time.** The service fills a plugin's database one record type at a time, so its row order isn't the file's. Add `ORDER BY` whenever order matters, and compare results as sets; `group_concat` lists too.
+The reports are verbs too: `leveled2`, `dialogue2`, `sources2`, `archive2`, `assets2`, `materials2`, `scripts2`, `changes2`, `profile`.
+- **A tool's arguments are the verb's options:** `max_chars` is `--max-chars`, a yes/no argument is a bare flag. The first words fill the main arguments: `record Eon --view versions`, `query2 kgcdoom.esm "SELECT …;"`, `saved run cobj plugin=kgcdoom.esm`.
+- **`<verb> --help` shows a verb's options.** `--json` gives the answer's parts as one JSON object.
+- **Quote FormIDs** in a shell, and **end inline SQL with `;`**. Longer SQL goes in `--file q.sql` or `--stdin`.
+- **A verb whose name ends in `2`** replaced an older command of the plain name (`Query`, `Check`, `Refs`, …), removed in 2.0. The plain name only answers with a pointer to the verb.
+- Exit codes, the same for every verb: 0 an answer (also one with no rows); 1 an answer that is a failure of what was asked (`check2` found errors, a round trip differs, `compare records` with `expect` found another difference); 2 an error (the one line `Error: … Fix: …`); 7 "not run" (heavy work that wasn't allowed); 8 not enough memory free for heavy work that was allowed, or the PC ran short of memory while the command ran (ask again).
 
-## Output
-- Never write a bare FormID in a reply or a note. Run `Names` and write `EditorID (FormID)`.
-- For long results, use `--out report.md` and point the user to the file.
+## Where the old tools went
+The 25 older tools (`sfs_names`, `sfs_conflicts`, `sfs_delta`, `sfs_fields`, `sfs_q` and the rest) and the older commands (`Names`, `Inspect`, `Query`, `Delta`, …) were removed in SFSearch 2.0. An old command's name answers with one line, `Error: Names was one of SFSearch's older commands, removed in 2.0. Fix: use find <FormID or EditorID> (sfs_find). …`. An old note or script: `references/old-tools.md` gives the new call for each, and what differs in the answer.
 
 ## Detail files (read when needed)
-- `references/database.md`: tables and columns, attaching masters, SQL functions, multi-statement files. Read before writing SQL.
-- `references/research.md`: MkDiff, OmodCensus, RecipeCensus and Profile in depth, plus the options of the lookup and compare commands.
-- `queries/quality_keyword_check.sql`: lists quality OMODs that can never attach because the item lacks their target keyword. Run it on every generated patch: `Query <patch> --file "<path to it>"`.
+- `references/sql.md`: what SQL sees, the scopes, the functions, the checks, the stored queries. Read before writing SQL.
+- `references/research.md`: each tool in depth, with real answers.
+- `references/old-tools.md`: old tool or command (removed in 2.0) on the left, new call on the right; old SQL and JSON paths too.
 
 ## Keeping this skill up to date
-- **Edit in place.** When a command, flag or trap changes, change its line here. Don't append dated notes.
-- A new command gets its full description in SFSearch's `--help`, one row in the table above, and a section in `references/` only if it needs more.
-- Keep this file under about 150 lines. If it grows past that, move detail into `references/`.
+- **Edit in place.** When a tool, argument or rule changes, change its line here. Don't append dated notes.
+- **Every example is real.** Run it and paste what it printed.
+- Keep this file under about 150 lines. Detail goes in `references/`.

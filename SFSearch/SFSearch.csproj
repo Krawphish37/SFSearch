@@ -5,14 +5,47 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- The first number is the add-on API: raise it only when ISfsExtension or the helpers add-ons use change in a breaking way (DEVELOPING.md) -->
-    <Version>1.0.1</Version>
+    <!-- The first number is the add-on API: raise it only when ISfsExtension or the helpers add-ons use change in a breaking way (DEVELOPING.md).
+         2.0: the older commands and their helpers (Sfs, Program.EnsureCacheForFile, RecordStore, LegacyStore, ...) were removed;
+         add-ons use SFSearch.AddOns (AddOnApi.cs). An add-on built for 1.x is refused with "rebuild it". -->
+    <Version>2.0.0</Version>
+    <!-- The link index and the byte search read memory-mapped files in place (SFSearch\Engine\LinkFile.cs, ByteSearch.cs) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
-    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.5" />
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.17" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- No wait before .NET compiles hot code for speed. With the default wait (100 ms without new code), Mutagen's
+         readers and the serializers stay in their slow first form for seconds: the first read of Starfield.esm's
+         placed objects took 8.1 to 8.8 s with the wait and 5.7 to 6.5 s without (design\agent-first\notes\perf-reads.md).
+         The service's workers are this program, so they get it too. -->
+    <RuntimeHostConfigurationOption Include="System.Runtime.TieredCompilation.CallCountingDelayMs" Value="0" />
+  </ItemGroup>
+
+  <!-- The agent-first engine (design\agent-first): the header index, and the schema the new tools read record types from. -->
+  <ItemGroup>
+    <ProjectReference Include="..\SFSearch.Index\SFSearch.Index.csproj" />
+    <!-- Records, cards and evidence (milestone M3): the record and refs tools read records through it. -->
+    <ProjectReference Include="..\SFSearch.Records\SFSearch.Records.csproj" />
+    <!-- The SQL layer, the comparisons and the reports (milestones M6, M7, M10, M11): the tools of milestone M8 answer through them.
+         SFSearch.Query brings the shipped stored queries along (queries\ beside SFSearch.exe). -->
+    <ProjectReference Include="..\SFSearch.Query\SFSearch.Query.csproj" />
+    <ProjectReference Include="..\SFSearch.Compare\SFSearch.Compare.csproj" />
+    <ProjectReference Include="..\SFSearch.Reports\SFSearch.Reports.csproj" />
+    <!-- Built first, never referenced: its build makes schema.db, which is copied beside SFSearch.exe below. -->
+    <ProjectReference Include="..\SFSearch.SchemaGen\SFSearch.SchemaGen.csproj" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+  <Target Name="CopySchemaDb" AfterTargets="Build">
+    <PropertyGroup>
+      <SchemaDbSource>$(MSBuildProjectDirectory)\..\SFSearch.SchemaGen\bin\$(Configuration)\$(TargetFramework)\schema.db</SchemaDbSource>
+    </PropertyGroup>
+    <Copy SourceFiles="$(SchemaDbSource)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('$(SchemaDbSource)')" />
+    <Warning Text="schema.db wasn't found at $(SchemaDbSource): the new tools then know record types by their 4-letter signature only." Condition="!Exists('$(SchemaDbSource)')" />
+  </Target>
 
 </Project>
 

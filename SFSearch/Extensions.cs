@@ -23,10 +23,15 @@ namespace SFSearch
     /// <summary>Finds and runs the add-ons in <c>&lt;home&gt;\extensions\*.dll</c>.</summary>
     public static class Extensions
     {
-        public static string Folder => Path.Combine(Sfs.HomeDir, "extensions");
+        public static string Folder => Path.Combine(Home.Dir, "extensions");
 
         /// <summary>The add-on API version: SFSearch's own version. An add-on built against a different first number isn't loaded.</summary>
         public static Version ApiVersion => typeof(Extensions).Assembly.GetName().Version ?? new Version(1, 0);
+
+        /// <summary>The version as people read it, e.g. "2.0.0" (the API check above uses only the numbers).</summary>
+        public static string DisplayVersion =>
+            (typeof(Extensions).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .FirstOrDefault() as System.Reflection.AssemblyInformationalVersionAttribute)?.InformationalVersion.Split('+')[0] ?? ApiVersion.ToString(3);
 
         /// <summary>One add-on file: its name (the file name without "SFSearch."), what it was built against, and its command sets
         /// (empty when it couldn't be loaded; <see cref="Problem"/> says why).</summary>
@@ -93,7 +98,7 @@ namespace SFSearch
         }
 
         /// <summary>
-        /// Runs <paramref name="command"/> if an add-on has it: either its full name (<c>DarkStar.Lint</c>) or a short name only
+        /// Runs <paramref name="command"/> if an add-on has it: either its full name (<c>MyMod.Lint</c>) or a short name only
         /// one add-on has. False when none has it. A short name two add-ons share is refused with their full names.
         /// </summary>
         public static bool TryRun(string command, List<string> args)
@@ -112,16 +117,32 @@ namespace SFSearch
             if (matches.Select(m => m.AddOn.File).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
             {
                 Console.WriteLine($"Error: more than one add-on has a '{command}' command: {string.Join(", ", matches.Select(m => $"{m.AddOn.Name}.{m.Name}"))}. Use the full name.");
+                Environment.ExitCode = 2;
                 return true;
             }
             var (addOn, set, name) = matches[0];
+            // Whatever the add-on's command throws ends in an error line and exit code 2, never 0 (S43)
             try { set.Run(name, args); }
             catch (Exception e) when (e is MissingMethodException or MissingFieldException or TypeLoadException)
             {
                 Console.WriteLine($"Error: the add-on {Path.GetFileName(addOn.File)} was built against a different SFSearch ({e.Message}). Rebuild it.");
+                Environment.ExitCode = 2;
+            }
+            catch (AddOns.AddOnException e)
+            {
+                // The add-on API's own error, which the command didn't catch: its line as it is
+                Console.WriteLine(e.Line);
+                Environment.ExitCode = 2;
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                Program.Crashed(e, $"{addOn.Name}.{name}");
             }
             return true;
         }
+
+        /// <summary>The short names of every add-on command (for the nearest names when a command isn't known).</summary>
+        public static List<string> CommandNames() => All().SelectMany(a => a.Commands.Select(c => c.Name)).ToList();
 
         /// <summary>The add-ons' lines for <c>--help</c>, one heading per add-on.</summary>
         public static IEnumerable<string> HelpLines()
@@ -139,7 +160,7 @@ namespace SFSearch
         {
             var all = All();
             var sb = new StringBuilder();
-            sb.AppendLine($"SFSearch {ApiVersion.ToString(3)}. Add-ons in {Folder}: {all.Count}.");
+            sb.AppendLine($"SFSearch {DisplayVersion}. Add-ons in {Folder}: {all.Count}.");
             if (all.Count == 0)
             {
                 sb.AppendLine("No add-ons. To make one, start from extensions\\SFSearch.Example (README: \"Your own commands\").");

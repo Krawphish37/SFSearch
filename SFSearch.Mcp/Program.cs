@@ -20,6 +20,9 @@ public static class Program
         // Pipe connects block a thread each while they wait: start with enough threads for many calls at once
         ThreadPool.SetMinThreads(128, 128);
         Bridge.Home = FindHome(args);
+        // --legacy-tools listed the 25 older tools; they were removed with the older commands in SFSearch 2.0
+        if (args.Any(a => a.Equals("--legacy-tools", StringComparison.OrdinalIgnoreCase)))
+            Console.Error.WriteLine("[sfsearch-mcp] --legacy-tools is no longer there: the 25 older tools were removed with the older commands in SFSearch 2.0. These are the 12 tools (sfs_find, sfs_record, sfs_query, ...).");
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Console.Error.WriteLine("[sfsearch-mcp] crash: " + e.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, e) => { Console.Error.WriteLine("[sfsearch-mcp] " + e.Exception.GetBaseException().Message); e.SetObserved(); };
 
@@ -27,14 +30,14 @@ public static class Program
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
-        builder.Services
+        var server = builder.Services
             .AddMcpServer(o =>
             {
-                o.ServerInfo = new Implementation { Name = "sfsearch", Version = "1.0" };
-                o.ServerInstructions = Tools.Instructions;
+                o.ServerInfo = new Implementation { Name = "sfsearch", Version = "2.0" };
+                o.ServerInstructions = NewTools.Instructions;
             })
-            .WithStdioServerTransport()
-            .WithTools<Tools>();
+            .WithStdioServerTransport();
+        server.WithTools<NewTools>();
         try
         {
             await builder.Build().RunAsync();

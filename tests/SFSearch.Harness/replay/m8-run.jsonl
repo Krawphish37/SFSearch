@@ -1,0 +1,16 @@
+{"id": "run01", "tool": "sfs_run", "params": {"args": ["help"]}}
+{"id": "run02", "tool": "sfs_run", "params": {"args": ["leveled2", "0032EE:Starfield.esm", "--depth", "2"]}}
+{"id": "run03", "tool": "sfs_run", "params": {"args": ["leveled2", "LL_Weapon_ccAtom74"]}}
+{"id": "run04", "tool": "sfs_run", "params": {"args": ["dialogue2", "kgcDoom_MQ01", "--max-chars", "3000"]}}
+{"id": "run05", "tool": "sfs_run", "params": {"args": ["sources2", "atom74.esm"]}}
+{"id": "run06", "tool": "sfs_run", "params": {"args": ["sources2", "atom74.esm", "--scan"]}}
+{"id": "run07", "tool": "sfs_run", "params": {"args": ["sources2", "kgcdoom.esm", "--only"]}}
+{"id": "run08", "tool": "sfs_run", "params": {"args": ["archive2", "atom74.esm"]}}
+{"id": "run09", "tool": "sfs_run", "params": {"args": ["archive2", "atom74.esm", "list", "*.mat", "--max-chars", "2000"]}}
+{"id": "run10", "tool": "sfs_run", "params": {"args": ["assets2", "atom74.esm"]}}
+{"id": "run11", "tool": "sfs_run", "params": {"args": ["materials2", "aa50_longwatch.esm"]}}
+{"id": "run12", "tool": "sfs_run", "params": {"args": ["query2", "kgcdoom.esm", "SELECT count(*) AS N FROM Weapon;"]}}
+{"id": "run13", "tool": "sfs_run", "params": {"args": ["query2", "kgcdoom.esm", "SELECT count(*) AS N FROM Weapon"]}}
+{"id": "run14", "tool": "sfs_run", "params": {"args": ["record", "Eon", "--view", "versions"]}}
+{"id": "run15", "tool": "sfs_run", "params": {"args": ["leveled2", "nope_list"]}}
+{"id": "run16", "tool": "sfs_run", "params": {"args": ["nosuchverb", "x"]}}

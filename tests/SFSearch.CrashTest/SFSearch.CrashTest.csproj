@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A test add-on whose commands throw on purpose (GAPS S43: an add-on command that threw exited 0). Only for test
+       homes: build it with -p:SfsExtensionsDir=<test home>\extensions. It is never put in SFSearch's own extensions
+       folder. SFSearch.ServiceTest addoncrash runs its commands. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SfsHome>$(MSBuildThisFileDirectory)..\..\SFSearch</SfsHome>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(SfsHome)\SFSearch.csproj" Private="false" />
+  </ItemGroup>
+
+  <Target Name="NeedTestHome" BeforeTargets="Build" Condition="'$(SfsExtensionsDir)' == ''">
+    <Error Text="Name the test home's extensions folder: -p:SfsExtensionsDir=&lt;test home&gt;\extensions. This add-on throws on purpose and never goes into SFSearch's own extensions folder." />
+  </Target>
+
+  <Target Name="CopyToSfsExtensions" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SfsExtensionsDir)" />
+  </Target>
+
+</Project>

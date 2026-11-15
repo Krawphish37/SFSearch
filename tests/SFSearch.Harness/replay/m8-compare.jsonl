@@ -1,0 +1,14 @@
+{"id": "com01", "tool": "sfs_compare", "params": {"kind": "versions", "record": "2377CF:Starfield.esm"}}
+{"id": "com02", "tool": "sfs_compare", "params": {"kind": "versions", "record": "Eon"}}
+{"id": "com03", "tool": "sfs_compare", "params": {"kind": "records", "a": "219447:Starfield.esm", "b": "0082B0:darkstar.esm"}}
+{"id": "com04", "tool": "sfs_compare", "params": {"kind": "records", "a": "sfta05.esm", "record": "SFTA05_AddInto_DefaultLegendaryWeapons", "b": "darkstarpatch_trackersalliance_rikuokada.esm"}}
+{"id": "com05", "tool": "sfs_compare", "params": {"kind": "records", "a": "Starfield.esm", "record": "Eon", "b": "svc3holsters.esm", "expect": "Keywords"}}
+{"id": "com06", "tool": "sfs_compare", "params": {"kind": "plugin_vs_masters", "a": "darkstarpatch_atom74.esm"}}
+{"id": "com07", "tool": "sfs_compare", "params": {"kind": "plugin_vs_masters", "a": "darkstarpatch_atom74.esm", "detail": true, "max_chars": 4000}}
+{"id": "com08", "tool": "sfs_compare", "params": {"kind": "plugin_vs_masters", "a": "svc3holsters.esm", "filter": "*Eon*"}}
+{"id": "com09", "tool": "sfs_compare", "params": {"kind": "plugins", "a": "atom74.esm", "b": "darkstarpatch_atom74.esm"}}
+{"id": "com10", "tool": "sfs_compare", "params": {"kind": "patch_vs_reference", "a": "dstgo_atom74.esm", "b": "darkstarpatch_atom74.esm"}}
+{"id": "com11", "tool": "sfs_compare", "params": {"kind": "patch_vs_reference", "a": "dstgo_atom74.esm", "b": "darkstarpatch_atom74.esm", "match": "editorid", "max_chars": 3000}}
+{"id": "com12", "tool": "sfs_compare", "params": {"kind": "versions", "record": "000CF2"}}
+{"id": "com13", "tool": "sfs_compare", "params": {"kind": "sideways", "a": "atom74.esm"}}
+{"id": "com14", "tool": "sfs_compare", "params": {"kind": "plugins", "a": "atom74.esm"}}

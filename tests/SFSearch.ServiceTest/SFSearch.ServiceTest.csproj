@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests of the SFSearch service (milestone M4 of design\agent-first): the old message form, the structured form and
+       cursors, the heavy lane, cancelling, the indexer lane, the memory limits, and a small soak run.
+       It is a client only: it talks to a service started on a test home (SFSEARCH_HOME), never to the user's own. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SFSearch.ServiceTest</AssemblyName>
+    <RootNamespace>SFSearch.ServiceTest</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <!-- npcflags reads Starfield.esm's NPCs straight through Mutagen, to hold the old Query's counts against -->
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.17" />
+    <!-- The message format shared with the SFSearch service -->
+    <Compile Include="..\..\SFSearch\Service\Protocol.cs" Link="Protocol.cs" />
+  </ItemGroup>
+
+</Project>

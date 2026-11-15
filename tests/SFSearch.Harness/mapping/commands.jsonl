@@ -1,0 +1,455 @@
+{"id":"0","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Records WHERE EditorID LIKE 'mod_DarkStar_Mk2_Pack_SpaceTrucker_Backpack_Quality_%' ORDER BY EditorID","--maxwidth","120"]}
+{"id":"1","args":["Query","darkstar.esm","SELECT FormKey, EditorID, Base, Parent FROM Forms WHERE EditorID LIKE '%Atmos%' AND Signature='PlacedObject'"]}
+{"id":"2","args":["Query","darkstar.esm","SELECT EditorID, instr(Data,'DarkStar:TGO:AtmosphereGen')>0 AS HasScript FROM Records WHERE EditorID IN ('pi_DarkStar_LandingPad_Terminus_GX80','pi_DarkStar_Kit_AtmosphereGenerator')"]}
+{"id":"3","args":["Query","cryomancer_z.esm","SELECT f.FormKey, edid(f.Base) base, f.Parent, edid(f.Parent) cell, f.HasScripts FROM Forms f WHERE f.Base IN (SELECT FormKey FROM Records WHERE Signature='Weapon' AND EditorID LIKE '%Unique%') OR f.Base IN ('006F43:cryomancer_z.esm','0164DC:cryomancer_z.esm','009172:cryomancer_z.esm','01599D:cryomancer_z.esm','01650C:cryomancer_z.esm')","--raw","--maxwidth","120"]}
+{"id":"4","args":["Query","darkstar.esm","SELECT FormKey, Signature, EditorID FROM Forms WHERE EditorID LIKE '%CodexMachine%' OR EditorID LIKE '%CodexMach%' ORDER BY Signature","--maxwidth","160","--raw"]}
+{"id":"5","args":["Query","darkstar.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature='WeaponModification' AND (EditorID LIKE 'lmod_Legendary_Wep_3_%' OR EditorID LIKE 'lmod_Legendary_Weap_03_%') ORDER BY EditorID","--maxwidth","140","--raw"]}
+{"id":"6","args":["Query","Starfield.esm","SELECT EditorID, substr(FormKey,1,6) id FROM Records WHERE EditorID IN ('Loot_Display_WeaponsCase_Pistols_Common','Loot_Storage_LC102_GuestOutfit')","--raw"]}
+{"id":"7","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Records WHERE EditorID IN ('ResMfg_DarkStar_QuantumRig_Workbench','ResMfg_DarkStar_LegendaryMatrix','ResMfg_DarkStar_Codex__Blank','cat_Category_Outpost_DarkStar','rp_DarkStar_Legendary_Armor_Mod','rp_DarkStar_Legendary_Weapon_Mod')","2>"]}
+{"id":"8","args":["Query","darkstar.esm","SELECT Signature, TotalCount, Cached FROM SignatureCounts WHERE Signature IN ('Activator','CombatStyle','GameSettingFloat','GameSettingUInt','BodyPartData','AimModel','GameplayOption','GameplayOptionsGroup','DefaultObject','ActorValueModulation','PlacedObject','PlacedNpc','GenericBaseForm') ORDER BY Signature","--raw"]}
+{"id":"9","args":["Query","cryomancer_z.esm","SELECT EditorID, json_extract(Data,'$.MajorFlags') mf, edid(json_extract(Data,'$.Race')) race FROM Records WHERE Signature='Armor' AND (EditorID LIKE 'Skin_%' OR EditorID LIKE 'Clothes_Cryo_Robotics%') ORDER BY mf","--raw"]}
+{"id":"10","args":["Query","darkstarpatch_athellsgate.esm","SELECT FormKey, EditorID, json_array_length(Data,'`$.Items') n, edid(json_extract(Data,'`$.AddToList')) anam, json_extract(Data,'`$.AddToList') a FROM Records WHERE Signature='FormList' ORDER BY anam"]}
+{"id":"11","args":["Query","darkstar.esm","SELECT Signature, COUNT(*) AS n, MIN(EditorID) AS first_edid, MAX(EditorID) AS last_edid FROM Forms WHERE Signature IN ('GenericBaseForm','GameplayOption','GameplayOptionsGroup','CombatStyle','AimModel','Activator','BodyPartData','ActorValueModulation','SnapTemplate','PackIn','Static','MoveableStatic','LayeredMaterialSwap','PlacedNpc','DefaultObject','Light','LocationReferenceType') GROUP BY Signature ORDER BY n DESC","--raw","--maxwidth","70"]}
+{"id":"12","args":["Query","DarkStar_Manufacturing.esm","SELECT COUNT(*) AS recordsWithScripts, group_concat(DISTINCT json_extract(s.value,'$.Name')) AS scripts FROM Records r, json_each(r.Data,'$.VirtualMachineAdapter.Scripts') s","--raw","--maxwidth","200"]}
+{"id":"13","args":["Query","DarkStar_Manufacturing.esm","SELECT FormKey, EditorID, Name FROM Records WHERE EditorID IN ('DSM_Mk3_Rocketlauncher','DSM_Mk3_Bridger','DSM_Mk3_Lawgiver','DSM_Mk3_Kodama','DSM_Mk3_Magstorm')","--raw"]}
+{"id":"14","args":["Query","darkstar.esm","SELECT COUNT(*) FROM Records WHERE Signature='MiscItem' AND Data LIKE '%scaling:WeaponConfigurator%'","--raw"]}
+{"id":"15","args":["Query","darkstar.esm","SELECT EditorID, json_extract(Data,'$.WorkbenchKeyword') WB, json_extract(Data,'$.Conditions') IS NOT NULL C FROM Records WHERE Signature='ConstructibleObject' AND EditorID LIKE '%ForceAssault%Quality%'","--maxwidth","80","2>"]}
+{"id":"16","args":["Query","darkstarpatch_bountyhunteroutfitz.esm","SELECT substr(FormKey, instr(FormKey,':')+1, instr(FormKey,' ')-instr(FormKey,':')-1) AS Plugin, IsOverride, COUNT(*) AS N FROM Forms GROUP BY 1,2"]}
+{"id":"17","args":["Query","darkstarpatch_athellsgate.esm","SELECT FormKey, EditorID, IsOverride, json_extract(Data,'$.TargetOmodKeywords') T, (SELECT group_concat(json_extract(p.value,'$.Record'),' ') FROM json_each(Data,'$.Properties') p WHERE json_extract(p.value,'$.Property')='Keyword') K FROM Records WHERE Signature='WeaponModification' AND EditorID LIKE 'amod_DarkStar_Weap_%Quality%' ORDER BY EditorID","--maxwidth","400","2>"]}
+{"id":"18","args":["Query","nfvc0003vigilance.esm","SELECT EditorID, json_extract(Data,'$.TargetOmodKeywords') tok FROM Records WHERE EditorID LIKE 'NFVC0003_mod_Nova_Nightingale_Mag_%'"]}
+{"id":"19","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, edid(json_extract(Data,'$.CreatedObject')) co FROM Records WHERE Signature='ConstructibleObject' AND Data LIKE '%ComparisonValue__:__2000__,%' LIMIT 3","--raw"]}
+{"id":"20","args":["Query","Starfield.esm","SELECT FormKey, EditorID FROM Forms WHERE EditorID='PlayerUnityTimesEntered'","2>"]}
+{"id":"21","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, json_extract(Data,'$.RecipeFilters') F FROM Records WHERE Signature='ConstructibleObject' AND EditorID LIKE 'co_DarkStar_Weap_Melee_CryoP79%'","--maxwidth","200","2>"]}
+{"id":"22","args":["Query","Ecliptic_Merc_Z.esm","SELECT EditorID, IsOverride, json_extract(Data,'$.ObjectBounds.First') AS bMin, json_extract(Data,'$.ObjectBounds.Second') AS bMax FROM Records WHERE Signature='Armor' AND EditorID LIKE '%Ecliptic%'","--raw"]}
+{"id":"23","args":["Query","Starfield.esm","SELECT FormKey, Signature, EditorID, Name FROM Forms WHERE EditorID LIKE '%Rejuv%'"]}
+{"id":"24","args":["Query","darkstar.esm","SELECT FormKey, Signature, EditorID FROM Forms WHERE Signature='Terminal'","--raw","2>"]}
+{"id":"25","args":["Query","DarkStar_Manufacturing.esm","SELECT substr(FormKey,1,6) ID, Signature, EditorID FROM Records WHERE substr(FormKey,1,6) IN ('0004AF','0004AD','0004F4','0004FD')","--raw"]}
+{"id":"26","args":["Query","cryomancer_z.esm","SELECT EditorID, json_extract(Data,'$.ArmorRating') ar, json_extract(Data,'$.Value') val, substr(json_extract(Data,'$.Armatures'),1,90) arma FROM Records WHERE EditorID IN ('Spacesuit_Cryo_01_1','Spacesuit_Cryo_08_1','Spacesuit_Cryo_12_1','Spacesuit_Cryo_30_1','Spacesuit_Cryo_H_01_01','Spacesuit_Cryo_H_30_01','Spacesuit_CryoMiner_Backpack_01','Spacesuit_CryoMiner_Backpack_30','Clothes_Cryo_RoboticsSuit_02','Clothes_Cryo_RoboticsSuit_03','Clothes_Cryo_RoboticsSuit_04','Clothes_Cryo_Robotics_Hat_01','Clothes_Cryo_Robotics_Hat_02')","--raw","--maxwidth","120"]}
+{"id":"27","args":["Query","darkstarpatch_trackersalliance_starjackerredux.esm","SELECT r.EditorID, t.key, en(json_extract(t.value,'`$.Name')) nm, (SELECT group_concat(edid(i.value ->> 'Mod'),' ') FROM json_each(t.value,'`$.Includes') i) inc, (SELECT group_concat(edid(k.value),' ') FROM json_each(t.value,'`$.Keywords') k) kw FROM Records r, json_each(r.Data,'`$.ObjectTemplates') t WHERE r.EditorID IN ('DarkStar_Mk2_Pack_SFTA06_Int01_Assault','DarkStar_Mk2_Apparel_SFTA06_TrackSuit_01')","--maxwidth","400"]}
+{"id":"28","args":["Query","Starfield.esm","SELECT EditorID, FormKey FROM Records WHERE EditorID IN ('RifleXPLProjectile','ShotgunXPLProjectile','PistolBulletProjectile_ExplosiveImpact_Damage01','WeaponTypePistol','WeaponTypeShotgun')","--raw"]}
+{"id":"29","args":["Query","darkstar.esm","SELECT Signature, TotalCount, OverrideCount, Cached FROM SignatureCounts WHERE Signature IN ('Projectile','Explosion','Ammunition','Weapon','Hazard','Spell','ObjectEffect','MagicEffect','WeaponModification')"]}
+{"id":"30","args":["Query","cryomancer_z.esm","SELECT Signature, json_extract(Data,'$.MajorFlags') mf, json_extract(Data,'$.Flags') fl, COUNT(*) n, MIN(EditorID) ex, MAX(EditorID) ex2 FROM Records WHERE Signature IN ('Weapon','Armor') AND IsOverride=0 GROUP BY 1,2,3","--raw","--maxwidth","120"]}
+{"id":"31","args":["Query","Starfield.esm","SELECT json_valid(Data) ok, length(Data) len, substr(Data,1,3000) head FROM Records WHERE FormKey='049B54:Starfield.esm'","--raw","--format","json"]}
+{"id":"32","args":["Query","sfta04.esm","SELECT json_extract(Data,'$.VirtualMachineAdapter.Scripts[0]') FROM Records WHERE EditorID='SQ_SFTA04_TwoShot'","--json","--raw","2>"]}
+{"id":"33","args":["Query","darkstarpatch_terranarmada.esm","SELECT json_group_array(k.key) FROM (SELECT Data FROM Records WHERE EditorID='SFTER_MQ03_Combat_A_TerranArmada_Scipio02_AutopilotAI') r, json_each(r.Data) k","--maxwidth","3000"]}
+{"id":"34","args":["Query","df_firearms_modifications.esm","SELECT COUNT(DISTINCT json_extract(Data,'$.TargetOmodKeywords[0]')) AS guns_with_df_mags FROM Records WHERE Signature='WeaponModification' AND IsOverride=0 AND json_extract(Data,'$.AttachPoint') = '05D4D7:Starfield.esm'"]}
+{"id":"35","args":["Query","DarkStar_Manufacturing.esm","SELECT EditorID, Name, edid(json_extract(Data,'$.OverrideProjectile')) AS proj, edid(json_extract(Data,'$.AmmoType')) AS ammo FROM Records WHERE Signature='Weapon' AND IsOverride=0 AND (EditorID LIKE '%Mk3%' OR EditorID LIKE '%MkIII%') AND (EditorID LIKE '%Rocket%' OR EditorID LIKE '%Bridger%' OR EditorID LIKE '%Launcher%' OR Name LIKE '%Negotiator%' OR Name LIKE '%Bridger%' OR Name LIKE '%Microgun%' OR EditorID LIKE '%Microgun%')","--with-masters","--raw"]}
+{"id":"36","args":["Query","kinggathcreations_spaceship.esm","SELECT EditorID, json_extract(Data,'$.Flags') AS Flags, json_extract(Data,'$.CrimeValues') AS Crime FROM Records WHERE EditorID IN ('kgcShip_FACT_CrimeStardock','kgcShip_FACT_Stardock','kgcShip_FACT_Watchtower_Hostile')","--maxwidth","500"]}
+{"id":"37","args":["Query","Starfield.esm","SELECT r.FormKey, r.EditorID, f.c FROM Records r JOIN (SELECT ToFormKey k, COUNT(*) c FROM Refs GROUP BY 1 ORDER BY 2 DESC LIMIT 3) f ON f.k=r.FormKey","2>"]}
+{"id":"38","args":["Query","darkstarpatch_trackersalliance_rikuokada.esm","SELECT FormKey, EditorID, Signature FROM Records WHERE EditorID='SFTA05_AddInto_DefaultLegendaryWeapons'","2>"]}
+{"id":"39","args":["Query","darkstarpatch_cryomancer.esm","SELECT i.EditorID, i.Name, (SELECT group_concat(r.FromEditorID) FROM Refs r WHERE r.ToFormKey=i.FormKey AND r.FromSignature='MiscItem') datums FROM Records i WHERE i.Signature IN ('Weapon','Armor') AND (SELECT COUNT(*) FROM Refs r WHERE r.ToFormKey=i.FormKey AND r.FromSignature='MiscItem')<>1","--raw","--maxwidth","150"]}
+{"id":"40","args":["Query","Starfield.esm","SELECT COUNT(*) AS weapons, SUM(json_extract(Data,'$.ObjectBounds.First') = '0, 0, 0' AND json_extract(Data,'$.ObjectBounds.Second') = '0, 0, 0') AS zero FROM Records WHERE Signature='Weapon' AND IsOverride=0 AND json_extract(Data,'$.IsJunk') = 0","--raw"]}
+{"id":"41","args":["Query","darkstar.esm","SELECT FormKey,Signature,EditorID FROM Forms WHERE FormKey='003042:darkstar.esm'","2>"]}
+{"id":"42","args":["Query","Starfield.esm","SELECT EditorID FROM Records WHERE Signature='Armor' AND EditorID LIKE '%Neuroamp%'","2>"]}
+{"id":"43","args":["Query","Starfield.esm","SELECT r.EditorID, json_extract(e.value,'$.Level') lvl, edid(json_extract(e.value,'$.Reference')) ref FROM Records r, json_each(r.Data,'$.Entries') e WHERE r.EditorID='LCharSpacer'","--maxwidth","160","--raw"]}
+{"id":"44","args":["Query","darkstar.esm","SELECT FormKey, EditorID, length(Data) FROM Records WHERE Signature='Perk' AND EditorID LIKE '%Explos%'","--maxwidth","120"]}
+{"id":"45","args":["Query","aseveil.esm","SELECT EditorID, Name FROM Records WHERE Signature='Quest' LIMIT 5","2>"]}
+{"id":"46","args":["Query","darkstar.esm","SELECT FormKey FROM Records WHERE Signature='ConstructibleObject' AND EditorID LIKE 'co_qmod_Weap_ForceAssault_Blade_Quality_0%' ORDER BY EditorID","--raw","2>"]}
+{"id":"47","args":["Query","Starfield.esm","SELECT FormKey, EditorID FROM Records WHERE Signature='Weapon' AND EditorID IN ('Lawgiver','Kodama','Grendel','Coachman')","--raw"]}
+{"id":"48","args":["Query","darkstarpatch_theheadhunter.esm","SELECT EditorID, Data ->> '$.FirstPersonFlags' f, Data ->> '$.Keywords' k, Data ->> '$.AttachParentSlots' a FROM Records WHERE EditorID IN ('thh_Darkstar_Mk2_Accessory_BH_M2_Gear_BeltStraps','thh_Darkstar_Mk2_Accessory_BH_M2_Gear_Device')"]}
+{"id":"49","args":["Query","Starfield.esm","SELECT EditorID, json_extract(Data,'$.WorkbenchKeyword') WB FROM Records WHERE Signature='ConstructibleObject' AND json_extract(Data,'$.AmountProduced')=0 AND json_extract(Data,'$.CreatedObject') IN (SELECT FormKey FROM Records WHERE Signature IN ('WeaponModification','ArmorModification')) LIMIT 6","--maxwidth","90","2>"]}
+{"id":"50","args":["Query","df_firearms_modifications.esm","SELECT edid(ToFormKey) AS target, COUNT(*) AS refs, group_concat(DISTINCT FromSignature) AS from_types FROM Refs WHERE lower(ToFormKey) LIKE '%:sfbgs003.esm' OR lower(ToFormKey) LIKE '%:sfbgs00d.esm' GROUP BY ToFormKey ORDER BY refs DESC","--maxwidth","60"]}
+{"id":"51","args":["Query","darkstar.esm","SELECT Signature, COUNT(*) n, MIN(length(Data)) minLen, MAX(length(Data)) maxLen, (SELECT group_concat(key, ' ') FROM (SELECT DISTINCT j.key FROM Records r2, json_each(r2.Data) j WHERE r2.Signature = r.Signature AND j.key NOT IN ('Record Header','EDID - Editor ID','Signature') LIMIT 8)) AS someFields FROM Records r WHERE Signature IN ('Activator','CombatStyle','BodyPartData','AimModel','GameplayOption','GameplayOptionsGroup','DefaultObject','ActorValueModulation','PlacedObject','PlacedNpc') GROUP BY Signature","--raw","--maxwidth","110"]}
+{"id":"52","args":["Query","Starfield.esm","SELECT Signature, TotalCount, Cached FROM SignatureCounts WHERE Signature IN ('Projectile','Explosion','Ammunition','Hazard','MagicEffect','ObjectEffect')"]}
+{"id":"53","args":["Query","darkstar.esm","SELECT EditorID, json_extract(Data,'$.Properties') P FROM Records WHERE Signature='WeaponModification' AND EditorID='mod_DarkStar_Mk3_Weapon_CombatKnife_Quality_7'","--raw","--maxwidth","3000","2>"]}
+{"id":"54","args":["Query","Starfield.esm","SELECT EditorID, json_extract(Data,'$.Description') AS D FROM Records WHERE Signature='Perk' AND (EditorID LIKE 'Skill_Incapacitation%' OR EditorID LIKE 'Skill_ShotgunCertification%' OR EditorID LIKE '%Incapacitation_Rank%' OR EditorID LIKE '%ShotgunCertification_Rank%')","--maxwidth","400","2>"]}
+{"id":"55","args":["Query","darkstar.esm","SELECT COUNT(*) FROM Records r WHERE r.Signature='ConstructibleObject' AND tier(edid(json_extract(r.Data,'$.CreatedObject'))) BETWEEN 2 AND 8","--raw"]}
+{"id":"56","args":["Query","Starfield.esm","SELECT FormKey, Signature, EditorID FROM Records WHERE EditorID IN ('BountyHunterFaction','GroupFactionCrimsonFleet','EclipticFaction','GroupFactionEcliptic','EclipticFriendFaction','FreestarRangerFaction','TheFirstFaction','RobotFaction','SpacerFaction','GroupFactionSpacers','StarbornEncounterFaction','GroupFactionStarborn','LC165StarbornEnemyFaction','LC165StarbornAllyFaction','UnitedColoniesMarineFaction','UCSysDefFaction','UCVanguardFaction','VaruunFaction','GroupFactionVaruun','CurrentCompanionFaction','CurrentCrewFaction','CurrentFollowerFaction','AvailableCrewFaction','PotentialCrewFaction','AvailableCompanionFaction','PlayerAllyFaction','GuardFaction','ShipServicesFaction','CaptiveFaction','SecurityGuardClass','ActorTypeHuman','HumanRace','PlayerFaction') ORDER BY Signature, EditorID","--raw"]}
+{"id":"57","args":["Query","Starfield.esm","SELECT FormKey, Signature, EditorID FROM Records WHERE EditorID IN ('dtEnergy','dtElectromagnetic','dtPhysical','Stim_dt_piercing','Stim_dt_freezing','Stim_dt_structural','ap_gun_Mag','AmmoLaser','AmmoLaserSmall','AmmoLaserCutter','AmmoParticleFuseHeavy','AmmoParticleFuseLight','AmmoShotshell','AmmoShotshellCLL','AmmoShotgun','Ammo40mmXPL','AmmoRivet','ma_CanHaveNullMuzzle','ma_Beowulf','ma_Equinox','ma_Regulator','ma_Maelstrom','ma_InflictorPistol','ma_Cutter','ma_Novalight','ma_AutoRivet','ma_Bridger','ma_RocketLauncher','ma_Novablast','ma_Sidestar','ma_ArcWelder') ORDER BY Signature, EditorID","--csv","2>"]}
+{"id":"58","args":["Query","Starfield.esm","SELECT FormKey, EditorID, json_extract(Data,'$.Type') AS Type FROM Records WHERE Signature='Keyword' AND (EditorID LIKE 'Anim%' AND (EditorID LIKE '%Knife%' OR EditorID LIKE '%Sword%' OR EditorID LIKE '%Melee%' OR EditorID LIKE '%Axe%' OR EditorID LIKE '%Blade%' OR EditorID LIKE '%2H%' OR EditorID LIKE '%Hammer%' OR EditorID LIKE '%Polearm%') OR EditorID IN ('WeaponTypeMelee1H','WeaponTypeMelee2H','WeaponTypeUnarmed'))","--raw"]}
+{"id":"59","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, json_extract(Data,'$.Items') FROM Records WHERE EditorID IN ('fl_DarkStar_Cryomancer_Apparel_BaseSet')","--raw","--maxwidth","3000"]}
+{"id":"60","args":["Query","darkstar.esm","SELECT EditorID, json_extract(Data,'$.Conditions') C, json_extract(Data,'$.ConstructableComponents') K FROM Records WHERE EditorID='co_avm_DarkStar_Weap_Skin_HellersCutter'","--maxwidth","1500","2>"]}
+{"id":"61","args":["Query","darkstar.esm","SELECT r.EditorID, json_extract(p.value,'$.Name') N, coalesce(json_extract(p.value,'$.Object'), json_extract(p.value,'$.Data')) V FROM Records r, json_each(r.Data,'$.VirtualMachineAdapter.Scripts[0].Properties') p WHERE r.EditorID IN ('EquipDatum_DarkStar_Mk2_Weapon_Orion','EquipDatum_DarkStar_Mk2_Spacesuit_Navigator_Body') AND (json_extract(p.value,'$.Name') LIKE 'Quality5%' OR json_extract(p.value,'$.Name') LIKE 'Quality6%')","--maxwidth","150","2>"]}
+{"id":"62","args":["Query","darkstar.esm","SELECT json_extract(Data,'$.Archetype') AS kind, SUM(json_extract(Data,'$.ObjectBounds.First') = '0, 0, 0' AND json_extract(Data,'$.ObjectBounds.Second') = '0, 0, 0') AS zeroBounds, COUNT(*) AS total FROM Records WHERE Signature='Armor' AND IsOverride=0 AND EditorID LIKE 'DarkStar_Mk2_%' GROUP BY kind","--raw"]}
+{"id":"63","args":["Query","darkstar.esm","SELECT r.EditorID, COUNT(*) AS Links FROM Refs f JOIN Records r ON r.FormKey=f.FromFormKey WHERE f.ToFormKey='00239C:darkstar.esm' AND f.FromSignature='PackIn' GROUP BY r.EditorID ORDER BY r.EditorID"]}
+{"id":"64","args":["Query","df_firearms_modifications.esm","SELECT FormKey, Signature, EditorID, IsOverride FROM Records WHERE EditorID LIKE '%Beam%' OR EditorID LIKE '%Reciever%' OR EditorID LIKE '%Receiver%' ORDER BY Signature, EditorID"]}
+{"id":"65","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, edid(json_extract(Data,'$.CreatedObject')) co FROM Records WHERE Signature='ConstructibleObject' AND instr(Data,'\"ComparisonValue\":\"2000\"')>0 LIMIT 3","--raw"]}
+{"id":"66","args":["Query","darkstarpatch_bountyhunteroutfitz.esm","SELECT EditorID, json_extract(Data,'$.Keywords') K, json_extract(Data,'$.ObjectTemplates[0].Includes') I FROM Records WHERE EditorID='DarkStar_Mk2_Apparel_bhz_BH_j01'","--maxwidth","900","2>"]}
+{"id":"67","args":["Query","dstgo_sfc3drifter.esm","SELECT Signature, EditorID FROM Records WHERE EditorID LIKE '%Mk3_scx%' OR EditorID LIKE 'co_DarkStar_Mk3_%'"]}
+{"id":"68","args":["Query","darkstar.esm","SELECT json_extract(p.value,'$.Name') N, json_extract(p.value,'$.Object') V FROM Records r, json_each(r.Data,'$.VirtualMachineAdapter.Scripts[0].Properties') p WHERE r.EditorID='EquipDatum_DarkStar_Mk2_Pack_Explorer_01_Landmark' AND (json_extract(p.value,'$.Name') IN ('WeaponOrArmor','Quality1File','Quality8File','MythicOmod'))","--maxwidth","120","2>"]}
+{"id":"69","args":["Query","darkstarpatch_atom74.esm","SELECT r.EditorID, j.key AS i, edid(json_extract(j.value,'$.Mod')) AS mod, json_extract(j.value,'$.MinimumLevel') AS lvl FROM Records r, json_each(r.Data,'$.Includes') j WHERE r.EditorID LIKE '%Mk3%TiersAny%'"]}
+{"id":"70","args":["Query","Starfield.esm","SELECT FormKey, EditorID FROM Records WHERE Signature='ActorValueInformation' AND FormKey LIKE '000310%'","--raw"]}
+{"id":"71","args":["Query","nomad_spacesuit_z.esm","SELECT json_extract(Data,'$.VirtualMachineAdapter.Scripts[0].Name') n, json_extract(Data,'$.VirtualMachineAdapter.Scripts[0].Properties') p FROM Records WHERE EditorID='Quest_Nomad'","--json","2>"]}
+{"id":"72","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Forms WHERE Signature='FormList' AND EditorID LIKE '%Injectable%Legendar%'","--raw","2>"]}
+{"id":"73","args":["Query","darkstar.esm","SELECT EditorID FROM Records WHERE Signature='ConstructibleObject' AND json_extract(Data,'$.AmountProduced')=0 AND EditorID LIKE '%Quality%' LIMIT 5","2>"]}
+{"id":"74","args":["Query","darkstarpatch_cak.esm","SELECT Value FROM Meta WHERE Key='SourceStamp'","--maxwidth","500","2>"]}
+{"id":"75","args":["Query","darkstarpatch_cryomancer.esm","SELECT r.EditorID, t.key, en(json_extract(t.value,'`$.Name')) nm, (SELECT group_concat(edid(i.value ->> 'Mod'),' ') FROM json_each(t.value,'`$.Includes') i) FROM Records r, json_each(r.Data,'`$.ObjectTemplates') t WHERE r.EditorID IN ('cry_Darkstar_Mk2_CryoBreach','cry_Darkstar_Mk3_CryoBreach','cry_DarkStar_Mk3_CryoAA79','cry_Darkstar_Mk2_CryoArc79') AND t.key>0"]}
+{"id":"76","args":["Query","DarkStar_Manufacturing.esm","SELECT Signature, EditorID FROM Forms WHERE EditorID LIKE '%NeuroBoost01%'","2>"]}
+{"id":"77","args":["Query","darkstar.esm","SELECT EditorID, json_extract(Data,'$.Data') FROM Records WHERE EditorID LIKE '%ModGear%'","--raw","2>"]}
+{"id":"78","args":["Query","SFBGS050.esm","SELECT SUM(EditorID LIKE 'SMS%' OR EditorID LIKE 'SMC%' OR EditorID LIKE 'SMX%') parts, SUM(NOT (EditorID LIKE 'SMS%' OR EditorID LIKE 'SMC%' OR EditorID LIKE 'SMX%')) other FROM Forms WHERE Signature='GenericBaseForm' AND IsOverride=0","--csv","2>"]}
+{"id":"79","args":["Query","aseveil.esm","SELECT EditorID, json_extract(Data,'$.UseTemplateActors') AS UTA, json_extract(Data,'$.Aggression') AS Aggr, json_extract(Data,'$.TemplateActors.AiDataTemplate') AS AiTpl FROM Records WHERE EditorID IN ('ASELvlGenesisNoAggro','ASELvlGenesis','ASEGenesisOfficer','ASEGenesisMendoriBoss')","--raw"]}
+{"id":"80","args":["Query","darkstar.esm","SELECT EditorID, FormKey FROM Records WHERE EditorID LIKE 'lmod_Legendary%' AND (EditorID LIKE '%\\_4\\_%' ESCAPE '\\' OR EditorID LIKE '%None%' OR EditorID LIKE '%Blank%') ORDER BY EditorID","2>"]}
+{"id":"81","args":["Query","darkstar.esm","SELECT p.value FROM Records r, json_each(r.Data,'$.Properties') p WHERE r.EditorID = 'mod_DarkStar_Mk2_Apparel_Quality_9' AND p.value LIKE '%000310%'","--raw","--maxwidth","300"]}
+{"id":"82","args":["Query","Starfield.esm","SELECT (SELECT COUNT(*) FROM Records) recs, (SELECT Value FROM Meta WHERE Key='CachedRecordCount') meta_cached, (SELECT COUNT(*) FROM Records WHERE Signature='Explosion') expl, (SELECT COUNT(*) FROM Records WHERE Signature='Weapon') weap, (SELECT COUNT(*) FROM Refs) refs"]}
+{"id":"83","args":["Query","darkstar.esm","SELECT substr(EditorID,1,instr(substr(EditorID,13),'_')+11) cls, Data ->> '$.FirstPersonFlags' f, SUM(EXISTS(SELECT 1 FROM json_each(Data,'$.Keywords') k WHERE k.value LIKE '23C7C0:%')) body, SUM(EXISTS(SELECT 1 FROM json_each(Data,'$.Keywords') k WHERE k.value LIKE '23C7C1:%')) helm, SUM(EXISTS(SELECT 1 FROM json_each(Data,'$.Keywords') k WHERE k.value LIKE '23C7BF:%')) pack, SUM(EXISTS(SELECT 1 FROM json_each(Data,'$.AttachParentSlots') k WHERE k.value LIKE '022821:%')) lining, SUM(json_array_length(Data,'$.Components')>0 AND EXISTS(SELECT 1 FROM json_each(Data,'$.Components') c WHERE json_type(c.value,'$.QualityMods') IS NOT NULL)) qm, COUNT(*) n FROM Records WHERE Signature='Armor' AND EditorID LIKE 'DarkStar_Mk2_%' GROUP BY 1,2","2>"]}
+{"id":"84","args":["Query","Starfield.esm","select FromSignature, count(*) n from Refs group by FromSignature order by n desc limit 14"]}
+{"id":"85","args":["Query","darkstar.esm","SELECT json_extract(Data,'$.Properties') FROM Records WHERE EditorID='mod_DarkStar_Mk2_Weapon_Beowulf_Quality_9'","--maxwidth","3000","2>"]}
+{"id":"86","args":["Query","darkstar.esm","SELECT COUNT(*) n, MIN(EditorID) ex, MAX(EditorID) ex2 FROM Records WHERE Signature='ConstructibleObject' AND Data LIKE '%ComparisonValue__:__2000__,%'","--raw"]}
+{"id":"87","args":["Query","darkstar.esm","SELECT r.EditorID, edid(json_extract(r.Data,'$.CreatedObject')) creates, edid(json_extract(r.Data,'$.WorkbenchKeyword')) bench FROM Records r WHERE r.Signature='ConstructibleObject' AND edid(json_extract(r.Data,'$.CreatedObject')) LIKE '%Codex%' AND edid(json_extract(r.Data,'$.CreatedObject')) NOT LIKE '%Codex_kgc%'","--maxwidth","200","--raw"]}
+{"id":"88","args":["Query","darkstarpatch_aseveil.esm","SELECT EditorID, Data ->> '$.Keywords' k FROM Records WHERE EditorID = 'DarkStar_Mk2_ASESpacesuit_Ecliptic'"]}
+{"id":"89","args":["Query","darkstar.esm","SELECT DISTINCT json_extract(c.value,'$.Data.Reference') ref FROM Records r, json_each(r.Data,'$.Conditions') c WHERE r.Signature='ConstructibleObject' LIMIT 5","--raw"]}
+{"id":"90","args":["Query","Starfield.esm","SELECT json_extract(Data,'$.CreatedObject') CO FROM Records WHERE EditorID='co_mod_Backpack_Slot01_Oxygen'","2>"]}
+{"id":"91","args":["Query","Starfield.esm","SELECT FormKey, Signature, EditorID FROM Records WHERE EditorID LIKE 'mod_Beowulf_Modgroup%' OR EditorID IN ('mod_Beowulf_Mag_Standard','mod_Beowulf_Mag_ArmorPiercing')","--csv","2>"]}
+{"id":"92","args":["Query","darkstar.esm","SELECT Signature, COUNT(*) n, SUM(Parent IS NOT NULL) withCell, SUM(HasScripts) scripted FROM Forms WHERE Signature IN ('PlacedObject','PlacedNpc') GROUP BY Signature","--raw"]}
+{"id":"93","args":["Query","Starfield.esm","SELECT Value FROM Meta","2>"]}
+{"id":"94","args":["Query","darkstarpatch_cryomancer.esm","SELECT r.FromSignature, r.FromEditorID, r.Path, edid(r.ToFormKey) fl FROM Refs r JOIN Records i ON i.FormKey=r.ToFormKey AND i.Signature='FormList'","--raw","--maxwidth","100"]}
+{"id":"95","args":["Query","kinggathcreations_spaceship.esm","SELECT EditorID, json_extract(Data,'$.CrimeFaction') AS CF FROM Records WHERE EditorID IN ('kgcShip_NPC_LvlSecurity_Stardock','kgcShip_NPC_EncWatchtower01Template')"]}
+{"id":"96","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Records WHERE EditorID LIKE 'llw_DarkStar_Ammo_Vile%'"]}
+{"id":"97","args":["Query","Starfield.esm","SELECT r.Path, r.ToFormKey, f.EditorID FROM Refs r LEFT JOIN Forms f ON f.FormKey=r.ToFormKey WHERE r.FromFormKey IN ('27DF97:Starfield.esm','27DF96:Starfield.esm')","--maxwidth","200","2>"]}
+{"id":"98","args":["Query","darkstarpatch_bountyhunteroutfitz.esm","SELECT IsOverride, edid(json_extract(Data,'`$.InstantiationFilterKeyword')) ifk, edid(json_extract(Data,'`$.WorkbenchKeyword')) wb, json_extract(Data,'`$.CreatedObject') LIKE '%darkstarpatch%' AS createsMk, COUNT(*), MIN(EditorID) FROM Records WHERE Signature='ConstructibleObject' GROUP BY 1,2,3,4"]}
+{"id":"99","args":["Query","cryomancer_z.esm","SELECT r.FromSignature, r.FromEditorID, COUNT(*) FROM Refs r JOIN Records i ON i.FormKey=r.ToFormKey AND i.Signature IN ('Weapon','Armor') WHERE r.FromSignature IN ('Quest','Book','Terminal','TerminalMenu','Message','Activator','Furniture','Perk','Spell') GROUP BY 1,2","--raw"]}
+{"id":"100","args":["Query","darkstar.esm","SELECT EditorID, edid(json_extract(Data,'`$.AmmoType')) FROM Records WHERE Signature='Weapon' AND json_extract(Data,'`$.AmmoType') LIKE '0003E7%'"]}
+{"id":"101","args":["Query","darkstarpatch_cryomancer.esm","SELECT FormKey, Signature, EditorID, Name FROM Records WHERE Signature IN ('Weapon','Armor') ORDER BY Signature, EditorID","--raw","--maxwidth","60"]}
+{"id":"102","args":["Query","Starfield.esm","SELECT json_extract(Data,'$.Archetype') AS kind, SUM(json_extract(Data,'$.ObjectBounds.First') = '0, 0, 0' AND json_extract(Data,'$.ObjectBounds.Second') = '0, 0, 0') AS zero, COUNT(*) AS total FROM Records WHERE Signature='Armor' AND IsOverride=0 AND json_extract(Data,'$.IsJunk') = 0 GROUP BY kind","--raw"]}
+{"id":"103","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Records WHERE EditorID LIKE 'mod_DarkStar_Mk2_Pack_Explorer_01_Landmark_Quality_%' ORDER BY EditorID","--raw","2>"]}
+{"id":"104","args":["Query","nfvc0003vigilance.esm","SELECT FromSignature, FromEditorID, Path FROM Refs WHERE ToFormKey IN (SELECT FormKey FROM Records WHERE EditorID IN ('NFVC0003_Spacesuit_Vigilance_Security_SetC_FieldEngineer','NFVC0003_Spacesuit_Helmet_Vigilance_Security_SetC_FieldEngineer'))","2>"]}
+{"id":"105","args":["Query","darkstar.esm","SELECT EditorID FROM Records WHERE Signature='ConstructibleObject' AND EditorID LIKE 'co_qmod_Weap_%_Quality_2' LIMIT 1","2>"]}
+{"id":"106","args":["Query","aseeverbright.esm","SELECT EditorID, json_extract(Data,'$.Flags') AS Flags FROM Records WHERE EditorID IN ('ASE2EverbrightCrimeFaction','ASE2FrostFaction')"]}
+{"id":"107","args":["Query","Starfield.esm","SELECT Name, json_extract(Data,'$.Name') FROM Records WHERE EditorID='Spacesuit_Ecliptic_Helmet'","2>"]}
+{"id":"108","args":["Query","N12_EnergyShields.esm","SELECT FormKey, EditorID FROM Records WHERE Signature='Perk'"]}
+{"id":"109","args":["Query","Starfield.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature='Armor' AND EditorID LIKE 'Spacesuit_%' AND Name LIKE '%Spacesuit%' LIMIT 3","2>"]}
+{"id":"110","args":["Query","darkstar.esm","SELECT EditorID, json_extract(Data,'$.Data') AS value FROM Records WHERE Signature LIKE 'GameSetting%' LIMIT 6","--raw","--maxwidth","60"]}
+{"id":"111","args":["Query","darkstar.esm","SELECT COUNT(*) n, MIN(EditorID) ex, MAX(EditorID) ex2 FROM Records WHERE Signature='ConstructibleObject' AND instr(Data,'\"ComparisonValue\":\"2000\"')>0","--raw"]}
+{"id":"112","args":["Query","darkstar.esm","SELECT f.FormKey, edid(f.Base) AS base, f.Parent, edid(f.Parent) AS cell, f.HasScripts FROM Forms f WHERE f.Base IN ('001D2F:darkstar.esm','009B53:darkstar.esm')","--raw"]}
+{"id":"113","args":["Query","darkstarpatch_bountyhunteroutfitz.esm","SELECT FormKey, Signature, EditorID, IsOverride FROM Forms WHERE EditorID IN ('DarkStar_Mk2_Accessory_bhz_BH_12','DarkStar_Mk2_Apparel_bhz_BH_j09')"]}
+{"id":"114","args":["Query","darkstar.esm","SELECT EditorID FROM Forms WHERE Signature IN ('GameplayOption','GameplayOptionsGroup') ","--raw"]}
+{"id":"115","args":["Query","darkstar.esm","SELECT edid(json_extract(Data,'$.WorkbenchKeyword')) wb, CASE WHEN en(json_extract(Data,'$.Description')) IS NULL OR en(json_extract(Data,'$.Description'))='' THEN 'empty' ELSE 'name' END d, COUNT(*), MIN(EditorID), MAX(EditorID) FROM Records WHERE Signature='ConstructibleObject' AND edid(json_extract(Data,'$.WorkbenchKeyword')) IN ('wb_DarkStar_WeaponCrafting','wb_DarkStar_ArmorCrafting','wb_DarkStar_ApparelCrafting') GROUP BY 1,2","--maxwidth","90","2>"]}
+{"id":"116","args":["Query","Starfield.esm","SELECT Signature, EditorID, FormKey FROM Forms WHERE (Signature='Cell' AND EditorID='CityNewAtlantisLodge') OR (Signature IN ('Static','Location','Package','Scene') AND rowid % 50000 = 7) LIMIT 8","--timing","2>"]}
+{"id":"117","args":["Query","darkstarpatch_trackersalliance_rikuokada.esm","SELECT FormKey, Signature, IsOverride FROM Records WHERE EditorID='SFTA05_AddInto_DefaultLegendaryWeapons'","--raw","2>"]}
+{"id":"118","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, edid(json_extract(Data,'$.AddToList')) anam, json_extract(Data,'$.AddToList') a, substr(Data,1,200) FROM Records WHERE Signature='FormList'"]}
+{"id":"119","args":["Query","darkstarpatch_cryomancer.esm","SELECT r.FromSignature, COUNT(*) n, COUNT(DISTINCT r.ToFormKey) items, MIN(r.FromEditorID) ex, MIN(r.Path) path FROM Refs r JOIN Records i ON i.FormKey=r.ToFormKey AND i.Signature IN ('Weapon','Armor') GROUP BY 1","--raw","--maxwidth","100"]}
+{"id":"120","args":["Query","darkstar.esm","SELECT substr(EditorID,1,30) p, COUNT(*) c, MIN(EditorID), MAX(EditorID) FROM Records WHERE Signature='ConstructibleObject' AND json_extract(Data,'`$.AmountProduced')='0' GROUP BY 1 ORDER BY 2 DESC LIMIT 15"]}
+{"id":"121","args":["Query","Starfield.esm","SELECT EditorID, json_extract(Data,'$.WorkbenchKeyword') WB, json_extract(Data,'$.RecipeFilters') F FROM Records WHERE Signature='ConstructibleObject' AND json_extract(Data,'$.CreatedObject') LIKE '076827:%' OR (Signature='ConstructibleObject' AND json_extract(Data,'$.CreatedObject') LIKE '0403A1:%')","--maxwidth","150","2>"]}
+{"id":"122","args":["Query","dstgo_nomad_spacesuit_z.esm","SELECT EditorID, json_extract(Data,'$.MaxRank') mr, json_extract(Data,'$.LevelTierScaledOffset') lt, json_extract(Data,'$.MajorFlags') mf FROM Records WHERE Signature='WeaponModification' AND EditorID LIKE 'mod_DarkStar_Weapon_Mk2_%' LIMIT 4","--raw"]}
+{"id":"123","args":["Query","Starfield.esm","SELECT Signature, COUNT(*) AS N, SUM(HasScripts) AS Scripted FROM Forms WHERE Signature IN ('PackIn','MoveableStatic') GROUP BY Signature"]}
+{"id":"124","args":["Query","darkstar.esm","SELECT COUNT(*) AS n FROM Records","2>"]}
+{"id":"125","args":["Query","Starfield.esm","SELECT EditorID, Name, json_extract(Data,'$.FirstPersonFlags') fp FROM Records WHERE EditorID IN ('Clothes_Fishworker_Mask_01','Clothes_RI07_PlayerStealthSuitHelmet','Clothes_Neon_Gang_Strikers_01')","2>"]}
+{"id":"126","args":["Query","darkstar.esm","SELECT json_remove(json_extract(Data,'$.VirtualMachineAdapter'),'$.Scripts[0].Properties') vm, (SELECT group_concat(p.value->>'Name',',') FROM json_each(Data,'$.VirtualMachineAdapter.Scripts[0].Properties') p) ord, json_extract(Data,'$.VirtualMachineAdapter.Scripts[0].Properties[0]') p0, json_extract(Data,'$.VirtualMachineAdapter.Scripts[0].Properties[1]') p1, json_extract(Data,'$.Keywords') kw FROM Records WHERE EditorID IN ('EquipDatum_DarkStar_Mk2_Weapon_UrbanEagle','EquipDatum_DarkStar_Mk2_Helmet_Ecliptic','EquipDatum_DarkStar_Mk2_Apparel_Akila_Security')","--maxwidth","700","2>"]}
+{"id":"127","args":["Query","darkstar.esm","SELECT EditorID, json_extract(Data,'$.AmmoType') FROM Records WHERE EditorID IN ('DarkStar_Mk3_Regulator','DarkStar_Mk3_M1919')","--maxwidth","140"]}
+{"id":"128","args":["Query","darkstarpatch_atom74.esm","select FormKey from Records where Signature='ConstructibleObject' limit 1","--raw"]}
+{"id":"129","args":["Query","darkstar.esm","SELECT EditorID, substr(FormKey,1,6) AS id FROM Records WHERE EditorID = 'xR_Holster'","--raw"]}
+{"id":"130","args":["Query","sfbgs050.esm","SELECT FormKey, EditorID FROM Forms WHERE Signature='Npc' AND EditorID LIKE '%Robot%' AND EditorID NOT LIKE '%Template%' LIMIT 15","--raw","2>"]}
+{"id":"131","args":["Query","cryomancer_z.esm","SELECT EditorID, json_extract(Data,'$.MajorFlags') mf, json_extract(Data,'$.Flags') f1, json_extract(Data,'$.WeaponFlags') f2, json_extract(Data,'$.NonPlayable') np, json_extract(Data,'$.PlayerOnly') po, json_extract(Data,'$.Unplayable') up FROM Records WHERE Signature='Weapon' AND IsOverride=0 AND (EditorID LIKE '%Unique%' OR EditorID LIKE 'Cryo_Unarmed%' OR EditorID LIKE 'cr%' OR EditorID LIKE 'Cryogrenade' OR EditorID LIKE '%_01')","--raw","--maxwidth","80"]}
+{"id":"132","args":["Query","darkstarpatch_cryomancer.esm","SELECT Signature, EditorID, Name FROM Records WHERE Signature IN ('MiscItem','Book','Resource','Furniture','FormList') ORDER BY Signature, EditorID","--raw","--maxwidth","70"]}
+{"id":"133","args":["Query","nfvc0003vigilance.esm","SELECT FormKey, Signature, EditorID, json_extract(Data,'$.MajorRecordFlagsRaw') flags, (SELECT group_concat(edid(i.value->>'Mod'), ', ') FROM json_each(Data,'$.Includes') i) inc, json_extract(Data,'$.TargetOmodKeywords') tk FROM Records WHERE EditorID IN ('NFVC0003_ModGroup_Nightingale_FireSelect','NFVC0003_mod_Nova_Nghtingale_Quality_TiersAny','NFVC0003_mod_Nova_Nghtingale_Quality_02')","2>"]}
+{"id":"134","args":["Query","darkstarpatch_atom74.esm","SELECT FormKey, EditorID, Signature, json_extract(Data,'$.MajorFlags') AS mf, json_extract(Data,'$.AttachPoint') AS ap FROM Records WHERE EditorID LIKE '%TiersAny%'"]}
+{"id":"135","args":["Query","darkstarpatch_nomadspacesuit.esm","SELECT EditorID, (SELECT group_concat(edid(k.value),' ') FROM json_each(Data,'$.Keywords') k) FROM Records WHERE EditorID IN ('DarkStar_Mk2_Helmet_nip_Hg1','DarkStar_Mk2_Pack_nip_Bp1','DarkStar_Mk2_Spacesuit_nip_SS1')"]}
+{"id":"136","args":["Query","Starfield.esm","SELECT f.Signature, f.EditorID FROM Forms f WHERE f.EditorID LIKE '%OutfitContainer01%' OR f.EditorID LIKE '%WeaponsCase_Pistols01%' OR f.EditorID LIKE '%weaponscase_pistol%' LIMIT 12","--raw"]}
+{"id":"137","args":["Query","darkstar.esm","SELECT EditorID, replace(replace(en(json_extract(Data,'$.Description')),char(13),'\\r'),char(10),'\\n') FROM Records WHERE EditorID IN ('co_DarkStar_Apparel_Akila_Security_MkII','co_DarkStar_Helmet_Ecliptic_MkII','co_DarkStar_Headwear_Akila_Security_Hat_MkII')","--maxwidth","600","2>"]}
+{"id":"138","args":["Query","SFBGS050.esm","SELECT Signature, count(*) n FROM Forms WHERE Signature LIKE '%hip%' OR Signature LIKE '%pace%' GROUP BY 1","--maxwidth","200"]}
+{"id":"139","args":["Query","darkstar.esm","SELECT json_extract(Data,'$.RecipeFilters') IS NULL NoFilter, count(*) N FROM Records WHERE Signature='ConstructibleObject' AND EditorID LIKE 'co_Outpost_%' GROUP BY 1","2>"]}
+{"id":"140","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, edid(json_extract(Data,'`$.AmmoType')) ammo, json_extract(Data,'`$.AmmoType') a, edid(json_extract(Data,'`$.AmmoList')) list FROM Records WHERE Signature='Weapon' AND EditorID LIKE '%Breach%' OR EditorID LIKE '%Mk3%' AND Signature='Weapon'"]}
+{"id":"141","args":["Query","Starfield.esm","SELECT COUNT(*), MIN(EditorID), MAX(EditorID) FROM Records WHERE Signature='ConstructibleObject' AND json_extract(Data,'`$.AmountProduced')='0' AND json_extract(Data,'`$.WorkbenchKeyword') LIKE '%2CE1C0%' OR json_extract(Data,'`$.AmountProduced')='0' AND EditorID LIKE 'co_mod_%'"]}
+{"id":"142","args":["Query","N12_EnergyShields_ShatteredSpace.esm","SELECT EditorID, json_extract(Data,'$.PerkToApply') AS Perk FROM Records WHERE FormKey IN ('000918:N12_EnergyShields_ShatteredSpace.esm','000916:N12_EnergyShields_ShatteredSpace.esm')"]}
+{"id":"143","args":["Query","darkstar.esm","SELECT COUNT(*) templates, SUM(json_extract(j.value,'$.IsEditorOnly')='False') not_eo, SUM(json_extract(j.value,'$.IsEditorOnly')='False' AND json_extract(j.value,'$.Default')='True') default_not_eo FROM Records r, json_each(r.Data,'$.ObjectTemplates') j WHERE r.Signature IN ('Weapon','Armor') AND r.IsOverride=0 AND (r.EditorID LIKE '%Mk2%' OR r.EditorID LIKE '%Mk3%')","--maxwidth","160"]}
+{"id":"144","args":["Query","df_firearms_modifications.esm","SELECT c.EditorID, edid(json_extract(c.Data,'`$.CreatedObject')) AS makes FROM Records c WHERE c.Signature='ConstructibleObject' AND json_extract(c.Data,'`$.CreatedObject') IS NOT NULL AND (json_extract(c.Data,'`$.RecipeFilters') IS NULL OR json_array_length(c.Data,'`$.RecipeFilters') = 0) ORDER BY 1","--maxwidth","70"]}
+{"id":"145","args":["Query","Starfield.esm","SELECT FormKey, Signature, EditorID FROM Forms WHERE FormKey IN ('3197E8:Starfield.esm','3197C9:Starfield.esm','3198F2:Starfield.esm','3197C8:Starfield.esm','05B990:Starfield.esm','01C187:Starfield.esm','02B714:Starfield.esm','2F0FE4:Starfield.esm','0B2642:Starfield.esm','157D41:Starfield.esm','2F95DE:Starfield.esm')","2>"]}
+{"id":"146","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, json_extract(Data,'`$.Components') c, json_extract(Data,'`$.Conditions') cond FROM Records WHERE EditorID IN ('co_cry_DarkStar_Mk2_Apparel_Cryo_RoboticsSuit_03','co_cry_DarkStar_Mk2_Apparel_Cryo_RoboticsSuit_04','co_cry_DarkStar_Mk2_Apparel_Cryo_RoboticsSuit_02')","--maxwidth","2000"]}
+{"id":"147","args":["Query","darkstarpatch_cryomancer.esm","SELECT EditorID, edid(json_extract(Data,'$.CreatedObject')) co FROM Records WHERE Signature='ConstructibleObject' AND Data LIKE '%ComparisonValue_:_2000_,%' LIMIT 3","--raw"]}
+{"id":"148","args":["Query","darkstarpatch_atom74.esm","select FormKey, EditorID, IsOverride, json_extract(Data,'$.CreatedObject') co, json_extract(Data,'$.WorkbenchKeyword') bench from Records where Signature='ConstructibleObject' limit 4"]}
+{"id":"149","args":["Query","Starfield.esm","SELECT Signature, COUNT(*) FROM Forms WHERE Base IS NOT NULL GROUP BY Signature ORDER BY 2 DESC LIMIT 5"]}
+{"id":"150","args":["Query","darkstar.esm","SELECT Signature, COUNT(*) n FROM Forms GROUP BY Signature ORDER BY n DESC LIMIT 12","2>"]}
+{"id":"151","args":["Query","Starfield.esm","SELECT EditorID, substr(FormKey,1,6) AS id FROM Records WHERE EditorID IN ('ParticleProjectilePistol','ParticleProjectileRifle','xR_Holster')","--raw"]}
+{"id":"152","args":["Query","darkstar.esm","SELECT FormKey, Signature, EditorID FROM Forms WHERE EditorID LIKE '%Recon01PeaceReward%' OR EditorID LIKE '%Recon01_PeaceReward%' OR EditorID LIKE 'co_qmod_Pack_Miner_MkII_Quality_%'"]}
+{"id":"153","args":["Query","DarkStar_Manufacturing.esm","SELECT FormKey, EditorID FROM Records WHERE EditorID='mod_DSM_Mk3_Weapon_Rocketlauncher_Quality_8'"]}
+{"id":"154","args":["Query","darkstarpatch_bountyhunteroutfitz.esm","SELECT CASE WHEN json_extract(Data,'$.ObjectTemplates') LIKE '%008894%' THEN 'Accessory TiersAny' WHEN json_extract(Data,'$.ObjectTemplates') LIKE '%000E16%' THEN 'Apparel TiersAny' ELSE 'other' END L, CASE WHEN json_extract(Data,'$.Keywords') LIKE '%0001A7:%' THEN 'apparel kw' WHEN json_extract(Data,'$.Keywords') LIKE '%0096CD:%' THEN 'accessory kw' ELSE 'other kw' END K, count(*) N FROM Records WHERE Signature='Armor' AND IsOverride=0 AND EditorID LIKE 'DarkStar_Mk2_%' GROUP BY 1,2","2>"]}
+{"id":"155","args":["Query","darkstar.esm","SELECT substr(json_extract(Data,'$.Effects'),1,2500) FROM Records WHERE EditorID='perk_DarkStar_Explosives_Quality_MkIII'","--maxwidth","2600"]}
+{"id":"156","args":["Query","Starfield.esm","SELECT FormKey, EditorID FROM Records WHERE EditorID IN ('Ench_Weapon_Flechette','Ench_Weapon_Whitehot','Ench_EMShock_Perk','Ench_DisableBoostpack')","--raw"]}
+{"id":"157","args":["Query","darkstar.esm","SELECT COUNT(*) n, SUM(EXISTS(SELECT 1 FROM json_each(Data,'`$.Keywords') j WHERE j.value LIKE '1F70E6:Starfield.esm%')) withMaBeowulf, SUM(EditorID LIKE '%Beowulf%') beowulfNamed FROM Records WHERE Signature='Weapon' AND IsOverride=0","--csv","2>"]}
+{"id":"158","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Forms WHERE EditorID LIKE 'pi_DarkStar_Furn_CodexMachine%'","--raw","--maxwidth","160"]}
+{"id":"159","args":["Query","darkstar.esm","SELECT r.EditorID, r.Name, j.key, json_extract(j.value,'$.Default') def, json_extract(j.value,'$.IsEditorOnly') eo, json_extract(j.value,'$.Name') nm, json_array_length(json_extract(j.value,'$.Includes')) n_inc FROM Records r, json_each(r.Data,'$.ObjectTemplates') j WHERE r.EditorID LIKE 'DarkStar_Mk2_%Uniform_DarkStar%'","--maxwidth","160"]}
+{"id":"160","args":["Query","darkstar.esm","SELECT EditorID, edid(json_extract(Data,'$.OverrideProjectile')) p, json_extract(Data,'$.OverrideProjectile') fk FROM Records WHERE EditorID LIKE 'DarkStar_Mk3_Magstorm%' OR EditorID LIKE 'DarkStar_Mk3_MagStorm%'","--with-masters","--raw"]}
+{"id":"161","args":["Query","darkstar.esm","SELECT 'ds' AS p, x AS fk, edid(x) AS edid FROM (SELECT '001DE0:darkstar.esm' x UNION SELECT '001DF0:darkstar.esm' UNION SELECT '001DED:darkstar.esm' UNION SELECT '001DF4:darkstar.esm' UNION SELECT '0083E7:darkstar.esm' UNION SELECT '03ED74:Starfield.esm' UNION SELECT '12EEE9:Starfield.esm' UNION SELECT '03ED75:Starfield.esm' UNION SELECT '1F0A14:Starfield.esm' UNION SELECT '060A87:Starfield.esm' UNION SELECT '33B2DD:Starfield.esm' UNION SELECT '23C7C0:Starfield.esm' UNION SELECT '0E048C:Starfield.esm' UNION SELECT '0E048B:Starfield.esm')"]}
+{"id":"162","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Forms WHERE Signature='Armor' AND EditorID LIKE 'DarkStar_Mk2_%Recon%'"]}
+{"id":"163","args":["Query","darkstar.esm","SELECT FormKey, Signature, EditorID, Parent FROM Forms WHERE Base='0028CC:darkstar.esm'","--raw","2>"]}
+{"id":"164","args":["Query","darkstarpatch_bountyhunteroutfitz.esm","SELECT Signature, COUNT(*) FROM Records WHERE IsOverride=0 GROUP BY 1"]}
+{"id":"165","args":["Query","darkstarpatch_bubleveract.esm","SELECT json_extract(Data,'$.Properties') FROM Records WHERE EditorID='mod_DarkStar_Mk3_Weapon_BubLeveract_Quality_01'","--maxwidth","900"]}
+{"id":"166","args":["Query","Starfield.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature='Armor' AND (EditorID LIKE 'Clothes_%' OR EditorID LIKE 'Spacesuit_%') AND Name <> '' ORDER BY EditorID","--raw","--csv","2>"]}
+{"id":"167","args":["Query","DarkStar_Manufacturing.esm","SELECT Signature, COUNT(1) FROM Records GROUP BY Signature","2>"]}
+{"id":"168","args":["Query","darkstarpatch_nomadspacesuit.esm","SELECT FormKey, EditorID FROM Records WHERE EditorID LIKE 'mod_DarkStar_Mk2_Spacesuit_nip_SS3_Low_Quality_3' OR EditorID LIKE 'ma_nip_SpaceSuit_SS3_Low%'"]}
+{"id":"169","args":["Query","darkstar.esm","SELECT substr(FormKey,1,6), EditorID FROM Records WHERE EditorID IN ('ma_SpacesuitSpaceTruckerGenericMQ207CBodyRewardEnhanced_Quality','ma_Gutter_Quality_MkII','ma_Gutter_Quality_MkIII','ma_PackExplorer01LandmarkEnhanced_Quality','ma_PackExplorer01Enhanced_Quality','DarkStar_Mk2_Spacesuit_SpaceTrucker_Generic_MQ207C_Body_Reward','DarkStar_Mk2_SFBGS003_Spacesuit_Navigator_SpaceSuit_Vibrant')","--raw","2>"]}
+{"id":"170","args":["Query","cryomancer_z.esm","SELECT a.EditorID, edid(json_extract(a.Data,'$.Armatures[0].ArmorAddon')) aa0, json_extract(aa.Data,'$.WorldModel') wm FROM Records a LEFT JOIN Records aa ON aa.FormKey=json_extract(a.Data,'$.Armatures[0].ArmorAddon') WHERE a.EditorID LIKE 'Clothes_Cryo_Robotics%'","--raw","--maxwidth","250"]}
+{"id":"171","args":["Query","cryomancer_z.esm","SELECT FormKey, Signature, EditorID, Name FROM Records WHERE Signature IN ('Weapon','Armor') AND IsOverride=0 ORDER BY Signature, EditorID","--raw","--maxwidth","60"]}
+{"id":"172","args":["Query","darkstar.esm","SELECT substr(json_extract(Data,'$.ObjectTemplates[1]'),1,900) FROM Records WHERE EditorID='DarkStar_Mk2_Pack_SpaceTrucker_Backpack'","--maxwidth","1000"]}
+{"id":"173","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Forms WHERE Signature='FormList' AND (EditorID LIKE '%Injectable%Legendar%' OR EditorID LIKE '%Injectable%Keyword%' OR EditorID LIKE '%Legendary%Keyword%Inject%')","--raw","--csv","2>"]}
+{"id":"174","args":["Query","darkstar.esm","SELECT FormKey, EditorID FROM Forms WHERE EditorID IN ('DarkStar_TGO_VoidRunner_StoredCores','DarkStar_TGO_Core_Issuance_VIPArmorIssued_avif') OR EditorID LIKE '%Interceptor%' OR EditorID LIKE '%ForceAssault%'","2>"]}
+{"id":"175","args":["Query","cryomancer_z.esm","SELECT EditorID, json_extract(Data,'$.AttackDamage') dmg, json_extract(Data,'$.BaseValue') val, json_extract(Data,'$.Model.File') mdl FROM Records WHERE Signature='Weapon' AND (EditorID LIKE 'CryoBlaster%' OR EditorID LIKE 'CryoZ79%' OR EditorID LIKE 'CryoC79%' OR EditorID LIKE 'Cryogrenade')","--raw","--maxwidth","120"]}
+{"id":"176","args":["Query","darkstar.esm","SELECT FormKey, Signature, EditorID FROM Forms WHERE EditorID LIKE '%Atmos%' ORDER BY Signature, EditorID"]}
+{"id":"177","args":["Query","darkstar.esm","SELECT r.EditorID, group_concat(edid(j.value), ', ') appr FROM Records r, json_each(r.Data,'$.AttachParentSlots') j WHERE r.EditorID IN ('DarkStar_Mk2_CombatKnife','DarkStar_Mk3_CombatKnife','DarkStar_Mk3_Cutlass','DarkStar_Mk2_Cutlass','DarkStar_Mk3_Equinox','DarkStar_Mk2_Equinox') GROUP BY r.EditorID","2>"]}
+{"id":"178","args":["Query","darkstar.esm","SELECT EditorID, json_extract(Data,'$.CreatedObject') CO, json_extract(Data,'$.AmountProduced') A FROM Records WHERE Signature='ConstructibleObject' AND EditorID LIKE '%ForceAssault%Quality%' ORDER BY EditorID","--maxwidth","120","2>"]}
+{"id":"179","args":["Query","eclipticmercz_dstgo.esm","SELECT FormKey, Signature, EditorID FROM Records ORDER BY Signature","2>"]}
+{"id":"180","args":["Query","darkstar.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature='Weapon' AND (EditorID LIKE '%Bridger%' OR EditorID LIKE '%Rocket%' OR EditorID LIKE '%Launcher%' OR EditorID LIKE '%Grenade%')"]}
+{"id":"181","args":["Query","Starfield.esm","SELECT FormKey, EditorID, Name, json_extract(Data,'$.FirstPersonFlags') fp FROM Records WHERE FormKey IN ('26D8AA:Starfield.esm','29AEAE:Starfield.esm','3C1312:Starfield.esm','04008C:Starfield.esm','2262D3:Starfield.esm','235B7D:Starfield.esm','3E612D:Starfield.esm')","2>"]}
+{"id":"182","args":["Query","darkstar.esm","SELECT COUNT(*) n, MIN(EditorID) ex, MAX(EditorID) ex2 FROM Records WHERE Signature='ConstructibleObject' AND Data LIKE '%ComparisonValue_:_2000_,%'","--raw"]}
+{"id":"183","args":["Query","Starfield.esm","SELECT j.key, substr(j.value,1,150) AS v FROM Records r, json_each(r.Data) j WHERE r.FormKey='04716C:Starfield.esm' AND j.key NOT IN ('Components','Transforms')","--maxwidth","160","2>"]}
+{"id":"184","args":["Query","sfc3drifter.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature LIKE '%Modification%' AND Data LIKE '%AmmoType%' AND IsOverride=0","2>"]}
+{"id":"185","args":["Query","darkstar.esm","SELECT Signature, EditorID, FormKey, IsOverride FROM Forms WHERE Signature IN ('Weapon','LayeredMaterialSwap','GenericBaseForm','Npc','PlacedObject') AND EditorID IS NOT NULL GROUP BY Signature, IsOverride","2>"]}
+{"id":"186","args":["Query","Starfield.esm","SELECT Signature, SUM(json_valid(Data)) valid, COUNT(*) total FROM Records WHERE Signature IN ('Projectile','Explosion','Ammunition','Weapon') GROUP BY Signature","--raw"]}
+{"id":"187","args":["Query","darkstarpatch_outroraaaw.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature='WeaponModification' AND (EditorID LIKE '%Quality%' OR EditorID LIKE '%Pacifier%')","--maxwidth","120","2>"]}
+{"id":"188","args":["Query","darkstarpatch_bountyhunteroutfitz.esm","SELECT FormKey, EditorID, json_array_length(Data,'`$.Items') n, edid(json_extract(Data,'`$.AddToList')) anam FROM Records WHERE Signature='FormList'"]}
+{"id":"189","args":["Query","darkstar.esm","SELECT edid(json_extract(Data,'$.WorkbenchKeyword')) wb, substr(replace(replace(en(json_extract(Data,'$.Description')),char(13),'\\r'),char(10),'\\n'), instr(en(json_extract(Data,'$.Description')),'Mk.I')) tail, COUNT(*) n, MIN(EditorID) FROM Records WHERE Signature='ConstructibleObject' AND edid(json_extract(Data,'$.WorkbenchKeyword')) IN ('wb_DarkStar_WeaponEnhancement','wb_DarkStar_WeaponVileCrafting','wb_DarkStar_ArmorEnhancement','wb_DarkStar_ApparelEnhancement') GROUP BY 1,2 ORDER BY 1,3 DESC","--maxwidth","250","2>"]}
+{"id":"190","args":["Query","darkstar.esm","SELECT json_extract(Data,'$.TargetOmodKeywords') tk, json_extract(Data,'$.Properties') p FROM Records WHERE EditorID='mod_DarkStar_Mk3_Weapon_Bridger_Quality_2'","--raw"]}
+{"id":"191","args":["Query","Starfield.esm","SELECT s.Signature, (SELECT EditorID FROM Forms f WHERE f.Signature=s.Signature AND EditorID IS NOT NULL LIMIT 1) edid, (SELECT FormKey FROM Forms f WHERE f.Signature=s.Signature AND EditorID IS NOT NULL LIMIT 1) fk FROM SignatureCounts s WHERE s.Signature IN ('Cell','Static','Location','Package','Scene','Biome','Planet','PlacedObject')"]}
+{"id":"192","args":["Query","darkstarpatch_atom74.esm","select Origin, IsOverride, count(*) from Records group by 1,2"]}
+{"id":"193","args":["Query","Starfield.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature='Armor' AND EditorID LIKE 'Spacesuit_%' AND EditorID NOT LIKE '%NOTPLAYABLE%' AND EditorID NOT LIKE '%Helmet%' AND EditorID NOT LIKE '%Backpack%' AND Name <> '' ORDER BY EditorID LIMIT 400","--raw","--csv","2>"]}
+{"id":"194","args":["Query","N12_EnergyShields.esm","SELECT FormKey, Signature, EditorID FROM Records ORDER BY Signature, FormKey"]}
+{"id":"195","args":["Query","N12_EnergyShields.esm","SELECT FormKey, Signature, EditorID, Name FROM Records WHERE EditorID IN ('N12_EnergyShields_NPCDEclipticChance','N12_EnergyShields_NPCDStarbornChance','N12_EnergyShields_NPCDMinLevel','N12_EnergyShields_ShieldHealth','N12_EnergyShields_UIShieldHealthOnHit','N12_EnergyShields_NPCOpSh','N12_EnergyShields_NPCProto')","--maxwidth","120"]}
+{"id":"196","args":["Query","Starfield.esm","SELECT FormKey, EditorID FROM Records WHERE Signature='Npc' AND EditorID LIKE 'EncEcliptic1_' ","--maxwidth","120","--raw"]}
+{"id":"197","args":["Query","darkstar.esm","SELECT substr(Data,1,1500) FROM Records WHERE EditorID='mod_DarkStar_Mk2_Weapon_Tanto_Quality_3'","--maxwidth","1600"]}
+{"id":"198","args":["Query","darkstar.esm","SELECT FormKey, EditorID, Name FROM Records WHERE Signature='WeaponModification' AND EditorID LIKE 'lmod_Legendary_Wep_1_%' LIMIT 5","--maxwidth","160","--raw"]}
+{"id":"199","args":["Query","darkstarpatch_athellsgate.esm","SELECT FormKey, substr(Data,1,300) FROM Records WHERE EditorID='amod_DarkStar_Weap_SuperShotgun_Quality_6'","--raw","--maxwidth","400","2>"]}
+{"id":"200","args":["names","2C5553 04CE2D 2C0D73 28D935 2702C9 3C3672","--in","Starfield.esm"]}
+{"id":"201","args":["names","QuantumHarness"]}
+{"id":"202","args":["names","20AA19 25614F","--in","Starfield.esm"]}
+{"id":"203","args":["names","190D05 20AA14 20AA15 20AA16 20AA18","--in","Starfield.esm"]}
+{"id":"204","args":["names","009773","--in","darkstar.esm"]}
+{"id":"205","args":["names","001787 001779 001789","--in","darkstar.esm"]}
+{"id":"206","args":["names","000AA2","--in","darkstar.esm"]}
+{"id":"207","args":["names","ResOrgUltraCool ResInorgCommonIron","--in","Starfield.esm"]}
+{"id":"208","args":["names","003632 003633 003634 003635 003636 003637 000001","--in","sfta04.esm"]}
+{"id":"209","args":["names","2811D0 04A0A4 04A0A5 06288F 062891 06288D 3198FB 3198FA 2C0ECE 2C0D79 2C0D77 3198F9 3198F8","--in","Starfield.esm"]}
+{"id":"210","args":["names","0009EA 0001A2 007FCC 0001AB 0001AA 007FCB 00219F 00219E 0016FE 0016FD","--in","darkstar.esm"]}
+{"id":"211","args":["names","0008AD","--in","bountyhunter_outfit_z.esm"]}
+{"id":"212","args":["names","0AA209 2E2F2D 10215A","--in","Starfield.esm"]}
+{"id":"213","args":["names","000810 00086E 0008AD 0008B2","--in","darkstarpatch_bubrailgun.esm"]}
+{"id":"214","args":["names","000807 00082F","--in","darkstarpatch_delta12.esm"]}
+{"id":"215","args":["names","000845 00084E 00085B","--in","darkstarpatch_atom74.esm"]}
+{"id":"216","args":["names","00216E 001DF5","--in","darkstar.esm"]}
+{"id":"217","args":["names","000E16 00018D 0096E0 008894","--in","darkstar.esm"]}
+{"id":"218","args":["names","02CA9B 02BBAA 02C41F 01E3B2 001872 01D355 0015F6","--in","cryomancer_z.esm"]}
+{"id":"219","args":["names","009BF2 009BF3 00889C","--in","darkstar.esm"]}
+{"id":"220","args":["names","0009DD","--in","darkstar.esm"]}
+{"id":"221","args":["names","2F413B 37CFEA 37CFEB","--in","Starfield.esm"]}
+{"id":"222","args":["names","349321","--in","Starfield.esm"]}
+{"id":"223","args":["names","00039E","--in","Starfield.esm"]}
+{"id":"224","args":["names","008243 008244 00977D","--in","darkstar.esm"]}
+{"id":"225","args":["names","001E13 008C76","--in","darkstar.esm"]}
+{"id":"226","args":["names","009BE3 00977F 008754 0003AB 00038D 000ABC 007FC7","--in","darkstar.esm"]}
+{"id":"227","args":["names","12957E 0D41F8","--in","Starfield.esm"]}
+{"id":"228","args":["names","000C63","--in","darkstar.esm"]}
+{"id":"229","args":["names","008232 008245","--in","darkstar.esm"]}
+{"id":"230","args":["names","0C1F54","--in","Starfield.esm"]}
+{"id":"231","args":["names","008224 008194","--in","darkstar.esm"]}
+{"id":"232","args":["names","008224 008194 00977D","--in","darkstar.esm"]}
+{"id":"233","args":["names","008262 008264 008265 008266 008263 008267 008261 008268","--in","darkstar.esm"]}
+{"id":"234","args":["names","00095C 000959","--in","darkstarpatch_terranarmada.esm"]}
+{"id":"235","args":["names","009D7A","--in","darkstar.esm"]}
+{"id":"236","args":["names","008118 008124 000AA7","--in","darkstar.esm"]}
+{"id":"237","args":["names","009BF7 009BF8","--in","darkstar.esm"]}
+{"id":"238","args":["names","1676D2","--in","Starfield.esm"]}
+{"id":"239","args":["names","0E048C 1F0A14","--in","Starfield.esm"]}
+{"id":"240","args":["names","325D59"]}
+{"id":"241","args":["names","0001B2 000946 00977F","--in","darkstar.esm"]}
+{"id":"242","args":["names","27CBC3 2811D0 04A0A4 022821","--in","Starfield.esm","--maxwidth","90"]}
+{"id":"243","args":["names","00F6CC 00F6CD 00F6D1 00F6D2 00F6D3 00F6D6 00F6D7 00F713 000806 00091E 000A7D 00003A 00091B"]}
+{"id":"244","args":["names","kgcDoom_MQ01 SFTA03"]}
+{"id":"245","args":["names","000806 000A7D 00003A 00091E 00091B"]}
+{"id":"246","args":["names","000813 000814 000817 00081E 000820","--in","Ecliptic_Merc_Z.esm"]}
+{"id":"247","args":["names","0003E6:DarkStar_Manufacturing.esm 29AE30:Starfield.esm 049B53:Starfield.esm"]}
+{"id":"248","args":["names","02F2AF 030759 0740EC 074841 07405E"]}
+{"id":"249","args":["names","0EC 841 05E","--in","N12_EnergyShields.esm"]}
+{"id":"250","args":["names","081523 02F2AF 030759"]}
+{"id":"251","args":["names","003A8F","008CB9","0C1D58","--in","darkstar.esm"]}
+{"id":"252","args":["names","003A8F","0003E6,000E82","022821:Starfield.esm","zz"]}
+{"id":"253","args":["names","003A8F 0003E6, 000E82 0C1D58"]}
+{"id":"254","args":["names","008D19 002BB1 008CB4 000060","--in","darkstar.esm"]}
+{"id":"255","args":["names","0C1F54 154EC5 28D935 23C7C0 23C7C1 23C7BF 0E048B 0E048C 33B2DD","--in","Starfield.esm"]}
+{"id":"256","args":["names","0009A8 2F95DE 000E9B 000E9C 000E9D 000E9A 000E99 000507 3198F2 3197C8 3197CA"]}
+{"id":"257","args":["names","id1 id2","--in","DarkStar_Manufacturing.esm`","(quote","the","ID","list"]}
+{"id":"258","args":["names","001483","--in","DarkStar_Manufacturing.esm"]}
+{"id":"259","args":["names","000481 001A3C 001C69 001C6B 001C72 001C73","--in","DarkStar_Manufacturing.esm"]}
+{"id":"260","args":["names","0008AF 0016A3 001D93 001D9C 00192E","--in","DarkStar_Manufacturing.esm"]}
+{"id":"261","args":["names","060A81:Starfield.esm"]}
+{"id":"262","args":["names","00977D 008241 008232 008245 001787 001779 001789","--in","darkstar.esm"]}
+{"id":"263","args":["names","0003E7:darkstar.esm 0003E8:darkstar.esm 2B4AFC:Starfield.esm"]}
+{"id":"264","args":["names","0004FA 000504 000505","--in","darkstar.esm"]}
+{"id":"265","args":["names","000014 000310 022821 023190 03EFA1 060A81 0657FF 07FACA 0E048B 0E048C 10215A 11E2B5 11E2BB 11E2C1 157D41 1AEB52 1E32C8 23C7BF 23C7C0 23C7C1 2F95DE 3197D7 3197E8 3197EB 3198F0 329ABC 329ABD 33B2DD 3A0B37 3A0B38 3A0B39 3A0B3A 3E94BD","--in","Starfield.esm","--csv"]}
+{"id":"266","args":["names","0009A9 0009AC 001708","--in","DarkStar_Manufacturing.esm","--csv"]}
+{"id":"267","args":["names","009BB8 00889B 009BB7 009BB9 008896 009D7D 009D82 009E20 009E25 009C1C 009C19 009C18 009C1B 009C1A 001A8E 009C16 004CDF 009C17 008262 008263 008264 008265 008266 008268 008269 00826E 008253","--in","darkstar.esm","--csv"]}
+{"id":"268","args":["names","006C1C:sfbgs003.esm 26D965:Starfield.esm","--csv"]}
+{"id":"269","args":["names","10052D 10052F 100531 100533 100535 100539 10053B 001852 001853 001854 001855 001856 001858 000014 001E02 001E03 001E04 001E05 001E06 001E07"]}
+{"id":"270","args":["names","00019B 00019C 00019D 000E97 000E98 000E9C 001DEF 001DF1 001DF2 001DF4 0017B7 0017B8 0017BA 0017BB 009BF3 009BF7 009BF8 009BFC 009BFD 009C02 009C06 009C07 00889D 007FDD 0096CB 0096CC 0096CD 0096E6 009C51 009C52 008CB9"]}
+{"id":"271","args":["names","008A15"]}
+{"id":"272","args":["names","000014 000853 000854"]}
+{"id":"273","args":["q","templates","darkstarpatch_athellsgate.esm","CrucibleBlade","--maxwidth","200"]}
+{"id":"274","args":["q","vmad","darkstar.esm","CodexMach_Activator_v2","--maxwidth","300"]}
+{"id":"275","args":["q","cobj","darkstar.esm","AA99_MkII_Quality_7"]}
+{"id":"276","args":["q","cobj","darkstar.esm","AA99_MkII_Quality_7","--csv"]}
+{"id":"277","args":["q","flst","darkstarpatch_shatteredspace.esm","Apparel"]}
+{"id":"278","args":["q","flst","darkstarpatch_shatteredspace.esm","Apparel","--csv"]}
+{"id":"279","args":["q","flst","darkstarpatch_trackersalliance_thewidow.esm","--csv"]}
+{"id":"280","args":["q","flst","darkstarpatch_trackersalliance_thewidow.esm"]}
+{"id":"281","args":["q","flst","darkstarpatch_trackersalliance_thewidow.esm","Apparel"]}
+{"id":"282","args":["q","flst","darkstarpatch_trackersalliance_thevulture.esm","Apparel","--csv"]}
+{"id":"283","args":["q","flst","dstgo_starfield_spacer_overhaul_z.esm","Apparel","--csv"]}
+{"id":"284","args":["q","vmad","darkstar.esm","TargetCollector"]}
+{"id":"285","args":["q","vmad","darkstar.esm","EquipDatum_DarkStar_Mk2_Weapon_Orion","--csv"]}
+{"id":"286","args":["q","vmad","darkstar.esm","--csv"]}
+{"id":"287","args":["q","flst","darkstar.esm","DarkStar_TGO_Scaling_Apparel_Base_set","--csv"]}
+{"id":"288","args":["q","templates","kgcdoom.esm","kgcDoom_WEAP_SuperShotgun"]}
+{"id":"289","args":["q","templates","dstgo_kgcdoom.esm","DarkStar_Mk3_kgcDoom_WEAP_SuperShotgun"]}
+{"id":"290","args":["q","overrides","darkstarpatch_terranarmada.esm","ConditionRecord"]}
+{"id":"291","args":["q","flst","darkstar.esm","DarkStar_Equipment_AllMk"]}
+{"id":"292","args":["q","flst","darkstar.esm","DarkStar_Equipment_AllMkIIApparel_set","--csv"]}
+{"id":"293","args":["q","flst","darkstarpatch_terranarmada.esm","CombatStyle"]}
+{"id":"294","args":["q","kw","Starfield.esm","Clothes_Akila_Child_BomberJacket_01_NOTPLAYABLE"]}
+{"id":"295","args":["q","kw","Starfield.esm","Clothes_Akila_Child_BomberJacket_01_NOTPLAYABLE","--csv"]}
+{"id":"296","args":["q","vmad","darkstar.esm","DarkStar_ScalingConfigurator_Mods","--csv"]}
+{"id":"297","args":["q","flst","darkstar.esm","DarkStar_TGO_Scaling_Injectable_Armor_MkII_set","--csv"]}
+{"id":"298","args":["q","cobj","darkstar.esm","co_DarkStar_Weap_Melee_Gutter_MkI*"]}
+{"id":"299","args":["q","cobj","darkstar.esm","co_DarkStar_Pack_SpaceTrucker_Backpack_MkII"]}
+{"id":"300","args":["q","templates","darkstar.esm","DarkStar_Mk2_Spacesuit_Navigator_Body"]}
+{"id":"301","args":["q","templates","darkstar.esm","DarkStar_Mk2_Orion"]}
+{"id":"302","args":["q","vmad","darkstar.esm","pi_DarkStar_VoidAttunementDevice"]}
+{"id":"303","args":["q","vmad","darkstar.esm","pi_DarkStar_LandingPad_Terminus*"]}
+{"id":"304","args":["q","vmad","darkstar.esm","pi_DarkStar_LandingPad_Terminus"]}
+{"id":"305","args":["q","kw","darkstar.esm","pi_DarkStar_LandingPad_Terminus_GX80"]}
+{"id":"306","args":["q","overrides","darkstarpatch_bountyhunteroutfitz.esm"]}
+{"id":"307","args":["q","appr","darkstarpatch_bountyhunteroutfitz.esm","DarkStar_Mk2_Accessory_bhz_BH_12"]}
+{"id":"308","args":["q","--list"]}
+{"id":"309","args":["q","appr","darkstar.esm","DarkStar_Mk2_Helmet_Ecliptic"]}
+{"id":"310","args":["q","appr","spacesuitpackallz_dstgo.esm","DarkStar_Mk2_Helmet"]}
+{"id":"311","args":["q","vmad","darkstar.esm","act_DarkStar_CodexMach_Activator_v2","--maxwidth","90"]}
+{"id":"312","args":["q","vmad","darkstar.esm","act_DarkStar_StrangeVoidDevice","--maxwidth","90"]}
+{"id":"313","args":["q","vmad","darkstar.esm","PlacedObject","--maxwidth","60"]}
+{"id":"314","args":["q","vmad","darkstar.esm","007F08","--maxwidth","90"]}
+{"id":"315","args":["q","overrides","darkstarpatch_terranarmada.esm","Npc","--maxwidth","200"]}
+{"id":"316","args":["q","vmad","darkstar.esm","ScalingConfigurator","--maxwidth","120"]}
+{"id":"317","args":["q","vmad","darkstarpatch_g17x.esm"]}
+{"id":"318","args":["q","vmad","darkstarpatch_shatteredspace.esm","EquipDatum_DarkStar_Mk2_Apparel_SFBGS001_Scrubs_Varuun"]}
+{"id":"319","args":["q","vmad","darkstarpatch_shatteredspace.esm","EquipDatum_ma_DarkStar_HelmetLC06"]}
+{"id":"320","args":["q","vmad","darkstarpatch_bubvaruunrifles.esm"]}
+{"id":"321","args":["q","templates","darkstarpatch_bountyhunteroutfitz.esm","DarkStar_Mk2_Apparel_bhz_BH_j01"]}
+{"id":"322","args":["q","vmad","darkstar.esm","001DA4"]}
+{"id":"323","args":["q","vmad","darkstar.esm","DarkStar_TGO_Scaling"]}
+{"id":"324","args":["q","flst","darkstarpatch_cryomancer.esm"]}
+{"id":"325","args":["q","flst","darkstarpatch_cryomancer.esm","outpost_DarkStar_Crafting_Cryomancer_set"]}
+{"id":"326","args":["q","cobj","darkstarpatch_cryomancer.esm","Outpost"]}
+{"id":"327","args":["q","templates","darkstarpatch_cryomancer.esm","CryoArc79","--maxwidth","120"]}
+{"id":"328","args":["q","cobj","darkstarpatch_cryomancer.esm","RoboticsSuit","--maxwidth","200"]}
+{"id":"329","args":["q","arma","darkstarpatch_cryomancer.esm","Cryo_H_01_0","--maxwidth","150"]}
+{"id":"330","args":["q","arma","cryomancer_z.esm","Spacesuit_Cryo_H_01_0","--maxwidth","150"]}
+{"id":"331","args":["q","vmad","darkstarpatch_athellsgate.esm","EquipDatum_DarkStar_Mk2_Weapon_kgcDoom_SuperShotgun","--maxwidth","120"]}
+{"id":"332","args":["q","flst","darkstar.esm","DarkStar_ANAMinto_WeaponRecipeCategories"]}
+{"id":"333","args":["q","vmad","darkstarpatch_nomadspacesuit.esm","EquipDatum_DarkStar_Mk2_Spacesuit_nip_Spacesuit_Nomad_SS3_Low"]}
+{"id":"334","args":["q","flst","darkstarpatch_athellsgate.esm","DarkStar_Equipment_AllDoomEquipment_set"]}
+{"id":"335","args":["q","flst","darkstarpatch_athellsgate.esm","DarkStar_kgcDoom_Scaling_Injectable_Armor_Base_set"]}
+{"id":"336","args":["q","arma","darkstarpatch_nomadspacesuit.esm","Mask_BLUE","--maxwidth","120"]}
+{"id":"337","args":["q","arma","nomad_spacesuit_z.esm","NomadMask_BLUE","--maxwidth","120"]}
+{"id":"338","args":["inspect","darkstar.esm","DarkStar_Mk2_Apparel_Uniform_DarkStar_Officer","InstanceNaming","--maxwidth","120"]}
+{"id":"339","args":["inspect","Starfield.esm","abRejuvenation04","--maxwidth","300"]}
+{"id":"340","args":["inspect","Starfield.esm","Weapon","Beowulf"]}
+{"id":"341","args":["inspect","darkstar.esm","co_DarkStar_Weap_Melee_Gutter_MkIII"]}
+{"id":"342","args":["inspect","darkstar.esm","co_DarkStar_Pack_SpaceTrucker_Backpack_MkII"]}
+{"id":"343","args":["inspect","darkstar.esm","co_qmod_Helmet_Recon01PeaceReward_MkII_Quality_6"]}
+{"id":"344","args":["inspect","darkstar.esm","DarkStar_Mk2_Helmet_Recon_01_PeaceReward"]}
+{"id":"345","args":["inspect","darkstar.esm","0016FD"]}
+{"id":"346","args":["inspect","N12_EnergyShields.esm","000806:N12_EnergyShields.esm"]}
+{"id":"347","args":["inspect","N12_EnergyShields.esm","000026:N12_EnergyShields.esm","--maxwidth","100"]}
+{"id":"348","args":["inspect","SFBGS00D.esm","02F2AF"]}
+{"id":"349","args":["inspect","SFBGS00D.esm","030759"]}
+{"id":"350","args":["inspect","darkstar.esm","DarkStar_Mk2_Rocketlauncher","--maxwidth","160"]}
+{"id":"351","args":["inspect","darkstar.esm","003042:darkstar.esm"]}
+{"id":"352","args":["inspect","darkstar.esm","009BE5"]}
+{"id":"353","args":["inspect","darkstar.esm","00977D"]}
+{"id":"354","args":["inspect","darkstar.esm","001DA4"]}
+{"id":"355","args":["inspect","darkstarpatch_cryomancer.esm","co_cry_DarkStar_Mk2_Apparel_Cryo_RoboticsSuit_04"]}
+{"id":"356","args":["inspect","darkstar.esm","00097B:darkstar.esm"]}
+{"id":"357","args":["inspect","darkstar.esm","00097E:darkstar.esm"]}
+{"id":"358","args":["refs","001D2F:darkstar.esm","--in","darkstar.esm","--maxwidth","160"]}
+{"id":"359","args":["refs","00084B:darkstarpatch_athellsgate.esm","--in","darkstarpatch_athellsgate.esm"]}
+{"id":"360","args":["refs","000872:darkstarpatch_athellsgate.esm","--in","darkstarpatch_athellsgate.esm"]}
+{"id":"361","args":["refs","00088E:darkstar.esm"]}
+{"id":"362","args":["refs","008A42:darkstar.esm"]}
+{"id":"363","args":["refs","000952:darkstarpatch_shatteredspace.esm","--in","darkstarpatch_shatteredspace.esm"]}
+{"id":"364","args":["refs","2853C5:Starfield.esm"]}
+{"id":"365","args":["refs","DarkStar_Mk2_Apparel_SFBGS001_ZealotsLab_NoShield"]}
+{"id":"366","args":["refs","008C71:darkstar.esm","--csv"]}
+{"id":"367","args":["refs","0082B9:darkstar.esm","--csv"]}
+{"id":"368","args":["refs","0028CC:darkstar.esm","--csv"]}
+{"id":"369","args":["refs","001AB4:darkstar.esm","--csv"]}
+{"id":"370","args":["refs","003F0D:darkstar.esm","--csv"]}
+{"id":"371","args":["refs","009D7A:darkstar.esm","--csv"]}
+{"id":"372","args":["refs","0096AD:darkstar.esm","--csv"]}
+{"id":"373","args":["refs","0096BA:darkstar.esm","--csv"]}
+{"id":"374","args":["refs","0026BC:darkstar.esm","--in","darkstar.esm"]}
+{"id":"375","args":["refs","pi_DarkStar_LandingPad_Terminus_GX80","--in","darkstar.esm"]}
+{"id":"376","args":["refs","00239C:darkstar.esm"]}
+{"id":"377","args":["refs","00239C:darkstar.esm","--in","darkstar.esm"]}
+{"id":"378","args":["refs","000806:N12_EnergyShields.esm","--in","N12_EnergyShields.esm"]}
+{"id":"379","args":["refs","02F2AF:SFBGS00D.esm","--in","SFBGS00D.esm"]}
+{"id":"380","args":["refs","030759:SFBGS00D.esm","--in","SFBGS00D.esm"]}
+{"id":"381","args":["refs","208DCC:Starfield.esm","--in","Starfield"]}
+{"id":"382","args":["refs","02C512:SFBGS050.esm","--in","SFBGS050.esm"]}
+{"id":"383","args":["refs","000827:darkstarpatch_cryomancer.esm","--in","darkstarpatch_cryomancer.esm"]}
+{"id":"384","args":["header","DF_Firearms_MagFix.esm"]}
+{"id":"385","args":["header","darkstarpatch_athellsgate.esm"]}
+{"id":"386","args":["header","darkstarpatch_nomadspacesuit.esm"]}
+{"id":"387","args":["header","darkstarpatch_terranarmada.esm"]}
+{"id":"388","args":["header","unofficial terran armada patch.esm"]}
+{"id":"389","args":["header","sfbgs050.esm"]}
+{"id":"390","args":["header","darkstarpatch_bountyhunteroutfitz.esm"]}
+{"id":"391","args":["header","bountyhunter_outfit_z.esm"]}
+{"id":"392","args":["header","crimsonx_z.esm"]}
+{"id":"393","args":["header","darkstarpatch_crimsonx.esm"]}
+{"id":"394","args":["header","DarkStarTGO_Fixes.esm"]}
+{"id":"395","args":["header","atom74.esm"]}
+{"id":"396","args":["header","darkstarpatch_atom74.esm"]}
+{"id":"397","args":["header","N12_EnergyShields.esm"]}
+{"id":"398","args":["header","N12_EnergyShields_ShatteredSpace.esm"]}
+{"id":"399","args":["header","darkstarpatch_aseveil.esm"]}
+{"id":"400","args":["stats","DF_Firearms_MagFix.esm"]}
+{"id":"401","args":["stats","kgcdoom.esm"]}
+{"id":"402","args":["stats","cryomancer_z.esm"]}
+{"id":"403","args":["stats","darkstarpatch_cryomancer.esm"]}
+{"id":"404","args":["stats","atom74.esm"]}
+{"id":"405","args":["stats","Starfield.esm"]}
+{"id":"406","args":["stats","darkstarpatch_athellsgate.esm"]}
+{"id":"407","args":["stats","aseveil.esm"]}
+{"id":"408","args":["stats","SFBGS050.esm"]}
+{"id":"409","args":["lint","darkstarpatch_athellsgate.esm","--maxwidth","4000"]}
+{"id":"410","args":["lint","darkstarpatch_bountyhunteroutfitz.esm","--maxwidth","5000"]}
+{"id":"411","args":["lint","dstgo_atom74.esm"]}
+{"id":"412","args":["lint","dsm_atom74.esm"]}
+{"id":"413","args":["lint","dstgo_nomad_spacesuit_z.esm"]}
+{"id":"414","args":["lint","dsm_Starfield.esm"]}
+{"id":"415","args":["lint","darkstarpatch_nomadspacesuit.esm"]}
+{"id":"416","args":["lint","C:\\scratch\\zb_eclipticmercz_dstgo.esm"]}
+{"id":"417","args":["lint","dstgo_snsp_nomad_spacesuit_z.esm"]}
+{"id":"418","args":["lint","darkstar.esm","--profile","tgo"]}
+{"id":"419","args":["delta","DF_Firearms_MagFix.esm","--bogus"]}
+{"id":"420","args":["delta","DF_Firearms_MagFix.esm","DF_mod_Eon_Mag_Cryo"]}
+{"id":"421","args":["delta","DF_Firearms_MagFix.esm","DF_mod_Eon_Mag_Cryo","--detail"]}
+{"id":"422","args":["delta","DF_Firearms_MagFix.esm"]}
+{"id":"423","args":["delta","DF_Firearms_MagFix.esm","DF_mod_AntiqueRevolver_Mag_HiEx","--detail"]}
+{"id":"424","args":["delta","darkstarpatch_atom74.esm"]}
+{"id":"425","args":["delta","svc3holsters.esm","Eon","--maxwidth","200"]}
+{"id":"426","args":["delta","darkstarpatch_aa50longwatch.esm","mod_Longwatch_Receiver_FullAuto_Standard"]}
+{"id":"427","args":["dump","darkstar.esm","009B53:darkstar.esm"]}
+{"id":"428","args":["dump","darkstar.esm","0000E9"]}
+{"id":"429","args":["dump","DarkStar_Manufacturing.esm","DSM_Mk2_Helmet_Ecliptic"]}
+{"id":"430","args":["dump","DarkStar_Manufacturing.esm","co_DSM_Helmet_Ecliptic_MkII"]}
+{"id":"431","args":["dump","DarkStar_Manufacturing.esm","001524"]}
+{"id":"432","args":["dump","DarkStar_Manufacturing.esm","000E20"]}
+{"id":"433","args":["dump","DarkStar_Manufacturing.esm","DSM_Mk2_Beowulf"]}
+{"id":"434","args":["conflicts","03B321:kinggathcreations_spaceship.esm"]}
+{"id":"435","args":["conflicts","DarkStar_Mk2_Apparel_SFBGS001_ZealotsLab_NoShield"]}
+{"id":"436","args":["conflicts","DarkStar_Mk3_kgcDoom_WEAP_SuperShotgun"]}
+{"id":"437","args":["conflicts","000806:N12_EnergyShields.esm"]}
+{"id":"438","args":["recipecensus","DarkStar_Manufacturing.esm","--bench","WorkbenchArmorKeyword","--filter","co_qmod_*","--exclude","*ForceArmor*"]}
+{"id":"439","args":["recipecensus","DarkStar_Manufacturing.esm","--bench","WorkbenchWeaponKeyword","--filter","co_qmod_*","--exclude","*Force*"]}
+{"id":"440","args":["omodcensus","darkstar.esm","mod_DarkStar_Mk2_Weapon_*"]}
+{"id":"441","args":["omodcensus","darkstar.esm","mod_DarkStar_Mk2_*Quality*"]}
+{"id":"442","args":["read","ench_LegendaryWeapon_Shattering"]}
+{"id":"443","args":["read","darkstar.esm","perk_DarkStar_Explosives_Quality_MkIII"]}
+{"id":"444","args":["mkdiff","DarkStar_Manufacturing.esm","--sig","Armor"]}
+{"id":"445","args":["diff","darkstar.esm","C:\\scratch\\zz_DarkStar_MythicArmorTest.esm","009B53:darkstar.esm","--summary"]}
+{"id":"446","args":["diff","darkstar.esm","C:\\scratch\\zz_DarkStar_MythicArmorTest.esm","009B53:darkstar.esm"]}
+{"id":"447","args":["diff","darkstar.esm","C:\\nope\\x.esm","009B53:darkstar.esm"]}
+{"id":"448","args":["diff","sfta05.esm","darkstarpatch_trackersalliance_rikuokada.esm","SFTA05_AddInto_DefaultLegendaryWeapons","--summary"]}
+{"id":"449","args":["diff","dstgo_snsp_nomad_spacesuit_z.esm","darkstarpatch_nomadspacesuit.esm","DarkStar_Mk3_Nomad_Staff","DarkStar_nip_Mk3_Staff","--summary"]}
+{"id":"450","args":["diff","Starfield.esm","darkstar.esm","219447:Starfield.esm","0082B0:darkstar.esm","--maxwidth","200"]}
+{"id":"451","args":["sources","sfta04.esm","--with","sfbgs003.esm"]}
+{"id":"452","args":["sources","sfta04.esm","--with","sfbgs003.esm","--item","SFTA04_AphelionLaserRifle"]}
+{"id":"453","args":["profile","svc3holsters.esm","--maxwidth","120"]}
+{"id":"454","args":["plugindiff","darkstar.esm","C:\\scratch\\dstgo_Starfield.esm","--detail"]}

@@ -1,0 +1,16 @@
+{"id":"lo01","tool":"sfs_loadorder","params":{}}
+{"id":"lo02","tool":"sfs_loadorder","params":{"view":"order","all":true,"limit":5}}
+{"id":"lo03","tool":"sfs_loadorder","params":{"cursor":"40.6e94"}}
+{"id":"lo04","tool":"sfs_loadorder","params":{"plugin":"darkstar.esm"}}
+{"id":"lo05","tool":"sfs_loadorder","params":{"view":"plugin","plugin":"darkstarpatch_crimsonx.esm"}}
+{"id":"lo06","tool":"sfs_loadorder","params":{"view":"plugin","plugin":"Starfield.esm"}}
+{"id":"lo07","tool":"sfs_loadorder","params":{"view":"plugin","plugin":"MissionsGalore.esm"}}
+{"id":"lo08","tool":"sfs_loadorder","params":{"view":"problems"}}
+{"id":"lo09","tool":"sfs_loadorder","params":{"view":"problems","plugin":"darkstar.esm"}}
+{"id":"lo10","tool":"sfs_loadorder","params":{"view":"plugin"}}
+{"id":"lo11","tool":"sfs_loadorder","params":{"view":"nope"}}
+{"id":"lo12","tool":"sfs_loadorder","params":{"view":"plugin","plugin":"nope.esm"}}
+{"id":"lo13","tool":"sfs_loadorder","params":{"view":"order","plugin":"darkstar.esm"}}
+{"id":"lo14","tool":"sfs_loadorder","params":{"view":"problems","plugin":"darkstarpatch_bountyhunteroutfitz.esm"}}
+{"id":"lo15","tool":"sfs_loadorder","params":{"view":"plugin","plugin":"atom74.esm"}}
+{"id":"lo16","tool":"sfs_loadorder","params":{"view":"order","limit":10,"cursor":"220.6e94"}}

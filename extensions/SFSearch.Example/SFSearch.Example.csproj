@@ -9,17 +9,19 @@
     <Nullable>enable</Nullable>
     <!-- The SFSearch folder (the one with SFSearch.csproj). Change it if your add-on lives somewhere else. -->
     <SfsHome>$(MSBuildThisFileDirectory)..\..\SFSearch</SfsHome>
+    <!-- Where the built .dll goes: SFSearch's extensions folder unless another is named (a test home: -p:SfsExtensionsDir=<home>\extensions) -->
+    <SfsExtensionsDir Condition="'$(SfsExtensionsDir)' == ''">$(SfsHome)\extensions</SfsExtensionsDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- SFSearch's own code (Sfs helpers, ISfsExtension) and, through it, Mutagen and SQLite. Private=false: SFSearch already has them. -->
+    <!-- SFSearch: the add-on API (SFSearch.AddOns in SFSearch\AddOnApi.cs), ISfsExtension and, through it, Mutagen. Private=false: SFSearch already has them. -->
     <ProjectReference Include="$(SfsHome)\SFSearch.csproj" Private="false" />
   </ItemGroup>
 
   <!-- Put the add-on where SFSearch looks, and tell sfs.cmd where its source is so it can rebuild it -->
   <Target Name="CopyToSfsExtensions" AfterTargets="Build">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SfsHome)\extensions" />
-    <WriteLinesToFile File="$(SfsHome)\extensions\$(TargetName).project" Lines="$(MSBuildProjectFullPath)" Overwrite="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SfsExtensionsDir)" />
+    <WriteLinesToFile File="$(SfsExtensionsDir)\$(TargetName).project" Lines="$(MSBuildProjectFullPath)" Overwrite="true" />
   </Target>
 
 </Project>

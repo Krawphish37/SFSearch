@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The tests of the checks and reports (part of milestone M11). They read the real Data folder and make test
+       plugins with Mutagen in a work folder outside Data and outside the repo, so they are a program with the Data
+       folder as its argument, like sfsindex-tests, sfsrecord-tests and sfscompare-tests. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>sfsreport-tests</AssemblyName>
+    <RootNamespace>SFSearch.Reports.Tests</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SFSearch.Reports\SFSearch.Reports.csproj" />
+  </ItemGroup>
+
+</Project>

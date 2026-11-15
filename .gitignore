@@ -12,6 +12,8 @@ SFSearch/Service/tmp/
 SFSearch/Service/usage.txt
 SFSearch/tools/
 scratch/
+SFSearch/kept/
+SFSearch/state/
 *.db
 *.db-wal
 *.db-shm

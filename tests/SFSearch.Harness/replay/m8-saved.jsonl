@@ -1,0 +1,9 @@
+{"id": "sav01", "tool": "sfs_saved", "params": {}}
+{"id": "sav02", "tool": "sfs_saved", "params": {"action": "show", "name": "cobj"}}
+{"id": "sav03", "tool": "sfs_saved", "params": {"action": "run", "name": "counts", "args": {"plugin": "atom74.esm"}}}
+{"id": "sav04", "tool": "sfs_saved", "params": {"action": "run", "name": "cobj", "args": "plugin=kgcdoom.esm pattern=*Plushie*", "rows": 3}}
+{"id": "sav05", "tool": "sfs_saved", "params": {"action": "run", "name": "kw", "args": {"plugin": "kgcdoom.esm", "type": "Weapon"}}}
+{"id": "sav06", "tool": "sfs_saved", "params": {"action": "run", "name": "cobj"}}
+{"id": "sav07", "tool": "sfs_saved", "params": {"action": "run", "name": "nope"}}
+{"id": "sav08", "tool": "sfs_saved", "params": {"action": "check"}}
+{"id": "sav09", "tool": "sfs_saved", "params": {"action": "dance"}}

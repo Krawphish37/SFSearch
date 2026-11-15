@@ -1,0 +1,20 @@
+{"id": "que01", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT EditorID, Name, AttackDamage FROM Weapon ORDER BY 1"}}
+{"id": "que02", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT w.EditorID, edid(k.Value) AS Keyword\nFROM Weapon w JOIN Weapon_Keywords k ON k.FormKey = w.FormKey\nORDER BY 1, k.Idx"}}
+{"id": "que03", "tool": "sfs_query", "params": {"plugins": "darkstar.esm", "sql": "SELECT count(*) AS N FROM ObjectModification"}}
+{"id": "que04", "tool": "sfs_query", "params": {"plugins": "darkstar.esm", "sql": "SELECT EditorID, Name FROM Weapon ORDER BY 1", "rows": 5}}
+{"id": "que05", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT EditorID FROM Weapon"}}
+{"id": "que06", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT count(*) AS N FROM Weapon WHERE Json LIKE '%kgcDoom_Tag_WeaponTypeDoom%' ORDER BY 1"}}
+{"id": "que07", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT EditorID, BaseDamage FROM Weapon ORDER BY 1"}}
+{"id": "que08", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT EditorID FROM Wepon ORDER BY 1"}}
+{"id": "que09", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm,atom74.esm", "sql": "SELECT Plugin, count(*) AS N FROM Weapon GROUP BY 1 ORDER BY 1"}}
+{"id": "que10", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT Sig, count(*) AS N FROM Forms GROUP BY 1 ORDER BY 2 DESC, 1", "rows": 8}}
+{"id": "que11", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "language": "German", "sql": "SELECT Name FROM Weapon WHERE EditorID = 'kgcDoom_WEAP_SuperShotgun' ORDER BY 1"}}
+{"id": "que12", "tool": "sfs_query", "params": {"plugins": "Starfield.esm", "sql": "SELECT count(*) AS N FROM PlacedObject WHERE Base = '0002F6:Starfield.esm'"}}
+{"id": "que13", "tool": "sfs_query", "params": {"plugins": "nope.esm", "sql": "SELECT 1"}}
+{"id": "que14", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "scope": "winners", "sql": "SELECT 1"}}
+{"id": "que15", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "CREATE TEMP TABLE t AS SELECT EditorID FROM Weapon;\nSELECT count(*) AS N FROM t"}}
+{"id": "que16", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "DELETE FROM Weapon"}}
+{"id": "que17", "tool": "sfs_query", "params": {"sql": ""}}
+{"id": "que18", "tool": "sfs_query", "params": {"plugins": "Starfield.esm", "sql": "SELECT EditorID, Name, text(Name, 'ja') AS ja, text(Name, 'zh') AS zh, text(Name, 'ptbr') AS ptbr, text(Name, 'ru') AS ru FROM Weapon WHERE FormKey = '0476C4:Starfield.esm'"}}
+{"id": "que19", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT text(Name, 'xx') FROM Weapon"}}
+{"id": "que20", "tool": "sfs_query", "params": {"plugins": "kgcdoom.esm", "sql": "SELECT EditorID, Type FROM Records WHERE EditorID = 'kgcDoom_WEAP_SuperShotgun'"}}

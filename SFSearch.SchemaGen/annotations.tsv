@@ -1,0 +1,16 @@
+Object	Field	Unit	Remark
+# Units and remarks that no input gives. One row per object field: the Mutagen object, the field, the unit, a remark.
+# Only units the names themselves state are listed here (the Mutagen name or xEdit's name says "Seconds", "Meters" or "Deg").
+# The build fails when a row names a field this Mutagen version does not have.
+Weapon	SightedTransitionSeconds	seconds	
+Weapon	ChargeFullPowerSeconds	seconds	
+Weapon	AttackSeconds	seconds	
+Weapon	FireSeconds	seconds	
+Weapon	AttackDelaySeconds	seconds	
+Weapon	BoltChargeSeconds	seconds	
+Weapon	BurstDelaySeconds	seconds	
+Weapon	ReloadSeconds	seconds	
+ObjectPaletteDefaults	SinkMeters	meters	
+ObjectPaletteDefaults	AngleX	degrees	
+ObjectPaletteDefaults	AngleY	degrees	
+ObjectPaletteDefaults	AngleZ	degrees	

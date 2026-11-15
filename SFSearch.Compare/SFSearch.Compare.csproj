@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Comparisons: milestone M7 of design\agent-first\PLAN.md (ARCHITECTURE.md section 9).
+       A library: one diff engine driven by the schema, and the five kinds of comparison built on it. It stands on
+       SFSearch.Index (who holds a record, who wins), SFSearch.Records (plugins held open, the one record form) and
+       schema.db. Nothing mod-specific is in it, and nothing is stored. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SFSearch.Compare</RootNamespace>
+    <Version>0.1.0</Version>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SFSearch.Records\SFSearch.Records.csproj" />
+    <InternalsVisibleTo Include="sfscompare-tests" />
+    <InternalsVisibleTo Include="sfscompare" />
+  </ItemGroup>
+
+</Project>

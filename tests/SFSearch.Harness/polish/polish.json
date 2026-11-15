@@ -1,0 +1,542 @@
+{
+  "about": "The polish cases: one for each of the 15 places where the new tools didn't do what their design said, found in the polish pass (1 to 15), and one for each later fix (101 on). sfsharness polish reads every .json file in this folder. Written as data, in the shape of the trap cases: the calls to make and what must be true of the answers. A case passes when every condition of any one 'pass_if' entry holds. 'via': 'cli' runs SFSearch.exe with the args (the answer is the verb's whole text, [cost] line included, and the exit code is the verb's own); a call with 'tool' goes through the service's structured form; 'powershell' runs a line in PowerShell. Conditions: matches, not_matches (.NET regular expressions on part out, notes or all), code (the exact exit code), tables_ruled (every table has its separator row). Placeholders: {data} the Data folder, {fx} the case's own folder under the work folder, {exe} SFSearch.exe quoted for PowerShell.",
+  "cases": [
+    {
+      "n": 1,
+      "title": "record's versions view points at the compare tool",
+      "before": "Every answer ended: \"… is the compare tool's job (not built yet)\".",
+      "form": {
+        "calls": [
+          { "tool": "sfs_record", "params": { "record": "2377CF:Starfield.esm", "view": "versions" } }
+        ],
+        "pass_if": [
+          {
+            "name": "the note names sfs_compare kind versions",
+            "all": [
+              { "part": "notes", "not_matches": "not built yet" },
+              { "part": "notes", "matches": "use compare with kind versions \\(sfs_compare kind: \"versions\"\\)" },
+              { "part": "out", "matches": "(?m)^\\| 0 \\| Starfield\\.esm \\|" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 2,
+      "title": "The Records note fires only when the SQL reads the table Records",
+      "before": "A column alias (count(*) AS Records … FROM Forms) got the note about the Records table.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "SELECT Sig, Type, count(*) AS Records, sum(IsOverride) AS Overrides FROM Forms GROUP BY Sig, Type ORDER BY 3 DESC" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "SELECT Type AS Records, 'Records' AS Name FROM Forms WHERE Sig = 'WEAP' ORDER BY 1 -- Records" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "SELECT count(*) AS N FROM Records" } }
+        ],
+        "pass_if": [
+          {
+            "name": "no note for an alias, a text or a comment; the note for the table",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^\\| Sig \\| Type \\| Records \\| Overrides \\|" },
+              { "call": 1, "part": "notes", "not_matches": "Records holds only" },
+              { "call": 2, "part": "notes", "not_matches": "Records holds only" },
+              { "call": 3, "part": "notes", "matches": "Records holds only the record types read so far for these plugins" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 3,
+      "title": "The Records note lists the record types that were read",
+      "before": "It said \"(Forms)\" for the alias, and \"(none yet)\" on a query that returned 32 Weapon rows from Records.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "SELECT EditorID, AttackDamage FROM Weapon ORDER BY 1" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "SELECT r.EditorID, j.value FROM Records r, json_each(r.Json, '$.Keywords') j WHERE r.Type = 'Weapon' ORDER BY 1, 2" } }
+        ],
+        "pass_if": [
+          {
+            "name": "rows of Weapon, and the note names Weapon",
+            "all": [
+              { "call": 2, "part": "out", "matches": "(?m)^\\| kgcDoom_WEAP_SuperShotgun \\| " },
+              { "call": 2, "part": "notes", "matches": "Records holds only the record types read so far for these plugins \\([^)\\n]*\\bWeapon\\b[^)\\n]*\\)" },
+              { "call": 2, "part": "notes", "not_matches": "none yet" },
+              { "call": 2, "part": "notes", "not_matches": "\\(Forms\\)" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 4,
+      "title": "A statement that would change a record table says that SQL here only reads",
+      "before": "DELETE, UPDATE, INSERT and DROP on a view answered \"SQLite: no such table: Weapon\".",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "DELETE FROM Weapon" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "UPDATE Weapon SET EditorID = 'x'" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "INSERT INTO Weapon (EditorID) VALUES ('x')" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "DROP TABLE Weapon" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "ATTACH 'x.db' AS x" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "CREATE TEMP TABLE t AS SELECT EditorID FROM Weapon;\nDELETE FROM t WHERE EditorID LIKE '%Blade';\nSELECT count(*) AS N FROM t" } }
+        ],
+        "pass_if": [
+          {
+            "name": "one clear line for each, as for ATTACH; a temporary table of one's own can be changed",
+            "all": [
+              { "call": 1, "matches": "(?m)^Error: a query may read, and may make temporary tables and indexes of its own; it can't run DELETE on Weapon[^\\n]*Fix: " },
+              { "call": 2, "matches": "(?m)^Error: a query may read, and may make temporary tables and indexes of its own; it can't run UPDATE on Weapon[^\\n]*Fix: " },
+              { "call": 3, "matches": "(?m)^Error: a query may read, and may make temporary tables and indexes of its own; it can't run INSERT on Weapon[^\\n]*Fix: " },
+              { "call": 4, "matches": "(?m)^Error: a query may read, and may make temporary tables and indexes of its own; it can't run DROP on Weapon[^\\n]*Fix: " },
+              { "call": 5, "matches": "(?m)^Error: a query may read, and may make temporary tables and indexes of its own; it can't run ATTACH[^\\n]*Fix: " },
+              { "call": 1, "not_matches": "no such table" },
+              { "call": 2, "not_matches": "no such table" },
+              { "call": 3, "not_matches": "no such table" },
+              { "call": 4, "not_matches": "no such table" },
+              { "call": 6, "part": "out", "matches": "(?m)^\\| 1 \\|" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 5,
+      "title": "A wrong field name: one wording and the same nearest names in describe, query, record and compare",
+      "before": "\"the nearest real names\" in describe and query, \"Did you mean\" in record, and three different lists.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_describe", "params": { "what": "Weapon.BaseDamage" } },
+          { "tool": "sfs_query", "params": { "plugins": "kgcdoom.esm", "sql": "SELECT EditorID, BaseDamage FROM Weapon" } },
+          { "tool": "sfs_record", "params": { "record": "007751", "plugin": "kgcdoom.esm", "view": "fields", "fields": "BaseDamage" } },
+          { "tool": "sfs_compare", "params": { "kind": "records", "a": "atom74.esm", "record": "ccAtom74Mk2", "b": "darkstarpatch_atom74.esm", "expect": "BaseDamage" } },
+          { "tool": "sfs_saved", "params": { "action": "run", "name": "cobjx" } }
+        ],
+        "pass_if": [
+          {
+            "name": "the same words and the same three names",
+            "all": [
+              { "call": 1, "matches": "Fix: the nearest real names: AttackDamage \\(Float, WDMG, xEdit name \"Base Damage\"\\); MeleeBashDamage \\(Float, WMEL, xEdit name \"Bash Damage\"\\); BaseValue \\(UInt32, WGEN\\)\\." },
+              { "call": 2, "matches": "Fix: the nearest real names: AttackDamage \\(Float, WDMG, xEdit name \"Base Damage\"\\); MeleeBashDamage \\(Float, WMEL, xEdit name \"Bash Damage\"\\); BaseValue \\(UInt32, WGEN\\)\\." },
+              { "call": 3, "matches": "Fix: the nearest real names: AttackDamage \\(Float, WDMG, xEdit name \"Base Damage\"\\); MeleeBashDamage \\(Float, WMEL, xEdit name \"Bash Damage\"\\); BaseValue \\(UInt32, WGEN\\)\\." },
+              { "call": 4, "part": "out", "matches": "BaseDamage: not a field of Weapon\\. The nearest real names: AttackDamage \\(Float, WDMG, xEdit name \"Base Damage\"\\); MeleeBashDamage \\(Float, WMEL, xEdit name \"Bash Damage\"\\); BaseValue \\(UInt32, WGEN\\)\\." },
+              { "call": 5, "matches": "Fix: the nearest real names: shipped\\.cobj" },
+              { "call": 1, "not_matches": "Did you mean" },
+              { "call": 2, "not_matches": "Did you mean" },
+              { "call": 3, "not_matches": "Did you mean" },
+              { "call": 5, "not_matches": "Did you mean" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 6,
+      "title": "One scheme of exit codes for every new verb",
+      "before": "A wrong field name was 2 in describe and record, 1 in query2; a plugin that isn't in Data was 1.",
+      "form": {
+        "calls": [
+          { "via": "cli", "args": [ "describe", "Weapon.BaseDamage" ] },
+          { "via": "cli", "args": [ "record", "007751", "--plugin", "kgcdoom.esm", "--fields", "BaseDamage" ] },
+          { "via": "cli", "args": [ "query2", "kgcdoom.esm", "SELECT EditorID, BaseDamage FROM Weapon;" ] },
+          { "via": "cli", "args": [ "find", "--type", "WEAP", "--in", "nosuch.esm" ] },
+          { "via": "cli", "args": [ "query2", "nosuch.esm", "SELECT 1;" ] },
+          { "via": "cli", "args": [ "query2", "kgcdoom.esm", "SELECT 1" ] },
+          { "via": "cli", "args": [ "saved", "run", "nope" ] },
+          { "via": "cli", "args": [ "refs2", "Eon", "--types", "Weapn" ] },
+          { "via": "cli", "args": [ "loadorder2", "plugin", "nope.esm" ] },
+          { "via": "cli", "args": [ "leveled2", "nope_list" ] },
+          { "via": "cli", "args": [ "compare", "sideways", "atom74.esm" ] },
+          { "via": "cli", "args": [ "job", "j0-999999" ] },
+          { "via": "cli", "args": [ "check2", "darkstarpatch_crimsonx.esm" ] },
+          { "via": "cli", "args": [ "compare", "records", "atom74.esm", "ccAtom74Mk2", "darkstarpatch_atom74.esm", "--expect", "AttackDamage" ] },
+          { "via": "cli", "args": [ "check2", "atom74.esm" ] },
+          { "via": "cli", "args": [ "find", "zzzNoSuchRecordzzz" ] },
+          { "via": "cli", "args": [ "query2", "Starfield.esm", "SELECT count(*) AS N FROM PlacedObject WHERE Base = '0002F6:Starfield.esm';" ] }
+        ],
+        "pass_if": [
+          {
+            "name": "2 for every error line, 1 for a failed check or expect, 0 for an answer, 7 for work not allowed",
+            "all": [
+              { "call": 1, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 2, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 3, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 4, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 5, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 6, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 7, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 8, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 9, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 10, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 11, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 12, "code": 2, "part": "out", "matches": "(?m)^Error: [^\\n]* Fix: " },
+              { "call": 13, "code": 1, "part": "out", "matches": "(?m)^\\| ERROR \\| " },
+              { "call": 14, "code": 1, "part": "out", "matches": "(?m)^Expect: FAIL\\." },
+              { "call": 15, "code": 0, "part": "out", "matches": "No check found anything" },
+              { "call": 16, "code": 0, "part": "out", "not_matches": "(?m)^Error:" },
+              { "call": 17, "code": 7, "part": "out", "matches": "(?m)^Not run\\. " }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 7,
+      "title": "Nothing is kept after an identical round trip",
+      "before": "scratch\\roundtrip\\…\\Strings\\ still held 27 string files after an IDENTICAL result.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_check", "params": { "plugin": "atom74.esm", "what": "roundtrip" } },
+          { "tool": "sfs_status", "params": {} }
+        ],
+        "pass_if": [
+          {
+            "name": "identical, and the scratch folder has no roundtrip files",
+            "all": [
+              { "call": 1, "part": "out", "matches": "Round trip of atom74\\.esm: IDENTICAL\\." },
+              { "call": 2, "part": "out", "matches": "(?m)^Scratch folder: [^\\n]*: index " },
+              { "call": 2, "part": "out", "not_matches": "(?m)^Scratch folder: [^\\n]*roundtrip [^\\n;]* in [\\d,]+ file" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 8,
+      "title": "Every table has its separator row",
+      "before": "loadorder2 changes, changes2, check2 --what assets, assets2, archive2 and scripts2 printed a header row only.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_loadorder", "params": { "view": "changes" } },
+          { "tool": "sfs_run", "params": { "args": [ "changes2", "atom74.esm" ] } },
+          { "tool": "sfs_check", "params": { "plugin": "atom74.esm", "what": "assets" } },
+          { "tool": "sfs_run", "params": { "args": [ "assets2", "atom74.esm" ] } },
+          { "tool": "sfs_run", "params": { "args": [ "archive2", "atom74.esm" ] } },
+          { "tool": "sfs_run", "params": { "args": [ "archive2", "atom74.esm", "list", "*.mat", "--max-chars", "2000" ] } },
+          { "tool": "sfs_run", "params": { "args": [ "archive2", "all", "find", "atom74_barrel", "--max-chars", "2000" ] } },
+          { "tool": "sfs_run", "params": { "args": [ "materials2", "aa50_longwatch.esm" ] } },
+          { "tool": "sfs_run", "params": { "args": [ "materials2", "atom74.esm", "--detail", "--max-chars", "3000" ] } }
+        ],
+        "pass_if": [
+          {
+            "name": "each answer has its table, and each table its separator row",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^\\| Plugin \\| Why \\|\\n\\| :--- \\| :--- \\|$" },
+              { "call": 1, "part": "out", "tables_ruled": true },
+              { "call": 2, "part": "out", "matches": "(?m)^\\| Seen \\| Size \\| Records \\| New \\| Overrides \\| Different type than base \\| What changed \\|\\n\\| :--- \\|" },
+              { "call": 2, "part": "out", "tables_ruled": true },
+              { "call": 3, "part": "out", "matches": "(?m)^\\| Result \\| Paths \\|\\n\\| :--- \\| :--- \\|$" },
+              { "call": 3, "part": "out", "tables_ruled": true },
+              { "call": 4, "part": "out", "matches": "(?m)^\\| Result \\| Paths \\|\\n\\| :--- \\| :--- \\|$" },
+              { "call": 4, "part": "out", "tables_ruled": true },
+              { "call": 5, "part": "out", "matches": "(?m)^\\| Archive \\| Files \\| Size \\| Kinds \\| Loose copies in Data \\|\\n\\| :--- \\|" },
+              { "call": 5, "part": "out", "tables_ruled": true },
+              { "call": 6, "part": "out", "matches": "(?m)^\\| Archive \\| File \\| Size \\| Loose copy in Data \\|\\n\\| :--- \\|" },
+              { "call": 6, "part": "out", "tables_ruled": true },
+              { "call": 7, "part": "out", "matches": "(?m)^\\| Archive \\| File \\| Size \\| Loose copy in Data \\|\\n\\| :--- \\|" },
+              { "call": 7, "part": "out", "tables_ruled": true },
+              { "call": 8, "part": "out", "tables_ruled": true },
+              { "call": 9, "part": "out", "matches": "(?m)^\\| Material \\| Found in \\| Used by \\| Textures \\| Missing textures \\|\\n\\| :--- \\|" },
+              { "call": 9, "part": "out", "tables_ruled": true }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 9,
+      "title": "One file, one size: every tool writes sizes with one function",
+      "before": "darkstarpatch_crimsonx.esm (53,235 bytes) was \"51 KB\" in some tools and \"52 KB\" in check2; a copy of atom74.esm was \"82.9 KB\" beside \"82 KB\".",
+      "form": {
+        "fixtures": [
+          { "copy": "{data}\\atom74.esm", "to": "atom74.esm" }
+        ],
+        "calls": [
+          { "tool": "sfs_loadorder", "params": { "view": "plugin", "plugin": "darkstarpatch_crimsonx.esm" } },
+          { "tool": "sfs_query", "params": { "plugins": "darkstarpatch_crimsonx.esm", "sql": "SELECT count(*) AS N FROM Forms" } },
+          { "tool": "sfs_check", "params": { "plugin": "darkstarpatch_crimsonx.esm" } },
+          { "tool": "sfs_compare", "params": { "kind": "plugin_vs_masters", "a": "darkstarpatch_crimsonx.esm" } },
+          { "tool": "sfs_compare", "params": { "kind": "plugins", "a": "atom74.esm", "b": "{fx}\\atom74.esm" } },
+          { "tool": "sfs_run", "params": { "args": [ "archive2", "atom74.esm" ] } }
+        ],
+        "pass_if": [
+          {
+            "name": "whole KB rounded down, in every tool",
+            "all": [
+              { "call": 1, "part": "out", "matches": "darkstarpatch_crimsonx\\.esm: Light \\(Small\\), 51 KB \\(53,235 bytes\\)" },
+              { "call": 1, "part": "notes", "matches": "(?m)^\\[source\\] [^\\n]*darkstarpatch_crimsonx\\.esm 51 KB, key " },
+              { "call": 2, "part": "notes", "matches": "(?m)^\\[source\\] darkstarpatch_crimsonx\\.esm 51 KB, key " },
+              { "call": 3, "part": "notes", "matches": "(?m)^\\[source\\] darkstarpatch_crimsonx\\.esm 51 KB, key " },
+              { "call": 4, "part": "notes", "matches": "(?m)^\\[source\\] darkstarpatch_crimsonx\\.esm 51 KB, key " },
+              { "call": 3, "part": "notes", "not_matches": "52 KB|52\\.0 KB" },
+              { "call": 5, "part": "notes", "matches": "(?m)^\\[source\\] atom74\\.esm (\\d+ KB), key ([0-9a-f]+); [^;\\n]*\\\\atom74\\.esm \\1, key \\2" },
+              { "call": 5, "part": "notes", "not_matches": "\\d\\.\\d KB" },
+              { "call": 6, "part": "out", "matches": "(?m)^\\| atom74 - main\\.ba2 \\| 235 \\| 15 MB \\|" },
+              { "call": 6, "part": "notes", "matches": "(?m)^\\[source\\] atom74 - main\\.ba2 15 MB, " }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 10,
+      "title": "The older-master warning has one wording, from ProblemNotes",
+      "before": "check2 said \"105 override(s) of a different type than their base: built for an older version of a master?\", the other tools the longer line with an example.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_find", "params": { "type": "ARMO", "in": "darkstarpatch_crimsonx.esm", "limit": 2 } },
+          { "tool": "sfs_check", "params": { "plugin": "darkstarpatch_crimsonx.esm" } },
+          { "tool": "sfs_compare", "params": { "kind": "plugin_vs_masters", "a": "darkstarpatch_crimsonx.esm" } },
+          { "tool": "sfs_run", "params": { "args": [ "assets2", "darkstarpatch_crimsonx.esm" ] } },
+          { "tool": "sfs_query", "params": { "plugins": "darkstarpatch_crimsonx.esm", "sql": "SELECT count(*) AS N FROM Forms" } }
+        ],
+        "pass_if": [
+          {
+            "name": "the same first note in every tool",
+            "all": [
+              { "call": 1, "part": "notes", "matches": "\\Adarkstarpatch_crimsonx\\.esm: 105 override\\(s\\) have a different type than their base: it was built for an older version of a master, so its overrides may sit on the wrong records\\. Example: its ARMO [^\\n]* overrides the ARMA [^\\n]*\\. 13 override\\(s\\) of a record their master doesn't have\\.(\\n|$)" },
+              { "call": 2, "part": "notes", "matches": "\\Adarkstarpatch_crimsonx\\.esm: 105 override\\(s\\) have a different type than their base: it was built for an older version of a master, so its overrides may sit on the wrong records\\. Example: its ARMO [^\\n]* overrides the ARMA [^\\n]*\\. 13 override\\(s\\) of a record their master doesn't have\\.(\\n|$)" },
+              { "call": 3, "part": "notes", "matches": "\\Adarkstarpatch_crimsonx\\.esm: 105 override\\(s\\) have a different type than their base: it was built for an older version of a master, so its overrides may sit on the wrong records\\. Example: its ARMO [^\\n]* overrides the ARMA [^\\n]*\\. 13 override\\(s\\) of a record their master doesn't have\\.(\\n|$)" },
+              { "call": 4, "part": "notes", "matches": "\\Adarkstarpatch_crimsonx\\.esm: 105 override\\(s\\) have a different type than their base: it was built for an older version of a master, so its overrides may sit on the wrong records\\. Example: its ARMO [^\\n]* overrides the ARMA [^\\n]*\\. 13 override\\(s\\) of a record their master doesn't have\\.(\\n|$)" },
+              { "call": 5, "part": "notes", "matches": "\\Adarkstarpatch_crimsonx\\.esm: 105 override\\(s\\) have a different type than their base: it was built for an older version of a master, so its overrides may sit on the wrong records\\. Example: its ARMO [^\\n]* overrides the ARMA [^\\n]*\\. 13 override\\(s\\) of a record their master doesn't have\\.(\\n|$)" },
+              { "call": 2, "part": "notes", "not_matches": "older version of a master\\?" },
+              { "call": 2, "part": "notes", "not_matches": "(?m)^darkstarpatch_crimsonx\\.esm: 13 override" },
+              { "call": 3, "part": "notes", "not_matches": "older version of a master\\?" },
+              { "call": 4, "part": "notes", "not_matches": "older version of a master\\?" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 11,
+      "title": "Every [cost] line says what was read, with no doubled word and no bare number",
+      "before": "\"read 317 of 317 records … read\", \"… material files read\", \"read atom74.esm read whole …\", and a scripts2 line ending in \", 2\".",
+      "form": {
+        "calls": [
+          { "via": "cli", "args": [ "check2", "atom74.esm" ] },
+          { "via": "cli", "args": [ "check2", "atom74.esm", "--what", "assets" ] },
+          { "via": "cli", "args": [ "materials2", "atom74.esm" ] },
+          { "via": "cli", "args": [ "check2", "atom74.esm", "--what", "roundtrip" ] },
+          { "via": "cli", "args": [ "check2", "darkstarpatch_atom74.esm" ] },
+          { "via": "cli", "args": [ "sources2", "kgcdoom.esm", "--item", "kgcDoom_WEAP_SuperShotgun" ] },
+          { "via": "cli", "args": [ "sources2", "atom74.esm", "--scan" ] },
+          { "via": "cli", "args": [ "compare", "plugins", "atom74.esm", "darkstarpatch_atom74.esm" ] },
+          { "via": "cli", "args": [ "dialogue2", "kgcDoom_MQ01", "--max-chars", "2000" ] },
+          { "via": "cli", "args": [ "loadorder2", "changes" ] },
+          { "via": "cli", "args": [ "archive2", "atom74.esm" ] },
+          { "via": "cli", "args": [ "leveled2", "LL_Weapon_ccAtom74" ] }
+        ],
+        "pass_if": [
+          {
+            "name": "each cost line is \"read\" and then things that were read",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 317 of 317 records of atom74\\.esm$" },
+              { "call": 2, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 317 of 317 records of atom74\\.esm, the file lists of [\\d,]+ archives?$" },
+              { "call": 3, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 43 meshes \\(323 KB\\) and 52 material files, the file lists of [\\d,]+ archives?$" },
+              { "call": 4, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read atom74\\.esm whole, then its copy as Mutagen [^ ]+ wrote it \\(" },
+              { "call": 5, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read [\\d,]+ of [\\d,]+ records of darkstarpatch_atom74\\.esm, the masters' versions of [\\d,]+ overrides? \\(to compare them\\)$" },
+              { "call": 6, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read the link index of 1 plugin \\([\\d,]+ lookups?\\), [\\d,]+ records? to place the links, [\\d,]+ placed references? \\(" },
+              { "call": 7, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read [\\d,]+ records of [\\d,]+ plugins? for their links \\(" },
+              { "call": 8, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read [\\d,]+ and [\\d,]+ record headers, [\\d,]+ pairs? of records to compare" },
+              { "call": 9, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read [\\d,]+ topics? and [\\d,]+ lines? from [\\d,]+ plugins? \\(" },
+              { "call": 10, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read the header index of [\\d,]+ plugins" },
+              { "call": 11, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read the file lists of 2 archives" },
+              { "call": 12, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read [\\d,]+ lists? from [\\d,]+ plugins?$" },
+              { "call": 1, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" },
+              { "call": 2, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" },
+              { "call": 3, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" },
+              { "call": 5, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" },
+              { "call": 6, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" },
+              { "call": 7, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$)" },
+              { "call": 8, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" },
+              { "call": 9, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" },
+              { "call": 10, "part": "out", "not_matches": "(?m)^\\[cost\\][^\\n]*(\\bread[;,]|\\bread$|, [\\d,]+$|; read [^\\n]*; )" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 12,
+      "title": "sources2's summary counts the verdicts the rows show",
+      "before": "\"By verdict: Quest 1.\" where the row said \"Quest, World loot\".",
+      "form": {
+        "calls": [
+          { "tool": "sfs_run", "params": { "args": [ "sources2", "kgcdoom.esm", "--item", "kgcDoom_WEAP_SuperShotgun" ] } },
+          { "tool": "sfs_run", "params": { "args": [ "sources2", "kgcdoom.esm" ] } }
+        ],
+        "pass_if": [
+          {
+            "name": "an item with two verdicts counts under both",
+            "all": [
+              { "call": 1, "part": "out", "matches": "By verdict \\(an item with several counts under each\\): Quest 1, World loot 1\\." },
+              { "call": 1, "part": "out", "matches": "(?m)^\\| kgcDoom_WEAP_SuperShotgun \\(007751:kgcdoom\\.esm\\) \\| Super Shotgun \\| WEAP \\| yes \\| Quest, World loot \\|" },
+              { "call": 2, "part": "out", "matches": "By verdict \\(an item with several counts under each\\): World loot 5, Quest 4, Unplayable 2, NPC skin 1\\." }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 13,
+      "title": "status counts a worker's open plugins one way",
+      "before": "\"worker 1: 137\" on one line and \"136 plugin(s)\" for the same worker a few lines later (a plugin open in two engines counted twice).",
+      "form": {
+        "calls": [
+          { "tool": "sfs_record", "params": { "record": "kgcDoom_WEAP_SuperShotgun" } },
+          { "tool": "sfs_record", "params": { "record": "kgcDoom_WEAP_SuperShotgun", "language": "German" } },
+          { "tool": "sfs_status", "params": {} }
+        ],
+        "pass_if": [
+          {
+            "name": "the worker that answered has the same number on both lines",
+            "all": [
+              { "call": 3, "part": "out", "matches": "(?m)^Open plugins \\(Mutagen overlays the new tools keep open\\), by worker: " },
+              { "call": 3, "part": "out", "matches": "(?s)worker \\d+: (\\d+)[,.].*Open in the worker that answered this, as Mutagen overlays: [^\\n]*\\(\\1 plugins?\\)|(?s)worker \\d+: 0[,.].*Open in the worker that answered this: no plugin\\." },
+              { "call": 3, "part": "out", "not_matches": "plugin\\(s\\) as Mutagen overlays" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 14,
+      "title": "find by words of a name: one question; with no link files the names are read from the plugins' bytes",
+      "before": "With no link files, find \"Super Shotgun\" printed a \"nothing\" row for each word, then a note that names aren't read yet.",
+      "form": {
+        "calls": [
+          { "via": "powershell", "line": "$h = '{fx}\\emptyhome'; New-Item -ItemType Directory -Force $h | Out-Null; $env:SFSEARCH_HOME = $h; & {exe} find 'Super Shotgun' --in kgcdoom.esm; Remove-Item -Recurse -Force $h" },
+          { "tool": "sfs_find", "params": { "query": "Super Shotgun", "in": "kgcdoom.esm" } },
+          { "tool": "sfs_find", "params": { "query": "Zzqx Shotgun", "in": "kgcdoom.esm" } }
+        ],
+        "pass_if": [
+          {
+            "name": "no link files: the names are read from the plugin's bytes (fix-tools B7), no nothing-rows; with them: the records, or one line",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^\\| Super Shotgun \\| kgcDoom_WEAP_SuperShotgun \\(007751:kgcdoom\\.esm\\) \\| WEAP Weapon \\| Super Shotgun \\| " },
+              { "call": 1, "part": "out", "matches": "the in-game names of 1 plugin\\(s\\) from their own bytes" },
+              { "call": 1, "part": "out", "not_matches": "can't be searched yet" },
+              { "call": 1, "part": "out", "not_matches": "nothing:" },
+              { "call": 1, "part": "out", "not_matches": "(?m)^\\[notes\\] In-game names" },
+              { "call": 2, "part": "out", "matches": "kgcDoom_WEAP_SuperShotgun \\(007751:kgcdoom\\.esm\\)" },
+              { "call": 3, "part": "out", "matches": "\\ANo EditorID is \"Zzqx\" or \"Shotgun\" \\(487 EditorIDs in kgcdoom\\.esm looked at\\), and no in-game name holds the words \"Zzqx Shotgun\" \\(" },
+              { "call": 3, "part": "out", "not_matches": "(?m)^\\| " }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 15,
+      "title": "describe: a word that is a record type gives the type, and says how to search field names",
+      "before": "describe ammo gave the type AMMO with no word about the search the design promised for \"any word\".",
+      "form": {
+        "calls": [
+          { "tool": "sfs_describe", "params": { "what": "ammo" } },
+          { "tool": "sfs_describe", "params": { "what": "*ammo*" } },
+          { "tool": "sfs_describe", "params": { "what": "AMMO" } },
+          { "tool": "sfs_describe", "params": { "what": "WEAP", "filter": "ammo" } },
+          { "tool": "sfs_describe", "params": { "what": "damage" } }
+        ],
+        "pass_if": [
+          {
+            "name": "the type with the note; the search by *word*; no note for the signature as it is written",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^# Ammunition \\(AMMO\\)$" },
+              { "call": 1, "part": "notes", "matches": "\"ammo\" was read as the record type Ammunition \\(AMMO\\)\\. [\\d,]+ fields? of the schema holds? \"ammo\" in a name: to list them, in every record type, ask describe \\*ammo\\*; for one type's, give the type and the word as filter \\(describe WEAP ammo\\)\\." },
+              { "call": 2, "part": "out", "matches": "(?m)^# \"ammo\" is part of the name of [\\d,]+ fields$" },
+              { "call": 2, "part": "out", "matches": "(?m)^\\| Weapon\\.AmmoCapacity \\| " },
+              { "call": 3, "part": "out", "matches": "(?m)^# Ammunition \\(AMMO\\)$" },
+              { "call": 3, "part": "notes", "not_matches": "was read as the record type" },
+              { "call": 4, "part": "out", "matches": "(?m)^# Weapon \\(WEAP\\): 5 fields matching \"ammo\"$" },
+              { "call": 5, "part": "out", "matches": "(?m)^# \"damage\" is " }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 102,
+      "title": "find: a row's in-game name is read from the record's own bytes (fix-tools B7)",
+      "before": "Names came from the link files only: none before they were made, and none for records the link index doesn't name (ship modules, GBFM).",
+      "form": {
+        "calls": [
+          { "tool": "sfs_find", "params": { "query": "kgcDoom_Ship_Perseus_Longsword" } }
+        ],
+        "pass_if": [
+          {
+            "name": "a ship module has its name",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^\\| kgcDoom_Ship_Perseus_Longsword \\(00777D:kgcdoom\\.esm\\) \\| GBFM [A-Za-z]+ \\| Perseus \\| " }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 103,
+      "title": "record: the card shows object bounds at their default (fix-tools B10)",
+      "before": "The Eon's card had no OBND line: its object bounds are all zero, and the card showed only what the record sets.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_record", "params": { "record": "0476C4:Starfield.esm", "plugin": "Starfield.esm" } },
+          { "tool": "sfs_record", "params": { "record": "0476C4:Starfield.esm", "plugin": "Starfield.esm", "view": "fields", "fields": "ObjectBounds" } }
+        ],
+        "pass_if": [
+          {
+            "name": "all zero (default) on the card and in the fields view",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^  Object Bounds \\(OBND\\): all zero \\(default\\)\\r?$" },
+              { "call": 2, "part": "out", "matches": "ObjectBounds = all zero   \\[the default" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 104,
+      "title": "loadorder: Light (Small) the first time, Light after; problems and changes point at each other (fix-tools B11)",
+      "before": "The tools said Small where the game and modders say Light, and the problems view didn't point to the patches at risk.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_loadorder", "params": { "view": "plugin", "plugin": "atom74.esm" } },
+          { "tool": "sfs_loadorder", "params": { "view": "order", "limit": 3 } },
+          { "tool": "sfs_loadorder", "params": { "view": "problems", "limit": 2 } },
+          { "tool": "sfs_loadorder", "params": { "view": "changes" } }
+        ],
+        "pass_if": [
+          {
+            "name": "the wording, and the two views name each other",
+            "all": [
+              { "call": 1, "part": "out", "matches": "\\Aatom74\\.esm: Light \\(Small\\), " },
+              { "call": 1, "part": "out", "matches": "A Light plugin's IDs go up to 000FFF" },
+              { "call": 1, "part": "out", "not_matches": "Small plugin" },
+              { "call": 2, "part": "out", "matches": "[0-9]+ Light \\(Small\\)\\), " },
+              { "call": 2, "part": "out", "matches": "(?m)^\\| 1 \\| yes \\| FE:000 \\| Constellation\\.esm \\| Light \\| " },
+              { "call": 3, "part": "notes", "matches": "are in the changes view: sfs_loadorder view \"changes\"" },
+              { "call": 4, "part": "notes", "matches": "is in the problems view: sfs_loadorder view \"problems\"" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 105,
+      "title": "changes2 says where it writes its history log, and status names it (fix-tools B12)",
+      "before": "The first changes2 wrote kept\\history into the home with no word.",
+      "form": {
+        "calls": [
+          { "via": "powershell", "line": "$h = '{fx}\\histhome'; if (Test-Path $h) { Remove-Item -Recurse -Force $h }; New-Item -ItemType Directory -Force $h | Out-Null; $env:SFSEARCH_HOME = $h; & {exe} changes2; & {exe} status; Remove-Item -Recurse -Force $h" }
+        ],
+        "pass_if": [
+          {
+            "name": "said the first time, and in status",
+            "all": [
+              { "call": 1, "part": "out", "matches": "The history begins now: [0-9,]+ plugins remembered as they are\\..* history log written to .*histhome\\\\kept\\\\history\\\\" },
+              { "call": 1, "part": "out", "matches": "(?m)^History log: .*histhome\\\\kept\\\\history, " }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

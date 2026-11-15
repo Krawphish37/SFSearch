@@ -1,0 +1,80 @@
+# SFSearch.SchemaGen
+
+Builds `schema.db`: every Starfield record type's fields, generated from Mutagen's own record definitions. It runs at build time and never reads a plugin. Its tables are described below.
+
+**It never reads a plugin.** The main program doesn't use it yet.
+
+## Build and test
+```powershell
+dotnet build SFSearch.SchemaGen -c Release
+```
+
+```powershell
+dotnet test SFSearch.SchemaGen.Tests -c Release
+```
+
+The build compiles `schemagen` and then runs it. `schema.db` lands beside the program (`bin\Release\net10.0\schema.db`, about 5 MB, 3 seconds). The build also rewrites `reports\unmatched-pairs.tsv`.
+
+It needs Mutagen 0.55.0-fixes.17 (`MutagenVersion` in the project file), restored like the other projects' packages (the repo's `nuget.config` and `packages\`). Mutagen's record definitions are read from that restored package (they ship in it since fixes.14, C182): the repo keeps no copy.
+
+## What goes in
+| Input | Where | Gives |
+|---|---|---|
+| Mutagen's record definitions (Loqui XML) | the restored package, `%UserProfile%\.nuget\packages\mutagen.bethesda.starfield\<version>\loqui\Mutagen.Bethesda.Starfield\Records\`; version and commit from the package's nuspec | every object and its fields |
+| Mutagen's hand-read layouts | the same package, `loqui\Mutagen.Bethesda.Starfield\Layouts\HandReadLayouts.xml` (C186) | the byte places of fields Mutagen reads by hand |
+| The compiled Mutagen package | NuGet | a check that every field exists, enum members, "may be absent" |
+| xEdit's name for each field | `inputs\xedit-pairs-2026-11-14.tsv` | readable names, a check on the signatures |
+| Evidence for unknown fields | `inputs\unknown-fields-r4-2026-11-10.tsv` | what is known about fields still unnamed |
+| Units and remarks | `annotations.tsv`, kept by hand | units |
+| The Creation Kit's names | `inputs\ck-names-1.16.244.0.tsv` (made by `schemagen ck-import` from the CK's reflection dump) | display names, tooltips, ranges, Hidden and Deprecated flags of the engine's reflected classes, fields and enum members, with each class's base, fields (order, type) and each enum's members (order, value) |
+
+**The Creation Kit's names are in the program** (the author's decision): every build reads them from `inputs\ck-names-<CK version>.tsv`, and its name and hash go into `Meta` (`CkNamesFile`, `CkNamesSha256`) with the Creation Kit and the dump it was made from (`CkReflection` = CreationKit.exe 1.16.244.0, `CkReflectionSha256`, from the file's header). The file holds only what SFSearch uses, keyed by the engine's names: one `type` row per reflected class or enum (kind, base class, display name, tooltip, flags), one `field` row per class field (order, field type, display name, tooltip, flags, range) and one `member` row per enum member (order, value, display name, tooltip, flags). The dump's addresses, vftables, callbacks, sizes and alignment are left out. The format is at the top of `CkNamesFile.cs`. `CkReflection.cs` keeps only engine names: which Mutagen objects hold which reflected class (`ObjectClasses`), which Mutagen fields are a class's field (`FieldsOf`) and which enums are the engine's (`EnumsOf`). Mutagen's own `ckName` attribute (fixes.17, C220) is read as well, and wins where it gives a name.
+
+**When the Creation Kit updates:** dump its reflection data again (the Mutagen session's C219 tool), then
+```powershell
+dotnet SFSearch.SchemaGen\bin\Release\net10.0\schemagen.dll ck-import <the dump .json> SFSearch.SchemaGen\inputs
+```
+It writes `inputs\ck-names-<the new CK version>.tsv` and names an older file still there: delete that one, point `SchemaCkNames` in `SFSearch.SchemaGen.csproj` at the new file, build, and run `dotnet test SFSearch.SchemaGen.Tests -c Release` (with the dump named by `SFS_CK_DUMP`, or at `reflection-dumps\CK-BSReflection.json` in the folder that holds the repo, the test `TheCksNamesFileIsWhatCkImportMakesFromTheDump` checks that the file is what the dump gives, row for row). The build fails when an engine name in `CkReflection.cs` is no longer in the new file. `ck-import` is the only reader of the dump; the dump itself never goes into the repo.
+
+The two files in `inputs\` are copies made by `schemagen import <inventory> <inputs folder> [--date yyyy-mm-dd]` from the coverage project's inventory folder. Example values with record names are left out. The import reads one `xedit-<type>-<date>` folder per record type: an older export left beside the current one (`xedit-npc-…` beside `xedit-npc_-…`, a `-sample` folder beside the full export) is left out and named. The pairs file is named by the day the pairs were made (`--date` when the folders were rerun after the date in their names).
+
+## Commands
+```powershell
+$g = "SFSearch.SchemaGen\bin\Release\net10.0\schemagen.exe"; $db = "SFSearch.SchemaGen\bin\Release\net10.0\schema.db"
+& $g describe $db WEAP                   # a record type, by signature
+& $g describe $db Weapon                 # the same, by Mutagen name
+& $g describe $db Weapon.AttackDamage    # a field, by Mutagen path
+& $g describe $db WEAP/WDMG              # by file address (add @12 for an offset)
+& $g describe $db "Base Damage"          # by readable name
+& $g describe $db BGSAtmosphere::MiscSettings     # a reflected class, with the Creation Kit's names
+& $g describe $db "Image Space: Day"     # by the CK's name
+& $g describe $db OMOD                   # a signature with several record types lists them
+& $g describe $db WEAP Damage            # a record type's fields matching a word
+& $g describe $db WEAP --all             # every kind of object spelled out
+& $g stats $db
+& $g sql $db "SELECT Path, Subrecord, Offset FROM Fields WHERE Type = 'Weapon' ORDER BY Sort"
+```
+Names are matched in any case. `describe` returns 1 when it finds nothing, and names the nearest real fields.
+
+## The tables
+| Table | Holds |
+|---|---|
+| `RecordTypes` | `Sig`, `Type`, and counts: `Fields` (real fields), `Paths`, `Unknown`, `Named` |
+| `Objects` | every object the XML defines, once: `Base`, `Abstract`, `Sig`, `Struct`, `FixedSize`, `Variants`; `Marker` and `EndMarker` (the XML's `markerType`, `endMarkerType`: empty subrecords before and after the object, BFCE ends a component), `Contains` (the XML's `AdditionalContainedRecordType`: other subrecords read by hand-written code, a condition's CITC, CIS1, CIS2); `HandRead`: empty when Mutagen's generated reader reads the whole object, else the hand-written Mutagen code that reads it, as the compiled package names it (`ConditionBinaryCreateTranslation.FillBinaryFlagsCustom`), and the field of another object whose hand-written code enters it (`via PerkRank.Effects (…)`) |
+| `ObjectFields` | each object's own fields, once. `Path` is the path inside the object (`Keywords[*]`, `WorldModel.Male`), `Name` the Mutagen property; `Marker` and `EndMarker` are a field's own markers (POBA before a package's `OnBegin`). `StringsTable`: a translated text's strings table, the XML's `translated` (`Normal` = .strings, `DL` = .dlstrings, `IL` = .ilstrings). `CounterLength`: a list's count length in bytes, the XML's `counterLength` (4 for a list counted by a counter subrecord that gives none, as Mutagen's generator sets it); the count is written just before the entries, or is the counter subrecord when the note says "counted by". `LayoutOffset`, `LayoutBits`, `LayoutSubrecord`, `LayoutEncoding`, `LayoutDroppedBits`, `LayoutPresentWhen`, `LayoutGroup`, `SelectedBy`: the XML's layout attributes (C186, fixes.14), where Mutagen's hand-written code puts a field (a condition's compare operator: offset 0, bits 5-7), also said in the field's note ("Mutagen's layout: …"); `LayoutMap` (C196, fixes.15): a field not stored as such, which Mutagen derives from the stored number at its place (a perk effect's `Modification`: `1:Set,2:Add,3:Multiply` from the entry point function in DATA); `Objects` has `SelectedBy`, `SelectorValue` and `ConditionFunction` (what picks a kind of object). `Source`: empty for a field the XML declares; for a property Mutagen adds beyond its XML, what makes it (Mutagen's `docs/Contributing/development/Code-Generation.md`): its generator's rules applied to the XML (`Versioning` for `<Break />` in an object's fields; `<Sig>DataTypeState` for a data block with a break, a range or `optional="true"`; `MajorFlags` for `majorFlag="true"`) or hand-written code (`IsCompressed`, `IsDeleted` on every record; `RegionData.DataType`, RDAT's first 4 bytes); 68 fields, held to the compiled getters both ways at build (each is a property, and no such property of a getter lacks one). They take no bytes and no offset, except `DataType`. `ReadOnly`: such a property the record class can't set (`RegionData.DataType`), which the serializer never writes: fields mode reads it from the record, and the SQL views leave it out. `TextForm`: how a text (String, AssetLink) is stored, the XML's `binaryType` or Mutagen's default `NullTerminate` (`PrependLength`, `PrependLengthWithNullIfContent`, `PrependLengthUShort`, `PrependLengthUInt8`, `NullPaddedFixedLength`, `Plain`). `Offset` is where Mutagen's generated reader reads the field: a field it leaves to hand-written code (`binary="NoGeneration"`) has none, nor do the fields after it in the same run, nor the fields of an object only hand-written code enters (a condition's data, a perk effect); a `binary="Custom"` field takes its `byteLength` |
+| `Fields` (a view) | every record type's fields spelled out as paths, worked out when asked. Always add `ORDER BY Sort` for file order |
+| `CkTypes`, `CkFields`, `CkMembers` | the Creation Kit's names (from `inputs\ck-names-*.tsv`; empty only in a schema built with `--ck-names none`): each reflected class or enum (`Type`, `Kind`, `Base`, `DisplayName`, `ToolTip`, `Hidden`, `Deprecated`), each class's fields (`Field`, `FieldType`, the same, `RangeMin`, `RangeMax`, `RangeStep`) and each enum's members (`Member`, `Value`, the same). `Objects.CkClass`/`CkName`, `ObjectFields.CkName`/`CkField` and `Enums.CkName`/`CkMember` give Mutagen's own objects, fields and members theirs |
+| `Enums` | members, values, flags or not, xEdit's spelling where it differs |
+| `Pairs` | all 7,260 pairs: `Match` says how each was matched (`exact`, `flag`, `component`, `bytes`, `count`, `subrecord`, `whole value` for a pair that names a property of the value's .NET type holding the value itself, such as `Use.Type`, or for xecmp's `#num` (an enum field as its number); `not data` when the Mutagen side is Mutagen's own bookkeeping, a versioning marker, a data block's `…DataTypeState` or an asset link's `IsNull`), `Reason` and `Detail` why not. Unmatched pairs have no `Match` |
+| `PairNames` | xEdit's full path for a record type's path, where a pair names exactly that path |
+| `UnknownEvidence` | the evidence rows, by record type, object and field |
+| `ObjectAncestors`, `ObjectTargets`, `ObjectVariants`, `LinkInterfaces` | helpers the view and the link checks use |
+| `HandLayouts` | Mutagen's `Layouts\HandReadLayouts.xml` (C186): each `Record` (`Sig`, `Object`), `AnyRecord` (`Sig`: VMAD) and `Define` (`Name`), with its XML as the file has it (`Xml`). The build checks that every element is one the file's comment describes, every `Use` names a `Define` and every class it names is an object of the schema. `SFSearch.Records\HandLayoutWalk.cs` walks them over a record for evidence |
+| `Meta` | Mutagen version and commit, hashes of every input, the generator's version (`Generator.Version`: raise it when the tables change; 2 added the markers; 3 added `StringsTable`, `CounterLength`, `TextForm`, `HandRead` and took the XML-order offsets of hand-placed fields away; 4 added the layout attributes and `HandLayouts`; 5 `LayoutMap`; 6 the properties Mutagen adds beyond its XML, `Source` and `ReadOnly`; 7 the Creation Kit's names), the schema version (a hash of it all) |
+
+`SchemaModel.Expand(type)` in `Model.cs` gives the same rows as the `Fields` view without SQL. A test holds the two to the same rows (113,304 since generator version 6).
+
+## Moving to a new Mutagen build
+1. Change `MutagenVersion` in the project file. Nothing is copied: the record XML comes with the package (fixes.14 on).
+2. Build. The build fails when the restored package's nuspec doesn't name the compiled assembly's version and commit, when one of its XML files differs from the package's `.nupkg` (edited after the restore), when the package carries no record XML (a build before fixes.14), or when `annotations.tsv` names a field that no longer exists. `schemagen check` runs the package check alone.
+3. Run the tests. `describe WEAP` is held to `SFSearch.SchemaGen.Tests\golden\describe-WEAP.md`: when a change is meant, rerun with `SFS_UPDATE_GOLDEN=1` and read the difference.

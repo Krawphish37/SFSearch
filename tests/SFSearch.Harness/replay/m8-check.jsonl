@@ -1,0 +1,16 @@
+{"id": "che01", "tool": "sfs_check", "params": {"plugin": "darkstarpatch_crimsonx.esm"}}
+{"id": "che02", "tool": "sfs_check", "params": {"plugin": "darkstarpatch_crimsonx.esm", "max_chars": 3000}}
+{"id": "che03", "tool": "sfs_check", "params": {"plugin": "atom74.esm"}}
+{"id": "che04", "tool": "sfs_check", "params": {"plugin": "atom74.esm", "what": "roundtrip"}}
+{"id": "che05", "tool": "sfs_check", "params": {"plugin": "kgcdoom.esm", "what": "roundtrip"}}
+{"id": "che06", "tool": "sfs_check", "params": {"plugin": "atom74.esm", "what": "assets"}}
+{"id": "che07", "tool": "sfs_check", "params": {"plugin": "aa50_longwatch.esm", "what": "materials"}}
+{"id": "che08", "tool": "sfs_check", "params": {"plugin": "darkstar.esm", "what": "itm"}}
+{"id": "che09", "tool": "sfs_check", "params": {"plugin": "atom74.esm", "what": "records,roundtrip"}}
+{"id": "che10", "tool": "sfs_check", "params": {"plugin": "Starfield.esm"}}
+{"id": "che11", "tool": "sfs_check", "params": {"plugin": "Starfield.esm", "what": "roundtrip"}}
+{"id": "che12", "tool": "sfs_check", "params": {"plugin": "atom74.esm", "what": "everything"}}
+{"id": "che13", "tool": "sfs_check", "params": {"plugin": "nope.esm"}}
+{"id": "che14", "tool": "sfs_check", "params": {"plugin": "economy.esm"}}
+{"id": "che15", "tool": "sfs_check", "params": {"plugin": "apc_galaxysmartcontainers.esm"}}
+{"id": "che16", "tool": "sfs_check", "params": {"plugin": "stlazarusawakened.esm"}}

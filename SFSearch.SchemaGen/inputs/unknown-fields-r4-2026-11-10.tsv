@@ -1,0 +1,611 @@
+# Evidence for fields still unknown, from the coverage project's unknown-fields-r4-2026-11-10.csv.
+# Written by `schemagen import`. Don't edit by hand: rerun the import.
+RecordType	RecordClass	Object	Field	XmlType	Subrecord	Kinds	RecordsWithField	RecordsNonDefault	Instances	InstancesNonDefault	DistinctValues	RecordsNonDefaultOfficial32	NeverSet	Priority	Note	Evidence	TopValues
+NPC_	Npc	Npc	NAM5	ByteArray	NAM5	signature-name+ByteArray	7131	7131	7131	7131	1	1579		patcher/tools type		bytes; len 2x7131	FF00 x7131
+COBJ	ConstructibleObject	Condition	Unknown2	UInt16	CTDA	Unknown*	1937	1937	2537	2537	1	309		patcher/tools type		UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x2537
+GBFM	GenericBaseForm	BlueprintComponent	BLUF	UInt8	BLUF	unknown=true+signature-name	1522	1522	1522	1522	1	539		patcher/tools type		Byte; range 4..4; OR 0x4 maxbits 0	4 x1522
+GBFM	GenericBaseForm	ExternalDataSourceComponent	EXASs	List		signature-name	1522	1464	1522	1464	2	495		patcher/tools type		list	count 2 x1403 | count 1 x61
+GBFM	GenericBaseForm	TraversalReference	Unknown	ByteArray[8]		Unknown*+ByteArray	697	697	70801	70801	5000	429		patcher/tools type		bytes; len 8x70801	483E483E007C007C x2351 | B644B644007C007C x2070 | B644483E007C007C x1340 | 483EB644007C007C x1332 | 00000000007C007C x638 | 0000483E007C007C x635 | B6444842007C007C x635 | 0000B644007C007C x622
+GBFM	GenericBaseForm	TraversalReference	Unknown1	Int32		Unknown*	697	697	70801	62955	5000	429		patcher/tools type		Int32; range 0..243800; floatlike 0/62955; formid hits 49966/62955 (REFR 38213,STAT 2086,INFO 1354,CELL 1238); OR 0x3FFFF maxbits 15	2 x353 | 39 x184 | 149 x183 | 9 x147 | 6 x144 | 8 x141 | 30 x136 | 1 x133
+GBFM	GenericBaseForm	TraversalReference	UnknownVector	P3Float		Unknown*	697	697	70801	62955	5000	429		patcher/tools type		P3Float	3.2739751, 3.3709023, 0.7999839 x238 | 2.434096, 2.4213521, 0.7827735 x167 | 2.425714, 2.8048306, 0.8577529 x167 | 2.4280412, 2.247694, 0.7468464 x167 | 2.4346457, 2.518334, 0.80229306 x156 | 3.6220953, 3.7240186, 0.7992717 x131 | 3.1998594, 3.295691, 0.8001505 x127 | 3.6220772, 3.7296722, 0.8000324…
+GBFM	GenericBaseForm	NavmeshVertex	Unknown	Int32		Unknown*	834	419	525034	333404	1	491		patcher/tools type		Int32; range 0..1; floatlike 0/333404; formid hits 333404/333404 (STAT 333404); OR 0x1 maxbits 1	1 x333404
+GBFM	GenericBaseForm	ExternalDataSourceComponent	EXBS	String	EXBS	signature-name	1522	412	1522	412	22	0		patcher/tools type		string	UC CITIZEN x67 | FREESTAR CITIZEN x67 | UC NAVY x52 | UC SECURITY x28 | FREESTAR SECURITY x26 | CRIMSON FLEET x22 | SPACER x22 | ECLIPTIC x18
+GBFM	GenericBaseForm	BlueprintComponentBODSItem	Unknown	Int32	BODV	unknown=true+Unknown*	326	304	33709	20447	7	354		patcher/tools type		Int32; range 0..7; floatlike 0/20447; formid hits 20447/20447 (NPC_ 14781,STAT 5138,DOOR 528); OR 0x7 maxbits 3	7 x14781 | 3 x2382 | 5 x1572 | 1 x564 | 4 x528 | 2 x427 | 6 x193
+LVLI	LeveledItem	Condition	Unknown2	UInt16	CTDA	Unknown*	249	249	2366	2366	1	28		patcher/tools type		UInt16; range 22893..22893; OR 0x596D maxbits 0	22893 x2366
+MGEF	MagicEffect	Condition	Unknown2	UInt16	CTDA	Unknown*	245	245	403	403	1	32		patcher/tools type		UInt16; range 16699..16699; OR 0x413B maxbits 0	16699 x403
+PROJ	Projectile	Reflection	Data	ByteArray	REFL	ByteArray	245	245	329	329	72	32		patcher/tools type	decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x84/1328x68/1315x15/1627x14	4245544808000000040000000900000053545254A4000000..(416) x84 | 4245544808000000040000000F0000005354525420020000..(1328) x68 | 4245544808000000040000000F0000005354525420020000..(1315) x15 | 4245544808000000040000001200000053545254A9020000..(1627) x14 | 4245544808000000040000000F0000005354525420020000.…
+WEAP	Weapon	Reflection	Data	ByteArray	REFL	ByteArray	100	100	121	121	2	37		patcher/tools type	decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x100/171x21	4245544808000000040000000900000053545254A4000000..(416) x100 | 42455448080000000400000007000000535452542F000000..(171) x21
+ENCH	ObjectEffect	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	27	27	119	119	1	8		patcher/tools type		bytes; len 3x119	010812 x119
+GBFM	GenericBaseForm	Condition	Unknown2	UInt16	CTDA	Unknown*	22	22	115	115	1	1		patcher/tools type		UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x115
+ARMO	Armor	Reflection	Data	ByteArray	REFL	ByteArray	7	7	7	7	1	5		patcher/tools type	decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x7	4245544808000000040000000900000053545254A4000000..(416) x7
+ENCH	ObjectEffect	Condition	Unknown2	UInt16	CTDA	Unknown*	27	2	119	4	1	0		patcher/tools type		UInt16; range 0..17657; OR 0x44F9 maxbits 0	17657 x4
+LVLI	LeveledItem	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	249	0	2366	0	0	5		patcher/tools type		bytes; len 3x2366	
+KYWD	Keyword	Keyword	FNAM	ByteArray	FNAM	unknown=true+signature-name+ByteArray	5931	0	5931	0	0	2		patcher/tools type		bytes; len 4x5931	
+ENCH	ObjectEffect	Reflection	Data	ByteArray	REFL	ByteArray	0	0	0	0	0	1		patcher/tools type	decoded by ReflectionData (C101); bytes kept on purpose	(official plugins only) bytes; len 1292x1	4245544808000000040000000F0000005354525420020000..(1292) x1
+MGEF	MagicEffect	Reflection	Data	ByteArray	REFL	ByteArray	0	0	0	0	0	1		patcher/tools type	decoded by ReflectionData (C101); bytes kept on purpose	(official plugins only) bytes; len 416x1	4245544808000000040000000900000053545254A4000000..(416) x1
+REFR	PlacedObject	GroupedPackIn	JNAM	FormLink	JNAM	unknown=true+signature-name	153024	149089	153024	149089	942	1678320				formlink	231E1E:Starfield.esm x6951 | 2328E8:Starfield.esm x5807 | 08304A:Starfield.esm x4466 | 2082FD:Starfield.esm x4012 | 08302D:Starfield.esm x2883 | 082DF4:Starfield.esm x2844 | 29229E:Starfield.esm x2638 | 082DA6:Starfield.esm x2576
+REFR	PlacedObject	GroupedPackIn	GNAM	FormLink	GNAM	unknown=true+signature-name	153024	143132	153024	143132	928	1678269				formlink	231E1E:Starfield.esm x6951 | 2328E8:Starfield.esm x5807 | 08304A:Starfield.esm x4466 | 2082FD:Starfield.esm x4012 | 08302D:Starfield.esm x2883 | 082DF4:Starfield.esm x2844 | 082DA6:Starfield.esm x2576 | 2328A4:Starfield.esm x2576
+REFR	PlacedObject	GroupedPackIn	HNAM	FormLink	HNAM	unknown=true+signature-name	153024	120177	153024	120177	5000	1622808				formlink	07A133:Starfield.esm x1111 | 0BA4F6:Starfield.esm x1062 | 1F3003:Starfield.esm x871 | 0BAD3A:Starfield.esm x851 | 3B4B06:Starfield.esm x827 | 233B1B:Starfield.esm x821 | 1F40D9:Starfield.esm x790 | 079E55:Starfield.esm x747
+REFR	PlacedObject	PlacedObjectProjectedDecal	UnknownInt	UInt32	XPDD	Unknown*	188684	188673	188684	188673	21	463603				UInt32; range 0..4.29497E+09; floatlike 12/188673; formid hits 3562/188673 (STAT 3534,REFR 28); OR 0xFFFFFF01 maxbits 25	2880154369 x185028 | 1 x3534 | 2880154368 x33 | 327681 x28 | 1936278529 x12 | 1230402305 x5 | 1634627329 x5 | 16823809 x4
+REFR	PlacedObject	PlacedObjectProjectedDecal	UnknownFloat	Float	XPDD	Unknown*	188684	188668	188684	188668	576	463603				float; range 0..1.5	0.4 x35339 | 0.6 x32503 | 0.2 x19020 | 0.8 x16762 | 1 x7871 | 0.25 x1309 | 0.804 x1301 | 0.3 x1292
+REFR	PlacedObject	PlacedObjectLighting	Unknown1	UInt32	XLIG	Unknown*	100532	100531	100532	100531	3	183438				UInt32; range 0..4.10929E+09; floatlike 0/100531; formid hits 1/100531 (REFR 1); OR 0xFFEFBFFF maxbits 21	2880154539 x100528 | 4109287140 x2 | 788799 x1
+REFR	PlacedObject	PlacedObjectLighting	Unknown2Unused	ByteArray[3]	XLIG	Unknown*+ByteArray	100532	100531	100532	100531	3	180363				bytes; len 3x100532	ABABAB x100528 | BEEEF4 x2 | 004D4E x1
+INFO	DialogResponses	DialogResponse	TextHash	ByteArray	NAM9	ByteArray	113318	113318	130222	130222	5000	33894				bytes; len 8x130222	501D54CB7B7FD501 x11 | C0C276E1F180D801 x8 | 60C854B6BC90D701 x6 | 30A5AC40B538D501 x5 | B00A1C8A4732D801 x3 | 9013F566C37CD201 x3 | 7057B78FC37CD201 x3 | F0ED3195C37CD201 x3
+RFGP	ReferenceGroup	ReferenceGroup	MNAM	List	MNAM	unknown=true+signature-name	80584	80584	80584	80584	1	96597				list	count 3 x80584
+REFR	PlacedObject	PlacedObjectLightColor	Unknown	Int64	XLCD	Unknown*	63217	63184	63276	63210	188	122785				Int64; range -8.99999E+18..7.20576E+16; OR 0xFFFFFF01FFFFFFFF maxbits 0	-6076575255718002688 x58909 | -6076575248220681788 x497 | -6076575248220680788 x271 | -6076575248220681288 x246 | -6076575248220679788 x177 | -6076575251423035392 x166 | -6076575252515648084 x153 | -6076575248220681538 x147
+REFR	PlacedObject	LightRoundness	UsesRoundnessUnused	ByteArray[3]		ByteArray	61974	61967	61974	61967	3	96620				bytes; len 3x61974	ABABAB x61965 | 00803F x1 | 0F3000 x1
+NAVM	NavigationMesh	NavmeshVertex	Unknown	Int32		Unknown*	56576	56001	9955594	7061676	1	39053				Int32; range 0..1; floatlike 0/7061676; formid hits 7061676/7061676 (STAT 7061676); OR 0x1 maxbits 1	1 x7061676
+INFO	DialogResponses	DialogResponse	TROTs	RefList		signature-name	113373	57930	130284	68055	101	5582				list	count 1 x57191 | count 2 x2796 | count 3 x2600 | count 4 x1764 | count 5 x709 | count 7 x515 | count 6 x398 | count 11 x240
+REFR	PlacedObject	PlacedObject	XPCK	FormLink	XPCK	unknown=true+signature-name	3291860	23873	3291860	23873	1893	168121				formlink	316BCF:Starfield.esm x356 | 2FB21B:Starfield.esm x245 | 2FB26F:Starfield.esm x245 | 2FB281:Starfield.esm x245 | 35E9BE:Starfield.esm x218 | 3E0B57:Starfield.esm x214 | 3E0C35:Starfield.esm x210 | 2FB248:Starfield.esm x207
+REFR	PlacedObject	RagdollData	Unused	ByteArray[3]		ByteArray	30016	29989	43916	40655	1044	22073				bytes; len 3x43916	ABABAB x36562 | 00803F x689 | 010000 x253 | 00003F x194 | FFFFFF x171 | 00003C x147 | 700501 x76 | BEADDE x66
+CELL	Cell	Cell	XILS	Float	XILS	unknown=true+signature-name	30717	30714	30717	30714	1	10167				float; range 0..1	1 x30714
+STAT	Static	Static	UnknownDNAMFloat	Float	DNAM	Unknown*	20607	20607	20607	20607	3	1732				float; range 1..5	1 x20605 | 3 x1 | 5 x1
+REFR	PlacedObject	ExternalEmittance	OverrideEnabledUnused	ByteArray[3]	XEED	ByteArray	16153	16152	16153	16152	4	40954				bytes; len 3x16153	ABABAB x16141 | 737452 x7 | BEEEF4 x3 | 2C0026 x1
+CELL	Cell	CellGrid	Unused	ByteArray[3]	XCLC	ByteArray	18732	18732	18732	18732	5000	5000				bytes; len 3x18732	4743E0 x1 | 1052E0 x1 | EF44E0 x1 | F244E0 x1 | F644E0 x1 | F944E0 x1 | FC44E0 x1 | FF44E0 x1
+REFR	PlacedObject	Ownership	NoCrimeUnused	ByteArray[3]	XOWN	ByteArray	35412	18018	35412	18018	3	3457				bytes; len 3x35412	A50C00 x17922 | 04F844 x88 | 010812 x8
+RFGP	ReferenceGroup	ReferenceGroup	LNAM	FormLink	LNAM	unknown=true+signature-name	80584	9530	80584	9530	2626	46083				formlink	051CCF:Starfield.esm x494 | 0EF883:Starfield.esm x184 | 051CCE:Starfield.esm x76 | 3A318D:Starfield.esm x74 | 2F9631:Starfield.esm x70 | 2019A8:Starfield.esm x67 | 3322E2:Starfield.esm x66 | 3A320A:Starfield.esm x66
+LMSW	LayeredMaterialSwap	Reflection	Data	ByteArray	REFL	ByteArray	12966	12966	12966	12966	511	4603			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 224x1033/232x597/240x234/216x187	424554480800000004000000080000005354525438000000..(224) x1033 | 424554480800000004000000080000005354525438000000..(232) x597 | 424554480800000004000000080000005354525438000000..(240) x234 | 424554480800000004000000080000005354525438000000..(216) x187 | 4245544808000000040000000B000000535452549F00000…
+REFR	PlacedObject	VolumesComponentItem	Unknown1	Float		Unknown*	11763	11763	18884	18884	5000	12381				float; range 0.001..1547.53	1 x991 | 0.12160881 x266 | 0.21401332 x179 | 1.0957569 x175 | 0.750931 x108 | 0.25540394 x96 | 1.0188713 x88 | 1.01 x60
+REFR	PlacedObject	VolumesMatrix	Unknown1	Float		Unknown*	11763	11763	75536	35599	5000	12381				float; range -47.1354..40.0567	1 x13187 | -0 x696 | -1 x154 | -0.9999999 x111 | 0.9999999 x99 | 1.7881393E-07 x95 | 0.7071068 x84 | -1.1920929E-07 x62
+REFR	PlacedObject	VolumesComponentItem	Unknown2	Float		Unknown*	11763	11763	18884	18884	5000	12381				float; range 0.001..686.882	1 x1215 | 0.534566 x173 | 0.7945426 x108 | 0.73073953 x98 | 1.0974585 x80 | 1.0087651 x70 | 0.21442282 x63 | 1.01 x61
+REFR	PlacedObject	VolumesMatrix	Unknown2	Float		Unknown*	11763	11763	75536	36192	5000	12381				float; range -82.5523..57.2636	1 x12992 | -0 x1109 | -1 x176 | -0.9999999 x175 | 0.9999999 x169 | 1.7881393E-07 x139 | 8.940697E-07 x75 | -1.0000001 x70
+REFR	PlacedObject	VolumesComponentItem	Unknown3	Float		Unknown*	11763	11763	18884	18884	5000	12381				float; range 0.001..4.06159E+07	1 x1187 | 1.0327511 x196 | 1.2006477 x186 | 0.101148315 x145 | 0.1011483 x136 | 0.8464351 x104 | 0.47794795 x92 | 0.84825313 x82
+REFR	PlacedObject	VolumesMatrix	Unknown3	Float		Unknown*	11763	11763	75536	34677	5000	12381				float; range -18.0493..23.162	1 x14913 | -0 x1244 | -0.9999999 x117 | 0.9999999 x66 | -1.1920929E-07 x58 | -2.6226044E-06 x56 | -1 x55 | -2.3841858E-07 x46
+REFR	PlacedObject	VolumesMatrix	Unknown4	Float		Unknown*	11763	11763	75536	18884	1	12381				float; range 0..1	1 x18884
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown17	Float	XVL2	Unknown*	11760	11760	11760	11760	1	12374				float; range 1..1	1 x11760
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown18	Float	XVL2	Unknown*	11760	11760	11760	11760	2	12374				float; range 200..800	200 x11759 | 800 x1
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown10	Float	XVL2	Unknown*	11760	11759	11760	11759	26	12374				float; range 0..6	1 x11494 | 2 x85 | 3 x36 | 1.5 x30 | 1.25 x19 | 0.8 x16 | 1.2 x13 | 2.5 x11
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown11	Float	XVL2	Unknown*	11760	11759	11760	11759	26	12374				float; range 0..6	1 x11433 | 0.4 x66 | 2 x47 | 1.5 x39 | 3 x34 | 1.25 x25 | 0.5 x19 | 2.5 x19
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown9	Float	XVL2	Unknown*	11760	11759	11760	11759	26	12374				float; range 0..6	1 x11500 | 2 x74 | 1.5 x32 | 3 x31 | 1.25 x19 | 0.8 x17 | 4 x13 | 1.2 x13
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown20	Float	XVL2	Unknown*	11760	11756	11760	11756	20	12360				float; range 0..15	0.02 x11631 | 0.5 x32 | 1 x28 | 0.2 x19 | 1.5 x12 | 2 x6 | 0.1 x6 | 4 x4
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown6	Float	XVL2	Unknown*	11760	11752	11760	11752	19	12368				float; range 0..0.8	0.2 x11539 | 0.1 x79 | 0.01 x59 | 0.02 x35 | 0.15 x9 | 0.05 x7 | 0.015 x6 | 0.04 x3
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown5	Float	XVL2	Unknown*	11760	11713	11760	11713	2	12341				float; range 0..1	1 x11712 | 0.02 x1
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown13	Float	XVL2	Unknown*	11760	11700	11760	11700	9	12374				float; range 0..2	1 x11666 | 2 x19 | 1.5 x7 | 0.8431 x3 | 0.8 x1 | 0.81965363 x1 | 0.9233 x1 | 0.8504 x1
+REFR	PlacedObject	VolumesUnknownEnderTrio	Unknown1	Float		Unknown*	11589	11589	18221	18221	3568	12288				float; range 0.0375869..178.974	2.5820312 x768 | 1 x396 | 3.4718084 x323 | 0.82934004 x305 | 5.637309 x286 | 2.823845 x241 | 1.9825507 x238 | 5.2291794 x235
+REFR	PlacedObject	VolumesUnknownEnderTrio	Unknown2	Float		Unknown*	11589	11589	18221	18221	3773	12288				float; range 0.00509644..1011.27	6.4648438 x753 | 0.3918152 x518 | 1 x381 | 7.4718084 x330 | 2 x268 | 2.7568054 x241 | 8.547417 x236 | 9.460491 x228
+REFR	PlacedObject	VolumesUnknownEnderTrio	Unknown3	Float		Unknown*	11589	11589	18221	18221	2729	12288				float; range 1.19209E-07..332.68	1.8388672 x777 | 2.0003662 x674 | 1.7413398 x385 | 1 x380 | 2 x361 | 0.49086243 x328 | 2.00037 x284 | 1.7998047 x265
+CELL	Cell	CellLighting	UnknownColor	Color	XCLL	Unknown*	11985	11985	11985	11985	15	5167				Color	Color [A=0, R=159, G=7, B=0] x11430 | Color [A=0, R=19, G=17, B=10] x300 | Color [A=0, R=255, G=23, B=10] x139 | Color [A=0, R=19, G=17, B=18] x31 | Color [A=0, R=0, G=16, B=18] x26 | Color [A=0, R=255, G=255, B=255] x24 | Color [A=0, R=0, G=16, B=10] x15 | Color [A=0, R=16, G=17, B=10] x7
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown4	Float	XVL2	Unknown*	11760	10706	11760	10706	24	11424				float; range 0..20	1 x9565 | 2 x547 | 1.5 x232 | 3 x135 | 5 x72 | 2.5 x41 | 4 x33 | 0.1 x18
+CELL	Cell	CellLighting	InteriorTypeUnused	ByteArray[3]	XCLL	ByteArray	11985	10202	11985	10202	157	4655				bytes; len 3x11985	ABABAB x8929 | EFEFEF x490 | FFFFFF x115 | 6C642E x62 | 2E3070 x60 | 2D0DA2 x57 | AD1F71 x53 | 814800 x42
+REFR	PlacedObject	PlacedObjectSpline	IsWindDetachedEndUnused	ByteArray[3]	XBSD	ByteArray	9851	9848	9851	9848	4	3586				bytes; len 3x9851	ABABAB x9845 | BEEEF4 x1 | 746100 x1 | 006100 x1
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown7	Float	XVL2	Unknown*	11760	9183	11760	9183	17	7081				float; range 0..1	1 x8522 | 0.7 x222 | 0.9 x126 | 0.8 x120 | 0.1 x50 | 0.5 x46 | 0.2 x22 | 0.6 x14
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown8	Int32	XVL2	Unknown*	11760	8750	11760	8750	40	9199				Int32; range 0..160; floatlike 0/8750; formid hits 7639/8750 (STAT 4945,DOOR 2379,NPC_ 192,CONT 55); OR 0xFF maxbits 4	1 x2685 | 4 x2379 | 3 x917 | 128 x304 | 6 x263 | 2 x258 | 5 x244 | 11 x224
+REFR	PlacedObject	Reflection	Data	ByteArray	REFL	ByteArray	8455	8455	8455	8455	26	3027			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 337x3987/349x1218/347x1075/359x766	424554480800000004000000070000005354525486000000..(337) x3987 | 424554480800000004000000070000005354525486000000..(349) x1218 | 424554480800000004000000070000005354525486000000..(347) x1075 | 424554480800000004000000070000005354525486000000..(359) x766 | 424554480800000004000000070000005354525486000…
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown14	Float	XVL2	Unknown*	11760	7116	11760	7116	10	10202				float; range 0..1	1 x7025 | 0.62352943 x58 | 0.5019608 x14 | 0.7176471 x12 | 0.9960785 x2 | 0.9490197 x1 | 0.9607844 x1 | 0.97647065 x1
+REFR	PlacedObject	GroupedPackIn	INAM	Bool[2]	INAM	unknown=true+signature-name	153024	5257	153024	5257	1	26999				bool	True x5257
+SCEN	Scene	Scene	VNAM	ByteArray	VNAM	unknown=true+signature-name+ByteArray	7613	7610	7613	7610	32	2468				bytes; len 20x7613	0300000003000000030000000300000003000000 x4851 | 0300000003000000030000000300000000000000 x1639 | 0300000003000000000000000300000003000000 x339 | 0300000003000000000000000300000000000000 x316 | 0300000003000000020000000200000002000000 x191 | 0200000003000000030000000300000002000000 x80 | 02000000020…
+REFR	PlacedObject	PlacedObjectLightFlicker	FlickerEffectUnused	ByteArray[3]	XLFD	ByteArray	7367	7367	7367	7367	1	4068				bytes; len 3x7367	ABABAB x7367
+SCEN	Scene	Scene	BOLV	Bool	BOLV	unknown=true+signature-name	7613	7376	7613	7376	1	2377				bool	True x7376
+REFR	PlacedObject	GroupedPackIn	LNAM	ByteArray	LNAM	unknown=true+signature-name+ByteArray	153024	5810	153024	5810	14	11633				bytes; len 4x153024; floatlike 0/5810; formid hits 5232/5810 (STAT 4948,DOOR 215,NPC_ 58,BPTD 9); OR 0x3F maxbits 4	01000000 x2787 | 02000000 x1645 | 03000000 x419 | 11000000 x282 | 04000000 x215 | 09000000 x152 | 08000000 x144 | 07000000 x58
+AVMD	ActorValueModulation	ActorValueModulation	TNAM	String	TNAM	signature-name	6154	6154	6154	6154	4866	440				string	AA_OctopedeA_CoralCrawler_Modulation_BCT x14 | AA_HexapodA_CrimsonSpider_Modulation_BCT x12 | AA_HexapodA_GlowingSpider_Modulation_BCT x12 | AA_HopperA_ScarabStinger_Modulation_BCT_ x12 | AA_QuadrupedA_Ankylosaurus_Modulation_BC x12 | AA_QuadrupedA_CrimsonHide_Modulation_BCT x12 | AA_QuadrupedA_Cutt…
+AVMD	ActorValueModulation	ActorValueModulation	YNAM	String	YNAM	signature-name	6154	6154	6154	6154	4866	440				string	AA_OctopedeA_CoralCrawler_Modulation_BCT x14 | AA_HexapodA_CrimsonSpider_Modulation_BCT x12 | AA_HexapodA_GlowingSpider_Modulation_BCT x12 | AA_HopperA_ScarabStinger_Modulation_BCT_ x12 | AA_QuadrupedA_Ankylosaurus_Modulation_BC x12 | AA_QuadrupedA_CrimsonHide_Modulation_BCT x12 | AA_QuadrupedA_Cutt…
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown15	Float	XVL2	Unknown*	11760	5704	11760	5704	7	4192				float; range 0..1	1 x5684 | 0.5019608 x14 | 0.92549026 x2 | 0.8470589 x1 | 0.9960785 x1 | 0.039215688 x1 | 0.9921569 x1
+REFR	PlacedObject	PlacedObjectLighting	Unknown2	UInt8	XLIG	Unknown*	100532	3981	100532	3981	1	16588				Byte; range 0..1; OR 0x1 maxbits 0	1 x3981
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown16	Float	XVL2	Unknown*	11760	4202	11760	4202	5	5632				float; range 0..1	1 x4193 | 0.2509804 x5 | 0.007843138 x2 | 0.003921569 x1 | 0.0627451 x1
+REFR	PlacedObject	TraversalReference	Unknown	ByteArray[8]		Unknown*+ByteArray	4544	4544	6023	6023	804	1874				bytes; len 8x6023	B644B644007C007C x898 | DB47DB47007C007C x857 | 48464846007C007C x820 | B648B648007C007C x771 | 483E483E007C007C x185 | 7F497F49007C007C x126 | B644483E007C007C x114 | 48424842007C007C x107
+REFR	PlacedObject	TraversalReference	UnknownVector	P3Float		Unknown*	4544	4494	6023	5381	3848	1851				P3Float	-58, -169.68, 12.000017 x13 | -91, -16.5, 10 x4 | -15.17957, 32.618847, 3.2290602 x4 | -5.7193966, -9.897426, -2.3638 x4 | 54, 64, -4 x4 | 54.00001, 63.999947, 1.25 x4 | 54.00001, 67.99995, 1.25 x4 | 54, 68, -4 x4
+STAT	Static	Reflection	Data	ByteArray	REFL	ByteArray	3430	3430	4101	4101	80	140			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 678x1462/673x954/171x737/416x79	4245544808000000040000000B000000535452540C010000..(678) x1462 | 4245544808000000040000000B000000535452540C010000..(673) x954 | 42455448080000000400000007000000535452542F000000..(171) x737 | 4245544808000000040000000900000053545254A4000000..(416) x79 | 4245544808000000040000000B00000053545254FB000000…
+CELL	Cell	Cell	XCLAs	RefList	CELL	signature-name	30717	2785	30717	2785	1	286				list	count 4 x2785
+NAVM	NavigationMesh	NavmeshTriangle	Unknown	UInt8		Unknown*	56576	2670	10739433	372801	7	1296				Byte; range 0..132; OR 0xE6 maxbits 0	4 x173164 | 32 x110046 | 2 x71502 | 36 x16726 | 64 x706 | 132 x364 | 6 x293
+REFR	PlacedObject	GroupedPackIn	XGOM	Bool		unknown=true+signature-name	153024	2357	153024	2357	1	772				bool	True x2357
+ACHR	PlacedNpc	RagdollData	Unused	ByteArray[3]		ByteArray	1870	1843	37082	23651	5000	858				bytes; len 3x37082	00803F x3321 | 00003C x1190 | FFFFFF x958 | FF7F3F x788 | 0000B4 x780 | 008F3F x744 | 16CEBC x742 | 6F7253 x740
+CELL	Cell	TraversalReference	Unknown	ByteArray[8]		Unknown*+ByteArray	1813	1813	14140571	14140571	5000	1116				bytes; len 8x14140571	B644B6449A359A35 x573 | 483E483E9A359A35 x537 | 000000009A359A35 x521 | 483E483E33353335 x490 | 484248429A359A35 x450 | 4842484200340034 x351 | 000000009A350045 x274 | 0000000066346634 x232
+CELL	Cell	TraversalReference	Unknown1	Int32		Unknown*	1813	1813	14140571	14140558	5000	1116				Int32; range 0..2.33579E+06; floatlike 0/14140558; formid hits 13383855/14140558 (REFR 10615370,INFO 436385,CELL 419630,RFGP 261716); OR 0x3FFFFF maxbits 19	2 x953 | 1 x948 | 4 x931 | 8 x894 | 13 x771 | 22 x548 | 20 x533 | 54 x499
+CELL	Cell	TraversalReference	UnknownVector	P3Float		Unknown*	1813	1813	14140571	14140571	5000	1116				P3Float	3.2739751, 3.3709023, 0.7999839 x146 | 2.4346457, 2.518334, 0.80229306 x130 | 1.7503879, 1.8214525, 0.80529135 x46 | 1.7503881, 1.8214549, 0.8052919 x19 | 0.7063793, 4.6000824, 1.4184285 x17 | 7.0415664, 8.53308, 0.8808725 x14 | 1.7503837, 1.8214562, 0.8052935 x10 | 0.909454, 4.586344, 1.3750397 x9
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown3	Int32	XVL2	Unknown*	11760	1634	11760	1634	4	1709				Int32; range 0..22; floatlike 0/1634; formid hits 1634/1634 (STAT 1632,CPTH 2); OR 0x17 maxbits 3	1 x1611 | 2 x20 | 22 x2 | 3 x1
+SFBK	SurfaceBlock	SurfaceBlock	NAM1	String	NAM1	signature-name	1750	1750	1750	1750	132	265				string	OverlayBlock x513 | CanyonsRockyLarge1K x15 | OverlaySource\OverlayFieldsPoolsDeep x15 | OverlaySource\OverlayHillsSharp x15 | OverlaySource\OverlayHillsMesasRocky x15 | CanyonsRockyMedium1K x15 | CanyonsErodedMedium1K x15 | CanyonsSharpMedium1K x15
+PNDT	Planet	PlanetDetails	Unknown2	Int32	HNAM	unknown=true+Unknown*	1765	1722	1765	1722	32	8				Int32; range -1.80938E+09..2.04653E+09; floatlike 9/1722; formid hits 0/1722; OR 0xFFFFFFFE maxbits 31	-2 x1687 | -1607794688 x3 | -1240334336 x2 | 1244659712 x2 | -49963704 x1 | 2046530024 x1 | -1561357832 x1 | 1007157248 x1
+PNDT	Planet	Reflection	Data	ByteArray	REFL	ByteArray	1692	1692	1692	1692	1014	18			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 98603x13/98570x10/98622x10/98621x10	4245544808000000040000000C0000005354525408010000..(98603) x13 | 4245544808000000040000000C0000005354525408010000..(98570) x10 | 4245544808000000040000000C0000005354525408010000..(98622) x10 | 4245544808000000040000000C0000005354525408010000..(98621) x10 | 4245544808000000040000000C000000535452540801…
+PNDT	Planet	PlanetModelComponent	XMPM	RefDirect		signature-name	1692	1692	1692	1692	1	18				PlanetModelComponentXMPMBinaryOverlay	PlanetModelComponentXMPM x1692
+PNDT	Planet	OrbitedData	Unknown2	Int32	FNAM	unknown=true+Unknown*	1695	1690	1695	1690	3	10				Int32; range 0..592; floatlike 0/1690; formid hits 0/1690; OR 0x2FF maxbits 6	215 x1685 | 553 x3 | 592 x2
+SFTR	SurfaceTree	SurfaceTree	CNAM	UInt32	CNAM	unknown=true+signature-name	1505	1505	1505	1505	1	10				UInt32; range 2..2; floatlike 0/1505; formid hits 1505/1505 (STAT 1505); OR 0x2 maxbits 1	2 x1505
+SFTR	SurfaceTree	SurfaceTree	GNAM	ByteArray	GNAM	unknown=true+signature-name+ByteArray	1505	1505	1505	1505	2	10				bytes; len 65536x1505	080808080808080808080808080808080808080808080808..(65536) x1504 | C8A8E828C8884808E82888286848E828C86888C808C86888..(65536) x1
+SFTR	SurfaceTree	SurfaceTree	GNAM2	ByteArray	GNAM	unknown=true+signature-name+ByteArray	1505	1505	1505	1505	2	10				bytes; len 65536x1505	080808080808080808080808080808080808080808080808..(65536) x1504 | 48E88848A8C80848A8E8E8E8484808C8A8C8E8E8A8E8C8E8..(65536) x1
+PACK	Package	Package	Unknown	UInt8	PKDT	Unknown*	3548	1375	3548	1375	153	760				Byte; range 0..255; OR 0xFF maxbits 0	255 x126 | 95 x74 | 186 x59 | 60 x58 | 77 x46 | 101 x45 | 32 x42 | 97 x41
+PNDT	Planet	PlanetBiome	Unknown2	Int32	PPBD	unknown=true+Unknown*	1437	1437	3192	3192	3192	16				Int32; range -2.14611E+09..2.14458E+09; floatlike 549/3192; formid hits 1/3192 (MTPT 1); OR 0xFFFFFFFF maxbits 26	-1584594508 x1 | -2101961086 x1 | -971132338 x1 | 1115137032 x1 | 1340213250 x1 | 2144576724 x1 | -1300329342 x1 | -2032350396 x1
+QUST	Quest	Condition	Unknown2	UInt16	CTDA	Unknown*	1523	1398	12526	8957	12	343				UInt16; range 0..17713; OR 0x45FF maxbits 0	16653 x4380 | 17713 x1778 | 17657 x1665 | 16699 x827 | 17656 x146 | 94 x109 | 97 x41 | 27 x4
+QUST	Quest	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	1523	1228	12526	7635	64	281				bytes; len 3x12526	FFFFFF x4008 | 006100 x1887 | 554C4C x310 | A7334C x256 | 070000 x235 | FB7C9D x153 | 030000 x124 | 060000 x117
+QUST	Quest	QuestStage	Unknown	UInt8	INDX	Unknown*	1198	1198	14537	14293	84	352				Byte; range 0..251; OR 0xFF maxbits 0	171 x13383 | 116 x599 | 85 x62 | 93 x22 | 117 x18 | 81 x15 | 84 x13 | 129 x12
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown19	Int8	XVL2	Unknown*	11760	1024	11760	1024	1	856				SByte; range 0..1; OR 0x1 maxbits 0	1 x1024
+QUST	Quest	QuestScriptFragment	Unknown2	Int8		Unknown*	1012	1012	10202	10202	1	326				SByte; range 1..1; OR 0x1 maxbits 0	1 x10202
+SCEN	Scene	Scene	SPPQ	Bool	SPPQ	unknown=true+signature-name	7613	993	7613	993	1	356				bool	True x993
+PGRE	PlacedTrap	RagdollData	Unused	ByteArray[3]		ByteArray	870	870	870	870	1	1300				bytes; len 3x870	ABABAB x870
+PKIN	PackIn	Reflection	Data	ByteArray	REFL	ByteArray	914	914	914	914	6	30			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 673x659/678x142/416x104/447x5	4245544808000000040000000B000000535452540C010000..(673) x659 | 4245544808000000040000000B000000535452540C010000..(678) x142 | 4245544808000000040000000900000053545254A4000000..(416) x104 | 4245544808000000040000000600000053545254CC000000..(447) x5 | 42455448080000000400000006000000535452542E000000..…
+REFR	PlacedObject	LockData	Unknown	Int32	XLOC	unknown=true+Unknown*	1942	871	1942	871	241	442				Int32; range -2.12605E+09..2.14001E+09; floatlike 63/871; formid hits 329/871 (NPC_ 279,STAT 47,REFR 3); OR 0xFFFFFFFF maxbits 23	7 x279 | 8 x160 | 1 x47 | -2029225701 x7 | -1216845110 x5 | 459274046 x5 | -633718857 x5 | 2066185202 x4
+MTPT	MaterialPath	Reflection	Data	ByteArray	REFL	ByteArray	877	877	877	877	55	42			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 150x90/151x48/160x38/152x34	42455448080000000400000005000000535452541D000000..(150) x90 | 42455448080000000400000005000000535452541D000000..(151) x48 | 42455448080000000400000005000000535452541D000000..(160) x38 | 42455448080000000400000005000000535452541D000000..(152) x34 | 42455448080000000400000005000000535452541D000000..(1…
+LCTN	Location	LocationCellStaticReference	Unknown	Int32		Unknown*	714	713	50857	50664	68	1211				Int32; range -1..95; floatlike 0/50664; formid hits 2190/50664 (STAT 1000,MISC 226,ACTI 143,CPTH 124); OR 0xFFFFFFFF maxbits 32	-1 x47378 | 1 x223 | 2 x187 | 9 x167 | 12 x139 | 22 x124 | 7 x121 | 15 x121
+FURN	Furniture	Reflection	Data	ByteArray	REFL	ByteArray	742	742	1463	1463	3	127			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x738/678x724/2094x1	4245544808000000040000000900000053545254A4000000..(416) x738 | 4245544808000000040000000B000000535452540C010000..(678) x724 | 424554480800000004000000150000005354525420020000..(2094) x1
+IPCT	Impact	Reflection	Data	ByteArray	REFL	ByteArray	700	700	728	728	58	298			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 171x195/497x136/499x51/498x47	42455448080000000400000007000000535452542F000000..(171) x195 | 4245544808000000040000000A00000053545254D0000000..(497) x136 | 4245544808000000040000000A00000053545254D0000000..(499) x51 | 4245544808000000040000000A00000053545254D0000000..(498) x47 | 4245544808000000040000000A00000053545254D0000000..…
+BOOK	Book	Reflection	Data	ByteArray	REFL	ByteArray	686	686	686	686	1	175			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 678x686	4245544808000000040000000B000000535452540C010000..(678) x686
+LIGH	Light	Light	UseAdaptiveLightingUnused	ByteArray[1]	DAT2	ByteArray	1575	622	1575	622	30	12				bytes; len 1x1575	AB x196 | DE x156 | FF x106 | 6C x24 | 6E x23 | 5F x18 | 3F x17 | 70 x13
+ATMO	Atmosphere	Reflection	Data	ByteArray	REFL	ByteArray	594	594	594	594	40	5			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 1836x104/1830x80/1811x67/1829x51	4245544808000000040000000F00000053545254FB030000..(1836) x104 | 4245544808000000040000000F00000053545254FB030000..(1830) x80 | 4245544808000000040000000E00000053545254FB030000..(1811) x67 | 4245544808000000040000000F00000053545254FB030000..(1829) x51 | 4245544808000000040000000E00000053545254FB03000…
+LCTN	Location	LocationReference	Unknown	Int32		Unknown*	517	517	7338	7338	1	216				Int32; range -1..-1; floatlike 0/7338; formid hits 0/7338; OR 0xFFFFFFFF maxbits 32	-1 x7338
+EFSQ	EffectSequence	Reflection	Data	ByteArray	REFL	ByteArray	484	484	484	484	405	295			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 4082x10/6766x7/7389x6/4690x5	424554480800000004000000270000005354525458040000..(4082) x10 | 4245544808000000040000003E00000053545254C4050000..(6766) x7 | 4245544808000000040000005500000053545254C4050000..(7389) x6 | 4245544808000000040000002F0000005354525472060000..(4690) x5 | 4245544808000000040000002200000053545254F4040000..(…
+SFBK	SurfaceBlock	BlockEditorMetaDataComponent	UnknownItems	List	DAT2	Unknown*	471	469	471	469	3	121				list	count 1 x465 | count 2 x3 | count 4 x1
+WRLD	Worldspace	Worldspace	GNAM	Float	GNAM	unknown=true+signature-name	433	433	433	433	2	149				float; range 0.5..1	1 x432 | 0.5 x1
+BIOM	Biome	BiomeDistantView	Unknown2	Float		Unknown*	431	431	431	431	1	3				float; range 1..1	1 x431
+BIOM	Biome	BiomeDistantView	Unknown4	Float		Unknown*	431	431	431	431	1	3				float; range 1..1	1 x431
+BIOM	Biome	BiomeProceduralObjectGeneration	BNAM	Int32	BNAM	unknown=true+signature-name	429	429	1746	1746	1	3				Int32; range 1..1; floatlike 0/1746; formid hits 1746/1746 (STAT 1746); OR 0x1 maxbits 1	1 x1746
+BIOM	Biome	BiomeObject	Unknown2	Float	GNAM	Unknown*	429	429	49855	49855	1	3				float; range 1..1	1 x49855
+BIOM	Biome	BiomeObject	Unknown4	Float	GNAM	Unknown*	429	429	49855	49855	1	3				float; range 1..1	1 x49855
+BIOM	Biome	BiomeObject	Unknown6	ByteArray[20]	GNAM	Unknown*+ByteArray	429	429	49855	49855	5	3				bytes; len 20x49855	0000803F00000000050000000000000000000000 x23635 | 0000803F00000000FFFF7F7F0000000005000000 x20031 | 0300000000000000000000000000000000000000 x4352 | 0500000000000000000000000000000000000000 x1722 | 0200000000000000000000000000000000000000 x115
+MSTT	MoveableStatic	Reflection	Data	ByteArray	REFL	ByteArray	375	375	393	393	131	198			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x120/1311x13/680x13/1306x8	4245544808000000040000000900000053545254A4000000..(416) x120 | 4245544808000000040000000F0000005354525420020000..(1311) x13 | 4245544808000000040000000B000000535452540C010000..(680) x13 | 4245544808000000040000000F0000005354525420020000..(1306) x8 | 4245544808000000040000000F0000005354525420020000..…
+QUST	Quest	QuestStageCompleteData	QSRD	ByteArray	QSRD	unknown=true+signature-name+ByteArray	1188	380	30196	508	7	96				bytes; len 4x15098/0x15098; floatlike 0/508; formid hits 508/508 (STAT 503,DOOR 4,NPC_ 1); OR 0x7 maxbits 3	01000000 x428 | 02000000 x66 | 03000000 x7 | 04000000 x4 | 05000000 x1 | 07000000 x1 | 06000000 x1
+SCEN	Scene	ScenePhaseFragment	Unknown	UInt8		Unknown*	377	377	464	464	1	118				Byte; range 1..1; OR 0x1 maxbits 0	1 x464
+WRLD	Worldspace	Worldspace	HNAM	UInt8	HNAM	unknown=true+signature-name	433	379	433	379	1	27				Byte; range 0..5; OR 0x5 maxbits 0	5 x379
+TERM	Terminal	Reflection	Data	ByteArray	REFL	ByteArray	364	364	364	364	1	170			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x364	4245544808000000040000000900000053545254A4000000..(416) x364
+PERK	Perk	Condition	Unknown2	UInt16	CTDA	Unknown*	296	296	3620	3617	2	84				UInt16; range 0..17657; OR 0x45FB maxbits 0	17657 x3610 | 16659 x7
+ALCH	Ingestible	Condition	Unknown2	UInt16	CTDA	Unknown*	291	291	360	360	2	10				UInt16; range 16699..17657; OR 0x45FB maxbits 0	17657 x340 | 16699 x20
+SMQN	StoryManagerQuestNode	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	281	281	457	457	1	103				bytes; len 3x457	C60000 x457
+SMQN	StoryManagerQuestNode	Condition	Unknown2	UInt16	CTDA	Unknown*	281	281	457	457	1	103				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x457
+PERK	Perk	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	296	282	3620	3199	4	82				list; len 3x441	count 3 x3179 | A90C00 x15 | 010000 x4 | ED774F x1
+ACTI	Activator	Reflection	Data	ByteArray	REFL	ByteArray	265	265	328	328	23	233			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x234/678x36/840x26/846x4	4245544808000000040000000900000053545254A4000000..(416) x234 | 4245544808000000040000000B000000535452540C010000..(678) x36 | 4245544808000000040000000B0000005354525475010000..(840) x26 | 4245544808000000040000000B0000005354525475010000..(846) x4 | 4245544808000000040000000B0000005354525475010000..(9…
+FFKW	FormFolderKeywordList	Reflection	Data	ByteArray	REFL	ByteArray	231	231	231	231	57	280			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 196x15/189x13/190x11/200x11	424554480800000004000000060000005354525431000000..(196) x15 | 424554480800000004000000060000005354525431000000..(189) x13 | 424554480800000004000000060000005354525431000000..(190) x11 | 424554480800000004000000060000005354525431000000..(200) x11 | 424554480800000004000000060000005354525431000000..(1…
+WRLD	Worldspace	Condition	Unknown2	UInt16	CTDA	Unknown*	247	247	432	432	1	56				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x432
+BMOD	BoneModifier	BoneModifierSpringBoneData	Unknown	Float		Unknown*	252	252	252	252	1	2				float; range 500..500	500 x252
+BMOD	BoneModifier	BoneModifierSpringBoneData	Unknown2	Float		Unknown*	252	252	252	252	1	2				float; range 1..1	1 x252
+BMOD	BoneModifier	BoneModifierSpringBoneData	Unknown3	Float		Unknown*	252	252	252	252	1	2				float; range 0.25..0.25	0.25 x252
+CELL	Cell	Reflection	Data	ByteArray	REFL	ByteArray	233	233	233	233	1	189			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 321x233	424554480800000004000000080000005354525459000000..(321) x233
+REFR	PlacedObject	VolumesUnknownEnderDouble	Unknown1	Float		Unknown*	231	231	549	549	99	187				float; range 0.0624657..48.6875	14.242252 x106 | 2.1395264 x48 | 6.1085224 x40 | 1 x38 | 0.75146484 x32 | 7.507028 x18 | 5.696029 x17 | 4.5195312 x17
+REFR	PlacedObject	VolumesUnknownEnderDouble	Unknown2	Float		Unknown*	231	231	549	549	93	187				float; range 0.188721..72.0059	6.1992188 x104 | 12.383522 x48 | 5.258789 x40 | 1.7246094 x32 | 2 x23 | 4 x22 | 8.10906 x18 | 1.1416702 x17
+SPEL	Spell	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	240	240	1557	1557	1	24				bytes; len 3x1557	010812 x1557
+IMGS	ImageSpace	Reflection	Data	ByteArray	REFL	ByteArray	232	232	232	232	88	72			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 6119x14/4728x12/6136x9/6113x8	4245544808000000040000001D00000053545254D80A0000..(6119) x14 | 4245544808000000040000001A00000053545254D80A0000..(4728) x12 | 4245544808000000040000001D00000053545254D80A0000..(6136) x9 | 4245544808000000040000001D00000053545254D80A0000..(6113) x8 | 4245544808000000040000001D00000053545254D80A0000..…
+PCBN	PlanetContentManagerBranchNode	Condition	Unknown2	UInt16	CTDA	Unknown*	235	235	396	396	1	32				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x396
+EXPL	Explosion	Reflection	Data	ByteArray	REFL	ByteArray	229	229	296	296	52	74			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x157/1309x11/1302x9/1292x9	4245544808000000040000000900000053545254A4000000..(416) x157 | 4245544808000000040000000F0000005354525420020000..(1309) x11 | 4245544808000000040000000F0000005354525420020000..(1302) x9 | 4245544808000000040000000F0000005354525420020000..(1292) x9 | 4245544808000000040000000F0000005354525420020000..…
+TMLM	TerminalMenu	Condition	Unknown2	UInt16	CTDA	Unknown*	218	218	1672	1672	2	159				UInt16; range 16699..17657; OR 0x45FB maxbits 0	16699 x1427 | 17657 x245
+SCEN	Scene	Condition	Unknown2	UInt16	CTDA	Unknown*	4750	213	15722	644	7	95				UInt16; range 0..36007; OR 0xCFFF maxbits 0	17657 x461 | 12 x54 | 35291 x45 | 35161 x33 | 36007 x24 | 35484 x18 | 35405 x9
+IMAD	ImageSpaceAdapter	Reflection	Data	ByteArray	REFL	ByteArray	190	190	190	190	113	44			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 4843x20/4860x17/4844x5/5311x5	4245544808000000040000001A00000053545254E80A0000..(4843) x20 | 4245544808000000040000001A00000053545254E80A0000..(4860) x17 | 4245544808000000040000001A00000053545254E80A0000..(4844) x5 | 4245544808000000040000001A00000053545254E80A0000..(5311) x5 | 4245544808000000040000001A00000053545254E80A0000..…
+CONT	Container	Reflection	Data	ByteArray	REFL	ByteArray	177	177	178	178	5	76			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x174/678x1/171x1/2823x1	4245544808000000040000000900000053545254A4000000..(416) x174 | 4245544808000000040000000B000000535452540C010000..(678) x1 | 42455448080000000400000007000000535452542F000000..(171) x1 | 4245544808000000040000001C0000005354525424040000..(2823) x1 | 4245544808000000040000000B000000535452540C010000..(68…
+WTHS	WeatherSetting	Reflection	Data	ByteArray	REFL	ByteArray	181	181	181	181	38	6			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 2488x56/2478x32/2498x24/3716x11	4245544808000000040000000F0000005354525438050000..(2488) x56 | 4245544808000000040000000F0000005354525438050000..(2478) x32 | 4245544808000000040000000F0000005354525438050000..(2498) x21 | 4245544808000000040000001700000053545254EB050000..(3716) x11 | 4245544808000000040000000F0000005354525438050000…
+TMLM	TerminalMenu	ScriptFragmentIndexed	Unknown2	Int8		Unknown*	161	161	349	349	1	86				SByte; range 1..1; OR 0x1 maxbits 0	1 x349
+LCTN	Location	LocationCellEnablePoint	SetEnableStateToOppositeOfParentUnused	ByteArray[3]		ByteArray	134	134	3459	3313	1244	176				bytes; len 3x3459	31FC44 x1125 | A1EBE5 x10 | CC7D00 x9 | CB7D00 x9 | C79310 x8 | 59B4C8 x8 | 58B4C8 x8 | 56B4C8 x8
+SCEN	Scene	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	4750	138	15722	487	24	111				bytes; len 3x15722	A70C00 x239 | 040000 x34 | 050000 x26 | 020000 x25 | 030000 x24 | 060000 x18 | 564C4F x18 | 0A0000 x17
+INFO	DialogResponses	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	28541	0	43292	0	0	1240				bytes; len 3x43292	
+REFR	PlacedObject	PowerLink	Unknown	Int32	XPLK	Unknown*	94	94	157	157	1	271				Int32; range 2..2; floatlike 0/157; formid hits 157/157 (STAT 157); OR 0x2 maxbits 1	2 x157
+STDT	Star	Reflection	Data	ByteArray	REFL	ByteArray	120	120	120	120	73	1			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 98997x4/98995x3/99001x3/99032x3	4245544808000000040000000C0000005354525408010000..(98997) x4 | 4245544808000000040000000C0000005354525408010000..(98995) x3 | 4245544808000000040000000C0000005354525408010000..(99001) x3 | 4245544808000000040000000C0000005354525408010000..(99032) x3 | 4245544808000000040000000C0000005354525408010000…
+STDT	Star	PlanetModelComponent	XMPM	RefDirect		signature-name	120	120	120	120	1	1				PlanetModelComponentXMPMBinaryOverlay	PlanetModelComponentXMPM x120
+PACK	Package	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	2428	103	5278	608	103	163				bytes; len 3x5278	4B4332 x239 | 464F32 x112 | A80C00 x40 | FA7C9D x14 | 0F0000 x11 | D20000 x9 | 946A59 x8 | 024332 x8
+ARTO	ArtObject	Reflection	Data	ByteArray	REFL	ByteArray	110	110	117	117	33	59			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x66/1430x4/1424x4/1287x3	4245544808000000040000000900000053545254A4000000..(416) x66 | 424554480800000004000000100000005354525459020000..(1430) x4 | 424554480800000004000000100000005354525459020000..(1424) x4 | 4245544808000000040000000F0000005354525420020000..(1287) x3 | 424554480800000004000000100000005354525459020000..(1…
+PACK	Package	Condition	Unknown2	UInt16	CTDA	Unknown*	2428	104	5278	751	1	10				UInt16; range 0..17657; OR 0x44F9 maxbits 0	17657 x751
+SMBN	StoryManagerBranchNode	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	93	93	167	167	1	22				bytes; len 3x167	A7334C x167
+SMBN	StoryManagerBranchNode	Condition	Unknown2	UInt16	CTDA	Unknown*	93	93	167	167	1	22				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x167
+QUST	Quest	QuestLocationAlias	ALFG	Int32	ALFG	unknown=true+signature-name	981	89	3111	89	1	51				Int32; range 0..2; floatlike 0/89; formid hits 89/89 (STAT 89); OR 0x2 maxbits 1	2 x89
+CELL	Cell	Cell	UnknownGroupData	Int32	CELL	Unknown*	30717	0	30717	0	0	900				Int32; range 0..0	
+CELL	Cell	Cell	TemporaryUnknownGroupData	Int32	CELL	Unknown*	30717	0	30717	0	0	883				Int32; range 0..0	
+CELL	Cell	Cell	PersistentUnknownGroupData	Int32	CELL	Unknown*	30717	0	30717	0	0	865				Int32; range 0..0	
+REFR	PlacedObject	PlacedObjectGoboAnimatedProperties	IsAnimatedUnused	ByteArray[3]	XLGD	ByteArray	59	59	59	59	1	258				bytes; len 3x59	ABABAB x59
+PERK	Perk	Activity	ANAM	String	ANAM	unknown=true+signature-name	84	84	253	253	250	0				string	res:58BA8EE8:0005A849:A791608D x2 | res:7258FD6A:0005A849:A791608D x2 | res:759B5549:0005A849:A791608D x2 | res:E20A92B5:0005EF43:A1E0962F x1 | res:3053E1C1:0005EF44:A1E0962F x1 | res:29D4200A:0005FBD9:A1E0962F x1 | res:0848381A:0005FB31:A19607F5 x1 | res:03C7E4D0:0005FB31:A19607F5 x1
+DOOR	Door	Reflection	Data	ByteArray	REFL	ByteArray	79	79	81	81	4	16			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 685x55/416x22/678x3/661x1	4245544808000000040000000B00000053545254FB000000..(685) x55 | 4245544808000000040000000900000053545254A4000000..(416) x22 | 4245544808000000040000000B000000535452540C010000..(678) x3 | 4245544808000000040000000B00000053545254FB000000..(661) x1
+ADDN	AddonNode	Reflection	Data	ByteArray	REFL	ByteArray	77	77	78	78	3	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 1247x76/826x1/1284x1	4245544808000000040000000D000000535452542A020000..(1247) x76 | 4245544808000000040000000B0000005354525475010000..(826) x1 | 4245544808000000040000000D000000535452542A020000..(1284) x1
+INFO	DialogResponses	DialogResponses	COCT	Bool	COCT	unknown=true+signature-name	126347	72	126347	72	1	28				bool	True x72
+FOGV	FogVolume	Reflection	Data	ByteArray	REFL	ByteArray	73	73	73	73	1	7			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 551x73	4245544808000000040000000700000053545254B7000000..(551) x73
+CELL	Cell	Ownership	NoCrimeUnused	ByteArray[3]	XOWN	ByteArray	65	65	65	65	1	11				bytes; len 3x65	A6574E x65
+ARMA	ArmorAddon	Reflection	Data	ByteArray	REFL	ByteArray	62	62	62	62	1	31			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x62	4245544808000000040000000900000053545254A4000000..(416) x62
+TMLM	TerminalMenu	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	218	58	1672	424	9	45				bytes; len 3x1672	010000 x280 | 020000 x93 | 030000 x34 | A90C00 x7 | 040000 x6 | 0E0000 x1 | 080000 x1 | 070000 x1
+SPEL	Spell	Condition	Unknown2	UInt16	CTDA	Unknown*	240	61	1557	772	1	1				UInt16; range 0..17657; OR 0x44F9 maxbits 0	17657 x772
+CAMS	CameraShot	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	58	58	252	252	15	0				bytes; len 3x252	B79D4F x50 | B69D4F x35 | B29D4F x33 | B89D4F x27 | AC9D4F x24 | B59D4F x15 | B39D4F x15 | B09D4F x15
+CAMS	CameraShot	Condition	Unknown2	UInt16	CTDA	Unknown*	58	58	252	252	1	0				UInt16; range 16653..16653; OR 0x410D maxbits 0	16653 x252
+MISC	MiscItem	Reflection	Data	ByteArray	REFL	ByteArray	53	53	55	55	4	6			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 678x47/416x6/827x1/844x1	4245544808000000040000000B000000535452540C010000..(678) x47 | 4245544808000000040000000900000053545254A4000000..(416) x6 | 4245544808000000040000000B0000005354525475010000..(827) x1 | 4245544808000000040000000B0000005354525475010000..(844) x1
+SUNP	SunPreset	Reflection	Data	ByteArray	REFL	ByteArray	52	52	52	52	4	1			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 720x43/858x7/752x1/784x1	424554480800000004000000080000005354525460010000..(720) x43 | 424554480800000004000000080000005354525460010000..(858) x7 | 424554480800000004000000080000005354525460010000..(752) x1 | 424554480800000004000000080000005354525460010000..(784) x1
+REFR	PlacedObject	VolumesUnknownEnderSingle	Unknown1	Float		Unknown*	42	42	114	114	15	96				float; range 0.0518122..9.08369	0.44323242 x24 | 0.5621484 x16 | 0.42626953 x14 | 1.0884004 x12 | 2.5164032 x9 | 1.6326005 x8 | 0.05588341 x8 | 5.1953125 x6
+PACK	Package	PackageFlagsOverride	Unknown	ByteArray[3]	PFO2	Unknown*+ByteArray	51	51	149	149	1	4				list	count 3 x149
+BMMO	BiomeMarker	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	50	50	194	194	50	0				bytes; len 3x194	3D4A6D x6 | 4B4A6D x6 | 544A6D x6 | AE496D x5 | B8496D x5 | BC496D x5 | C1496D x5 | C6496D x5
+BMMO	BiomeMarker	Condition	Unknown2	UInt16	CTDA	Unknown*	50	50	194	194	1	0				UInt16; range 16653..16653; OR 0x410D maxbits 0	16653 x194
+MUST	MusicTrack	Condition	Unknown2	UInt16	CTDA	Unknown*	47	47	62	62	1	4				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x62
+PKIN	PackIn	Condition	Unknown2	UInt16	CTDA	Unknown*	46	46	52	52	1	0				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x52
+ACTI	Activator	Condition	Unknown2	UInt16	CTDA	Unknown*	37	37	59	59	1	89				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x59
+PGRE	PlacedTrap	Ownership	NoCrimeUnused	ByteArray[3]	XOWN	ByteArray	301	43	301	43	2	0				bytes; len 3x301	A50C00 x33 | 010812 x10
+VOLI	VolumetricLighting	Reflection	Data	ByteArray	REFL	ByteArray	42	42	42	42	1	2			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 1832x42	4245544808000000040000000E00000053545254C4030000..(1832) x42
+STBH	SnapTemplateBehavior	Condition	Unknown2	UInt16	CTDA	Unknown*	35	35	557	557	1	17				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x557
+CUR3	Curve3D	Reflection	Data	ByteArray	REFL	ByteArray	36	36	36	36	4	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 873x28/921x3/945x3/1017x2	4245544808000000040000000E00000053545254D0000000..(873) x28 | 4245544808000000040000000E00000053545254D0000000..(921) x3 | 4245544808000000040000000E00000053545254D0000000..(945) x3 | 4245544808000000040000000E00000053545254D0000000..(1017) x2
+ACHR	PlacedNpc	Ownership	NoCrimeUnused	ByteArray[3]	XOWN	ByteArray	75	34	75	34	3	2				bytes; len 3x75	A50C00 x31 | 010812 x2 | 010C00 x1
+SCEN	Scene	Scene	SCPP	FormLink	SCPP	unknown=true+signature-name	7613	29	7613	29	29	48				formlink	089762:Starfield.esm x1 | 006E05:Starfield.esm x1 | 009F48:Starfield.esm x1 | 012470:Starfield.esm x1 | 0167A6:Starfield.esm x1 | 009FFC:Starfield.esm x1 | 016F1A:Starfield.esm x1 | 01706F:Starfield.esm x1
+SFTR	SurfaceTree	SurfaceTreePatternSwapInfoItem	Unknown	Int8		Unknown*	32	32	34	34	8	0				SByte; range -120..104; OR 0xFFFFFFFFFFFFFFE8 maxbits 0	104 x6 | 40 x5 | 72 x5 | -88 x4 | -120 x4 | 8 x4 | -56 x3 | -24 x3
+WRLD	Worldspace	Worldspace	NAM7	String	NAM7	unknown=true+signature-name	29	29	29	29	9	9				string	materials/water/watersmooth.mat x12 | materials/water/watercalm.mat x8 | Data\MATERIALS\Water\WaterCalmIce.mat x2 | Data\MATERIALS\Water\WaterCalm.mat x2 | Data\MATERIALS\Water\WaterCalmMossClumpy x1 | Data\MATERIALS\Water\WaterSmoothMud.mat x1 | Data\MATERIALS\Water\WaterCalmFoam.mat x1 | materials…
+RACE	Race	Race	Unknown2	Float	DAT2	unknown=true+Unknown*	31	27	31	27	1	21				float; range -300..0	-300 x27
+CURV	CurveTable	Reflection	Data	ByteArray	REFL	ByteArray	28	28	28	28	6	1			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 545x12/552x10/561x2/528x2	4245544808000000040000000900000053545254AA000000..(545) x12 | 4245544808000000040000000900000053545254AA000000..(552) x10 | 4245544808000000040000000900000053545254AA000000..(561) x2 | 4245544808000000040000000900000053545254AA000000..(528) x2 | 4245544808000000040000000900000053545254AA000000..(549…
+BIOM	Biome	BiomeObject	Unknown1	ByteArray[16]	GNAM	Unknown*+ByteArray	429	25	49855	146	1	1				bytes; len 16x49855	00000100000000000000000000000000 x146
+SCEN	Scene	PlayerDialogueSceneAction	WED0	RefDirect	WED0	unknown=true+signature-name	23	23	54	54	1	9				SoundReferenceBinaryOverlay	SoundReference x54
+HAZD	Hazard	Reflection	Data	ByteArray	REFL	ByteArray	23	23	28	28	15	8			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x7/1286x3/1301x3/1309x2	4245544808000000040000000900000053545254A4000000..(416) x7 | 4245544808000000040000000F0000005354525420020000..(1286) x3 | 4245544808000000040000000F0000005354525420020000..(1301) x3 | 4245544808000000040000000F0000005354525420020000..(1309) x2 | 4245544808000000040000000F0000005354525420020000..(12…
+LVLN	LeveledNpc	Condition	Unknown2	UInt16	CTDA	Unknown*	23	23	297	297	1	2				UInt16; range 22893..22893; OR 0x596D maxbits 0	22893 x297
+REFR	PlacedObject	LockData	LevelUnused	ByteArray[3]	XLOC	ByteArray	1942	9	1942	9	1	133				bytes; len 3x1942	FD5E00 x9
+PACK	Package	Package	Unknown3	ByteArray[3]	PSDT	Unknown*+ByteArray	3548	18	3548	18	6	39				bytes; len 3x3548	020000 x5 | 060000 x5 | 030000 x3 | 010000 x2 | 070000 x2 | 050000 x1
+LIGH	Light	Reflection	Data	ByteArray	REFL	ByteArray	16	16	16	16	6	29			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 2860x4/3012x4/3004x3/2996x3	4245544808000000040000001C0000005354525486030000..(2860) x4 | 4245544808000000040000001C0000005354525486030000..(3012) x4 | 4245544808000000040000001C0000005354525486030000..(3004) x3 | 4245544808000000040000001C0000005354525486030000..(2996) x3 | 4245544808000000040000000C00000053545254B4010000..(9…
+TMLM	TerminalMenu	LockData	FlagsUnused	ByteArray[3]	XLOC	ByteArray	14	14	16	16	1	33				bytes; len 3x16	FB7C9D x16
+TMLM	TerminalMenu	LockData	LevelUnused	ByteArray[3]	XLOC	ByteArray	14	14	16	16	14	33				bytes; len 3x16	EE1BC2 x3 | 2316C2 x1 | A417C2 x1 | 8019C2 x1 | 9619C2 x1 | A019C2 x1 | 5E1AC2 x1 | B71BC2 x1
+TMLM	TerminalMenu	LockData	Unknown	Int32	XLOC	unknown=true+Unknown*	14	14	16	16	1	33				Int32; range 7..7; floatlike 0/16; formid hits 16/16 (NPC_ 16); OR 0x7 maxbits 3	7 x16
+CLDF	Clouds	Reflection	Data	ByteArray	REFL	ByteArray	16	16	16	16	16	5			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 3509x1/4253x1/3104x1/3851x1	4245544808000000040000000B000000535452540D020000..(3509) x1 | 4245544808000000040000000B000000535452540D020000..(4253) x1 | 4245544808000000040000000B000000535452540D020000..(3104) x1 | 4245544808000000040000000B000000535452540D020000..(3851) x1 | 4245544808000000040000000B000000535452540D020000..(3…
+FLST	FormList	Condition	Unknown2	UInt16	CTDA	Unknown*	16	16	206	206	1	3				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x206
+PCCN	PlanetContentManagerContentNode	Condition	Unknown2	UInt16	CTDA	Unknown*	16	16	20	20	1	2				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x20
+TMLM	TerminalMenu	TerminalMenu	INAM	String	INAM	unknown=true+signature-name	700	15	700	15	1	2				list	count 9 x15
+REFR	PlacedObject	LockData	FlagsUnused	ByteArray[3]	XLOC	ByteArray	1942	0	1942	0	0	147				bytes; len 3x1942	
+LVLP	LeveledPackIn	Condition	Unknown2	UInt16	CTDA	Unknown*	14	14	56	56	1	1				UInt16; range 22893..22893; OR 0x596D maxbits 0	22893 x56
+TODD	TimeOfDayRecord	Reflection	Data	ByteArray	REFL	ByteArray	14	14	14	14	3	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 1185x12/1193x1/1097x1	42455448080000000400000012000000535452541B010000..(1185) x12 | 42455448080000000400000012000000535452541B010000..(1193) x1 | 42455448080000000400000012000000535452541B010000..(1097) x1
+PSDC	ParticleSystemDefineCollision	Reflection	Data	ByteArray	REFL	ByteArray	9	9	9	9	9	3			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 1266x1/1628x1/4605x1/3337x1	4245544808000000040000000E000000535452541B020000..(1266) x1 | 424554480800000004000000110000005354525454020000..(1628) x1 | 4245544808000000040000002B000000535452549B020000..(4605) x1 | 42455448080000000400000022000000535452541B020000..(3337) x1 | 4245544808000000040000001A000000535452541B020000..(2…
+MOVT	MovementType	MovementSpeeds	Unknown	Float		Unknown*	43	9	258	27	2	0				float; range 0..6.87	1.5707964 x18 | 6.87 x9
+PERK	Perk	PerkScriptFragment	Unknown2	Int8		Unknown*	8	8	25	25	1	7				SByte; range 1..1; OR 0x1 maxbits 0	1 x25
+ACTI	Activator	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	37	8	59	13	1	4				bytes; len 3x59	C47469 x13
+CHAL	Challenge	Activity	ANAM	String	ANAM	unknown=true+signature-name	8	8	16	16	14	2				string	res:729A174E:0005E78D:A69839A5 x3 | res:A602FD19:0005F1D8:A1E0962F x1 | res:D0F8E7BD:0005EDC0:A1BD2906 x1 | res:89F01380:00061B40:A19607F5 x1 | res:7CD63E1C:00061B40:A19607F5 x1 | res:8C3F74B4:00061B40:A19607F5 x1 | res:8E0663CA:00061B40:A19607F5 x1 | res:8ED7BBEC:00061B40:A19607F5 x1
+HAZD	Hazard	Condition	Unknown2	UInt16	CTDA	Unknown*	7	7	12	12	1	10				UInt16; range 17656..17656; OR 0x44F8 maxbits 0	17656 x12
+CLAS	Class	Class	Unknown	Int32	CLAS	Unknown*	8	7	8	7	1	1				Int32; range -262144..0; floatlike 0/7; formid hits 0/7; OR 0xFFFC0000 maxbits 14	-262144 x7
+LIGH	Light	LightGobo	IsAnimatedUnused	ByteArray[3]		ByteArray	1575	7	1575	7	2	0				bytes; len 3x1575	020000 x5 | 7F0000 x2
+MESG	Message	Condition	Unknown2	UInt16	CTDA	Unknown*	6	6	31	31	1	4				UInt16; range 16699..16699; OR 0x413B maxbits 0	16699 x31
+ALCH	Ingestible	Reflection	Data	ByteArray	REFL	ByteArray	6	6	6	6	2	2			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 678x5/416x1	4245544808000000040000000B000000535452540C010000..(678) x5 | 4245544808000000040000000900000053545254A4000000..(416) x1
+CHAL	Challenge	Condition	Unknown2	UInt16	CTDA	Unknown*	6	6	12	12	1	1				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x12
+LVLB	LeveledBaseForm	Condition	Unknown2	UInt16	CTDA	Unknown*	6	6	38	38	1	1				UInt16; range 22893..22893; OR 0x596D maxbits 0	22893 x38
+ACTI	Activator	NavmeshTriangle	Unknown	UInt8		Unknown*	7	6	227	138	2	0				Byte; range 0..18; OR 0x12 maxbits 0	16 x80 | 18 x58
+FLOR	Flora	Reflection	Data	ByteArray	REFL	ByteArray	6	6	6	6	2	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 1271x4/1276x2	4245544808000000040000000F0000005354525420020000..(1271) x4 | 4245544808000000040000000F0000005354525420020000..(1276) x2
+QUST	Quest	Quest	QDUPs	List	QDUP	unknown=true+signature-name	5	5	5	5	1	4				list	count 2 x5
+CNDF	ConditionRecord	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	897	0	2545	0	0	51				bytes; len 3x2545	
+FORC	ForceData	Reflection	Data	ByteArray	REFL	ByteArray	5	5	5	5	1	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 457x5	4245544808000000040000000500000053545254BC000000..(457) x5
+LGTM	LightingTemplate	LightingTemplate	Unknown	Int32	LGTM	Unknown*	6	5	6	5	2	0				Int32; range -1..1951; floatlike 0/5; formid hits 0/5; OR 0xFFFFFFFF maxbits 32	1951 x4 | -1 x1
+LGTM	LightingTemplate	LightingTemplate	Unknown2	ByteArray[4]	LGTM	Unknown*+ByteArray	6	5	6	5	3	0				bytes; len 4x6; floatlike 0/5; formid hits 1/5 (REFR 1); OR 0x4CFFEB4B maxbits 13	00EAA74C x3 | 00401C00 x1 | 4B636100 x1
+HAZD	Hazard	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	7	4	12	7	1	5				bytes; len 3x12	050000 x7
+ANIO	AnimatedObject	Reflection	Data	ByteArray	REFL	ByteArray	4	4	4	4	1	1			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x4	4245544808000000040000000900000053545254A4000000..(416) x4
+EFSH	EffectShader	Reflection	Data	ByteArray	REFL	ByteArray	4	4	4	4	3	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 1293x2/1301x1/1303x1	4245544808000000040000000F0000005354525420020000..(1293) x2 | 4245544808000000040000000F0000005354525420020000..(1301) x1 | 4245544808000000040000000F0000005354525420020000..(1303) x1
+RACE	Race	FaceMorphItem	FMRU	String	FMRU	unknown=true+signature-name	2	2	23	23	12	10				string	Mouth x2 | Ears x2 | Eyes x2 | Nose x2 | Jaw x2 | Head Shapes x2 | Neck x2 | Forehead x2
+RACE	Race	Chargen	NNAM	ByteArray	NNAM	signature-name+ByteArray	2	2	4	4	4	10				bytes; len 12x4	D08BDA510000000000000000 x1 | 73549AE10000000000000000 x1 | ABABABAB0000000000000000 x1 | ABABABABABABABABABABABAB x1
+TERM	Terminal	ScriptFragmentIndexed	Unknown2	Int8		Unknown*	3	3	3	3	1	0				SByte; range 1..1; OR 0x1 maxbits 0	1 x3
+WTHR	Weather	Weather	NAM4	Array	NAM4	signature-name	3	3	3	3	1	0				list	count 32 x3
+WTHR	Weather	Weather	UnknownColor	RefDirect	NAM0	Unknown*	3	3	3	3	1	0				WeatherColorBinaryOverlay	WeatherColor x3
+CELL	Cell	WaterCurrentVelocity	Unknown	ByteArray[4]		Unknown*+ByteArray	2	2	7	3	3	1				bytes; len 4x7; floatlike 1/3; formid hits 2/3 (STAT 2); OR 0x3F800003 maxbits 7	01000000 x1 | 03000000 x1 | 0000803F x1
+DEBR	Debris	DebrisModel	TextureFileHashes	ByteArray	MODT	ByteArray	2	2	16	16	1	1				bytes; len 20x16	0400000000000000000000000000000000000000 x16
+PACK	Package	Package	Unknown2	UInt16	PKDT	Unknown*	3548	2	3548	2	1	0				UInt16; range 0..4; OR 0x4 maxbits 0	4 x2
+RACE	Race	FaceMorph	FMRS	String	FMRS	unknown=true+signature-name	1	1	18	18	18	10				string	male_as_md1 x1 | male_af_md1 x1 | male_eu_md2 x1 | male_eu_ol1 x1 | male_eu_yo1 x1 | male_af_ol1 x1 | male_af_yo1 x1 | male_as_ol1 x1
+RACE	Race	FaceMorph	FMRU	String	FMRU	unknown=true+signature-name	1	1	18	18	18	10				string	male_as_md1 x1 | male_af_md1 x1 | male_eu_md2 x1 | male_eu_ol1 x1 | male_eu_yo1 x1 | male_af_ol1 x1 | male_af_yo1 x1 | male_as_ol1 x1
+REFR	PlacedObject	WaterCurrentVelocity	Unknown	ByteArray[4]		Unknown*+ByteArray	2	2	6	2	1	0				bytes; len 4x6; floatlike 0/2; formid hits 2/2 (STAT 2); OR 0x1 maxbits 1	01000000 x2
+SFTR	SurfaceTree	SurfaceTreePatternSwapInfoItem	Unknown2	UInt32		Unknown*	2	2	2	2	2	0				UInt32; range 25872..30766; floatlike 0/2; formid hits 2/2 (REFR 2); OR 0x7D3E maxbits 8	30766 x1 | 25872 x1
+STAT	Static	VolumesComponentItem	Unknown1	Float		Unknown*	2	2	2	2	2	0				float; range 0.511832..0.985012	0.5118323 x1 | 0.9850119 x1
+STAT	Static	VolumesMatrix	Unknown1	Float		Unknown*	2	2	8	2	1	0				float; range 0..1	1 x2
+STAT	Static	VolumesUnknownEnderTrio	Unknown1	Float		Unknown*	2	2	2	2	2	0				float; range 7.79684..7.86133	7.861328 x1 | 7.796837 x1
+STAT	Static	VolumesComponentItem	Unknown2	Float		Unknown*	2	2	2	2	2	0				float; range 0.443232..0.444959	0.44323203 x1 | 0.44495934 x1
+STAT	Static	VolumesMatrix	Unknown2	Float		Unknown*	2	2	8	2	1	0				float; range 0..1	1 x2
+STAT	Static	VolumesUnknownEnderTrio	Unknown2	Float		Unknown*	2	2	2	2	2	0				float; range 13.7178..27.775	13.717768 x1 | 27.775 x1
+STAT	Static	VolumesComponentItem	Unknown3	Float		Unknown*	2	2	2	2	2	0				float; range 0.535896..1	1 x1 | 0.53589576 x1
+STAT	Static	VolumesMatrix	Unknown3	Float		Unknown*	2	2	8	2	1	0				float; range 0..1	1 x2
+STAT	Static	VolumesUnknownEnderTrio	Unknown3	Float		Unknown*	2	2	2	2	2	0				float; range 1.92542..3.9303	1.925415 x1 | 3.9302979 x1
+STAT	Static	VolumesMatrix	Unknown4	Float		Unknown*	2	2	8	2	1	0				float; range 0..1	1 x2
+TRAV	Traversal	Traversal	Unknown	UInt32	DNAM	unknown=true+Unknown*	23	2	23	2	1	0				UInt32; range 0..1; floatlike 0/2; formid hits 2/2 (STAT 2); OR 0x1 maxbits 1	1 x2
+NAVI	NavigationMeshInfoMap	NavmeshTraversal	Unknown1	Float		Unknown*	1	1	590922	590812	5000	8				float; range -819..245.786	1.8815299 x291 | 4.768811 x143 | 6.4835043 x80 | 7.8336945 x71 | 8.984433 x57 | 4.768817 x51 | 1.8815308 x34 | 5.249794 x30
+NAVI	NavigationMeshInfoMap	NavmeshTraversal	Unknown2	Float		Unknown*	1	1	590922	590812	5000	8				float; range -284..336.4	1.9551909 x286 | 4.8856516 x141 | 6.6196847 x79 | 7.983302 x66 | 9.1445675 x56 | 4.8856463 x45 | 5.372354 x29 | 2.9756715 x23
+NAVI	NavigationMeshInfoMap	NavmeshTraversal	Unknown3	Float		Unknown*	1	1	590922	590812	5000	8				float; range -73.5..132.786	0.80459476 x290 | 0.7974998 x142 | 0.79579073 x79 | 0.79485655 x66 | 0.79423094 x56 | 0.79749864 x46 | 0.7969358 x29 | 0.80459183 x27
+NAVI	NavigationMeshInfoMap	NavigationMapInfo	UnknownByte	UInt8	NVMI	Unknown*	1	1	56631	11921	15	8				Byte; range 0..15; OR 0xF maxbits 0	8 x2330 | 1 x2314 | 2 x2178 | 4 x2137 | 15 x1265 | 9 x385 | 12 x368 | 3 x340
+LGDI	LegendaryItem	LegendaryItem	GNAM	RefList	GNAM	unknown=true+signature-name	0	0	0	0	0	17					
+LGDI	LegendaryItem	LegendaryItem	HNAM	RefList	HNAM	unknown=true+signature-name	0	0	0	0	0	17					
+PCBN	PlanetContentManagerBranchNode	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	235	1	396	1	1	3				bytes; len 3x396	010000 x1
+ACHR	PlacedNpc	ExternalEmittance	OverrideEnabledUnused	ByteArray[3]	XEED	ByteArray	1	1	1	1	1	0				bytes; len 3x1	ABABAB x1
+AVMD	ActorValueModulation	BodyPartInfoComponent	GNAM	ByteArray	GNAM	unknown=true+signature-name+ByteArray	1	1	1	1	1	0				bytes; len 4x1; floatlike 0/1; formid hits 1/1 (BPTD 1); OR 0x3481 maxbits 5	81340000 x1
+BMMO	BiomeMarker	Reflection	Data	ByteArray	REFL	ByteArray	1	1	1	1	1	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 678x1	4245544808000000040000000B000000535452540C010000..(678) x1
+LGDI	LegendaryItem	LegendaryItem	FNAM	ByteArray	FNAM	unknown=true+signature-name+ByteArray	0	0	0	0	0	10					
+LGDI	LegendaryItem	LegendaryItem	JNAM	ByteArray	JNAM	unknown=true+signature-name+ByteArray	0	0	0	0	0	10					
+LGDI	LegendaryItem	LegendaryItem	KNAM	ByteArray	KNAM	unknown=true+signature-name+ByteArray	0	0	0	0	0	10					
+NAVM	NavigationMesh	Reflection	Data	ByteArray	REFL	ByteArray	1	1	2	2	2	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x1/678x1	4245544808000000040000000900000053545254A4000000..(416) x1 | 4245544808000000040000000B000000535452540C010000..(678) x1
+NOCM	NavigationMeshObstacleCoverManager	NavigationMeshObstacleManagerSubObject	DATAs	List		signature-name	1	1	1694	1069	66	0				list	count 4 x194 | count 2 x148 | count 6 x101 | count 8 x87 | count 10 x75 | count 12 x67 | count 16 x36 | count 14 x35
+NOCM	NavigationMeshObstacleCoverManager	NavigationMeshObstacleManagerSubObject	INTV	ByteArray	INTV	signature-name+ByteArray	1	1	1694	1069	15	0				bytes; len 4x1694; floatlike 0/1069; formid hits 1023/1069 (MISC 768,STAT 216,NPC_ 19,CONT 11); OR 0xF maxbits 4	0F000000 x675 | 05000000 x196 | 0A000000 x93 | 07000000 x19 | 0D000000 x19 | 0B000000 x13 | 0E000000 x11 | 08000000 x10
+PCMT	PlanetContentManagerTree	Condition	Unknown2	UInt16	CTDA	Unknown*	1	1	2	2	1	0				UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x2
+PDCL	ProjectedDecal	Reflection	Data	ByteArray	REFL	ByteArray	1	1	1	1	1	0			decoded by ReflectionData (C101); bytes kept on purpose	bytes; len 416x1	4245544808000000040000000900000053545254A4000000..(416) x1
+PNDT	Planet	PlanetBiome	UnknownItems	RefList	PPBD	unknown=true+Unknown*	1437	1	3192	1	1	0				list	count 10 x1
+SCEN	Scene	TimelineSceneAction	LNAM	Int32	LNAM	unknown=true+signature-name	1	1	1	1	1	0				Int32; range -1..-1; floatlike 0/1; formid hits 0/1; OR 0xFFFFFFFF maxbits 32	-1 x1
+SCEN	Scene	TimelineSceneAction	UNAM	Int32	UNAM	unknown=true+signature-name	1	1	1	1	1	0				Int32; range -1..-1; floatlike 0/1; formid hits 0/1; OR 0xFFFFFFFF maxbits 32	-1 x1
+SFBK	SurfaceBlock	BlockCellHeightGridComponent	DATA	ByteArray	DATA	signature-name+ByteArray	1	1	1	1	1	0				bytes; len 64x1	05000000050000000D0000000058D240FFFF7F7FFFFF7F7F..(64) x1
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown11	Float	SPGD	Unknown*	1	1	1	1	1	0				float	NaN x1
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown2	Float	SPGD	Unknown*	1	1	1	1	1	0				float	NaN x1
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown6	Float	SPGD	Unknown*	1	1	1	1	1	0				float	NaN x1
+STAT	Static	NavmeshTriangle	Unknown	UInt8		Unknown*	280	1	4133	4	1	0				Byte; range 0..16; OR 0x10 maxbits 0	16 x4
+PNDT	Planet	OrbitalData	Unknown1	UInt32	ENAM	Unknown*	1765	0	1765	0	0	8				UInt32; range 0..0	
+LGDI	LegendaryItem	LegendaryItem	MNAM	FormLink	MNAM	unknown=true+signature-name	84	0	84	0	0	7				formlink	
+PNDT	Planet	AddedWorldspace	Unknown	UInt8		Unknown*	0	0	0	0	0	7				(official plugins only) Byte; range 1..1; OR 0x1 maxbits 0	1 x8
+PERS	PERS	PERS	DATA	UInt32	DATA	unknown=true+signature-name	0	0	0	0	0	5				(official plugins only) UInt32; range 4948..1.48028E+06; floatlike 0/5; formid hits 5/5 (REFR 5); OR 0x17FFFF maxbits 11	78173 x1 | 1480281 x1 | 4948 x1 | 17139 x1 | 40395 x1
+PERS	PERS	PERS	Items	RefList	PERS	unknown=true	0	0	0	0	0	5				(official plugins only) list	count 1 x4 | count 17 x1
+CELL	Cell	CityMapsUsageComponent	MOD2	ByteArray	MOD2	unknown=true+signature-name+ByteArray	0	0	0	0	0	4				(official plugins only) bytes; len 260x4	436974794D6170735C53464247533030385C534642475330..(260) x2 | 436974794D6170735C53464247533030385C736662677330..(260) x2
+FURN	Furniture	VehicleConfigData	Unknown1	Float	VCCD	Unknown*	0	0	0	0	0	3				(official plugins only) float; range 10..10	10 x3
+FURN	Furniture	VehicleConfigData	Unknown3	Float	VCCD	Unknown*	0	0	0	0	0	3				(official plugins only) float; range 0.02..0.02	0.02 x3
+FURN	Furniture	VehicleConfigData	Unknown4	Float	VCCD	Unknown*	0	0	0	0	0	3				(official plugins only) float; range 20..20	20 x3
+FURN	Furniture	VehicleConfigData	Unknown5	Float	VCCD	Unknown*	0	0	0	0	0	3				(official plugins only) float; range 0.05..0.05	0.05 x3
+FURN	Furniture	VehicleConfigData	Unknown6	Float	VCCD	Unknown*	0	0	0	0	0	3				(official plugins only) float; range 0.02..0.02	0.02 x3
+LGDI	LegendaryItem	LegendaryItemLnamEntry	Unknown	UInt32		unknown=true+Unknown*	0	0	0	0	0	3				(official plugins only) UInt32; range 0..4; floatlike 0/32; formid hits 32/32 (STAT 27,DOOR 5); OR 0x7 maxbits 2	1 x9 | 2 x9 | 3 x9 | 4 x5
+LGDI	LegendaryItem	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	0	0	0	0	0	3				(official plugins only) list	count 3 x70
+LGDI	LegendaryItem	Condition	Unknown2	UInt16	CTDA	Unknown*	0	0	0	0	0	3				(official plugins only) UInt16; range 17657..17657; OR 0x44F9 maxbits 0	17657 x70
+REFR	PlacedObject	PlacedObject	XLIB	FormLink	XLIB	unknown=true+signature-name	3291860	0	3291860	0	0	3				formlink	
+QUST	Quest	CollectionAlias	ALAM	Int32	ALAM	unknown=true+signature-name	451	0	1768	0	0	2				Int32; range 0..0	
+CPTH	CameraPath	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	54	0	71	0	0	1				bytes; len 3x71	
+GWED	GravityWielderEffectData	Reflection	Data	ByteArray	REFL	ByteArray	0	0	0	0	0	1			decoded by ReflectionData (C101); bytes kept on purpose	(official plugins only) bytes; len 151x1	424554480800000004000000050000005354525433000000..(151) x1
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown1	Int32	XVL2	Unknown*	11760	0	11760	0	0	1				Int32; range 0..0	
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown2	Int32	XVL2	Unknown*	11760	0	11760	0	0	1				Int32; range 0..0	
+SCCO	SceneCollection	SceneCollection	VNAM	Int32	VNAM	unknown=true+signature-name	0	0	0	0	0	1				(official plugins only) Int32; range 1..1; floatlike 0/1; formid hits 1/1 (STAT 1); OR 0x1 maxbits 1	1 x1
+SCCO	SceneCollection	SceneCollectionItem	XNAM	UInt64	XNAM	unknown=true+signature-name	0	0	0	0	0	1				(official plugins only) UInt64; range 2.92058E+11..7.30144E+12; OR 0x7FF000005F2 maxbits 0	322122547312 x1 | 1460288880754 x1 | 4294967296130 x1 | 292057777410 x1 | 1460288881938 x1 | 2628519986466 x1 | 3796751090978 x1 | 4964982195506 x1
+PNDT	Planet	Planet	BDED	Marker	BDED	signature-name	0	0	0	0	0	0	marker (no value)		empty marker subrecord (end of a biome block); nothing to name	second pass: raw: marker only, no data	
+PNDT	Planet	Planet	BDST	Marker	BDST	signature-name	0	0	0	0	0	0	marker (no value)		empty marker subrecord (start of a biome block); nothing to name	second pass: raw: marker only, no data	
+TES4	StarfieldModHeader	StarfieldModHeader	CHGL	ByteArray	CHGL	unknown=true+signature-name+ByteArray	1	1	1	1	1	27		low	type it UInt32; probably the CK's source-control changelist number (name e.g. Changelist), medium-low	second pass: one 4-byte value per header, all 33 set; grows with plugin age: Constellation 0x34C7A5 (3,458,981), OldMars 3,463,035, SFBGS004 4,362,378, SFBGS003 4,484,855, Starfield.esm 0x44A42A (4,498,474); xEdit wbUnknown(CHGL) | probe: bytes; len 4x1; floatlike 0/1; formid hits 0/1; OR 0x44A42A maxbits 8	2AA44400 x1
+-	-	OrbitalDataComponent	DATA	ByteArray	DATA	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never present		keep as is; the component is never in the data	second pass: raw census: no BFCB containing "Orbital" in Starfield.esm or the 32 official plugins	
+EFSH	EffectShader	EffectShader	DATA	Marker	DATA	signature-name	0	0	0	0	0	0	marker (no value)		empty marker; nothing to name	second pass: marker only	
+LGDI	LegendaryItem	LegendaryItem	DATA	Marker	DATA	signature-name	0	0	0	0	0	0	marker (no value)		empty marker (xEdit wbEmpty(DATA)); nothing to name	second pass: marker only	
+PERS	PERS	PERS	DATA	UInt32	DATA	unknown=true+signature-name	0	0	0	0	0	5		medium	name it ItemCount (total number of DAT2 entries; derived)	second pass (Starfield.esm has none; the official plugins are in row 295 of the first pass): 5 PERS records, all in the BlueprintShips plugins; DATA = total item count exactly (78,173; 4,948; 17,139; 40,395; 1,480,281 = 16 x 87,381 + 82,185 in BlueprintShips-Starfield.esm); xEdit 'Unknown' | probe: UInt32; range 4948..1.48028E+06; floatlike 0/5; formid hits 5/5 (REFR 5); OR 0x17FFFF maxbits 11	78173 x1 | 1480281 x1 | 4948 x1 | 17139 x1 | 40395 x1
+TES4	StarfieldModHeader	StarfieldModHeader	Deleted	ByteArray	DELE	ByteArray	0	0	0	0	0	0	never present		keep	second pass: absent in all 33 headers	
+TACT	TalkingActivator	TalkingActivator	FNAM	UInt16	FNAM	unknown=true+signature-name	0	0	0	0	0	0	never present		keep	second pass: no TACT record in Starfield.esm or the 32 official plugins	
+TES4	StarfieldModHeader	StarfieldModHeader	INTV	Int32	INTV	unknown=true+signature-name	0	0	0	0	0	0	never present		keep	second pass: absent in all 33 headers; xEdit: ignored by the runtime, loaded by the CK	
+PERS	PERS	PERS	Items	RefList	PERS	unknown=true	0	0	0	0	0	5		low	name it Chunks (the DAT2 subrecords, each up to 87,381 entries = ~1 MB, sized with XXXX)	second pass (Starfield.esm has none; the official plugins are in row 296 of the first pass): 1 to 17 lists per record (BlueprintShips-Starfield.esm: 16 x 87,381 + 82,185 items) | probe: list	count 1 of PERSItems x4 | count 17 of PERSItems x1
+PERS	PERS	PERSItems	Items	RefList		unknown=true	0	0	0	0	0	5		low	name it Entries	second pass: the DAT2 entries {FormLink Record, u32, u32}: 1,620,936 in the 5 records | probe: list	count 87381 of PERSItem x16 | count 78173 of PERSItem x1 | count 82185 of PERSItem x1 | count 4948 of PERSItem x1 | count 17139 of PERSItem x1 | count 40395 of PERSItem x1
+CELL	Cell	CityMapsUsageComponent	MOD2	ByteArray	MOD2	unknown=true+signature-name+ByteArray	0	0	0	0	0	4		high	type it as a 260-byte fixed string, name it ModelPath (xEdit wbString(MOD2, 'Model Path', 260))	second pass (Starfield.esm has none; the official plugins are in row 297 of the first pass): 4 CELL overrides in SFBGS008 (CityNewAtlantisWell, CityCydoniaMainLevel, CityNeonCore, ...): text "CityMaps\SFBGS008\..." then zero padding to 260 bytes | probe: bytes; len 260x4	436974794D6170735C53464247533030385C534642475330..(260) x2 | 436974794D6170735C53464247533030385C736662677330..(260) x2
+RACE	Race	Race	NAM3	CustomLogic	NAM3	signature-name	0	0	0	0	0	0	marker (no value)		CustomLogic marker (start of the body data block); nothing to name	second pass: present in all 52 races; no value of its own	
+-	-	StarfieldMod	PERS	Group		signature-name	0	0	0	0	0	0		low	group of PERS records; name the group after whatever PERS is named	second pass: 5 PERS records (the 5 BlueprintShips plugins)	
+TES4	StarfieldModHeader	StarfieldModHeader	Screenshot	ByteArray	SCRN	ByteArray	0	0	0	0	0	0	never present		keep	second pass: absent in all 33 headers	
+ARMO	Armor	Armor	STOP	Marker	STOP	signature-name	0	0	0	0	0	0	marker (no value)		empty marker; nothing to name	second pass: marker only	
+CONT	Container	Container	STOP	Marker	STOP	signature-name	0	0	0	0	0	0	marker (no value)		empty marker; nothing to name	second pass: marker only	
+FLOR	Flora	Flora	STOP	Marker	STOP	signature-name	0	0	0	0	0	0	marker (no value)		empty marker; nothing to name	second pass: marker only	
+WEAP	Weapon	Weapon	STOP	Marker	STOP	signature-name	0	0	0	0	0	0	marker (no value)		empty marker; nothing to name	second pass: marker only	
+GBFM	GenericBaseForm	GenericBaseForm	STOP1	Marker	STOP	signature-name	0	0	0	0	0	0	marker (no value)		empty marker; nothing to name	second pass: marker only	
+GBFM	GenericBaseForm	GenericBaseForm	STOP2	Marker	STOP	signature-name	0	0	0	0	0	0	marker (no value)		empty marker; nothing to name	second pass: marker only	
+PACK	-	PackageDataTopic	TPIC	ByteArray	TPIC	signature-name+ByteArray	0	0	0	0	0	0	never present		keep	second pass: raw census: no TPIC subrecord in any PACK (4,898 packages)	
+TES4	StarfieldModHeader	StarfieldModHeader	TypeOffsets	ByteArray	OFST	ByteArray	0	0	0	0	0	0	never present		keep	second pass: absent in all 33 headers	
+GRUP	GRUP	StarfieldGroup	Unknown	Int32	GRUP	Unknown*	178	0	178	0	0	0	never set		keep (group header field)	second pass: 0 in all 178 Starfield.esm and 5,696 official top-level groups | probe: Int32; range 0..0	
+GRUP	GRUP	StarfieldListGroup	Unknown	Int32	GRUP	Unknown*	1	0	1	0	0	4		low	keep raw (group header field)	second pass: 0 on Starfield.esm; 3 on the Cells group of the 4 BlueprintShips plugins (4 of 32 official list groups) | probe: Int32; range 0..0	3 x4
+-	-	PTTA	Unknown	Int32	PTTA	Unknown*	0	0	0	0	0	0	never present		keep	second pass: raw census: no PTTA subrecord in Starfield.esm or the 32 official plugins	
+-	-	XTRV	Unknown	ByteArray	XTRV	unknown=true+Unknown*+ByteArray	0	0	0	0	0	0	never present		keep	second pass: raw census: no XTRV subrecord in Starfield.esm or the 32 official plugins	
+GRUP	GRUP	CellBlock	Unknown	Int32		Unknown*	1	0	10	0	0	4		low	keep raw (group header field)	second pass: 0 on all 10 in Starfield.esm; official: 3 on 27 of 152 cell blocks, all in the 4 BlueprintShips plugins, the same value as their Cells group | probe: Int32; range 0..0	3 x27
+GRUP	GRUP	CellSubBlock	Unknown	Int32		Unknown*	1	0	100	0	0	4		low	keep raw (group header field)	second pass: 0 on all 100 in Starfield.esm; official: 3 on 167 of 760 sub-blocks, all in the BlueprintShips plugins | probe: Int32; range 0..0	3 x167
+LGDI	LegendaryItem	LegendaryItemLnamEntry	Unknown	UInt32		unknown=true+Unknown*	0	0	0	0	0	3		high	named ReferenceMod on cov/starfield-naming-batch-r6	second pass (Starfield.esm has none; the official plugins are in row 303 of the first pass): values 1-4, 32 entries in 3 SFBGS00D overrides (DefaultLegendaryHuman, DefaultLegendaryCreature, DefaultLegendaryRobot); xEdit 'Reference Mod' | probe: UInt32; range 0..4; floatlike 0/32; formid hits 32/32 (STAT 27,DOOR 5); OR 0x7 maxbits 2	1 x9 | 2 x9 | 3 x9 | 4 x5
+PNDT	Planet	AddedWorldspace	Unknown	UInt8		Unknown*	0	0	0	0	0	7		high	name it Type, enum {Removed = 0, Added = 1} (xEdit EOVR 'Type')	second pass (Starfield.esm has none; the official plugins are in row 294 of the first pass): 1 on all 8 entries (7 planet overrides in the official plugins, e.g. AlgorabIIPlanetData (05DE57:Starfield.esm)); none in Starfield.esm | probe: Byte; range 1..1; OR 0x1 maxbits 0	1 x8
+RELA	Relationship	Relationship	Unknown	UInt8	RELA	Unknown*	0	0	0	0	0	0	never set		keep	second pass (Starfield.esm has none; the official plugins are in row 542 of the first pass): the only RELA (sfta04.esm) stores 0 | probe: Byte; range 0..0	
+-	-	VolumesUnknownEnderEmptyPadded	Unknown1	UInt32		Unknown*	0	0	0	0	0	0	never present		keep	second pass: this ender variant is never read in Starfield.esm or the 32 official plugins	
+FURN	Furniture	VehicleConfigData	Unknown1	Float	VCCD	Unknown*	0	0	0	0	0	3		low	CK check 5 (six floats after Steering PID First Person)	second pass (Starfield.esm has none; the official plugins are in row 298 of the first pass): 10 on the 3 official vehicles: Rev8 (000033:SFBGS004.esm), MoonJumper (000001:SFBGS047.esm), SFBGS019_Deimog (000005:sfbgs019.esm) | probe: float; range 10..10	10 x3
+LGDI	LegendaryItem	LegendaryItemHNAMEntry	Unknown1	UInt32		unknown=true+Unknown*	0	0	0	0	0	17		high	named Tier on cov/starfield-naming-batch-r6	second pass: tiers 1-5 on 1,565 entries in 17 official LGDIs | probe: UInt32; range 1..5; floatlike 0/1565; formid hits 1565/1565 (STAT 1488,DOOR 77); OR 0x7 maxbits 2	2 x485 | 1 x476 | 3 x453 | 4 x77 | 5 x74
+PERS	PERS	PERSItem	Unknown1	UInt32		unknown=true+Unknown*	0	0	0	0	0	5		low	can't tell; looks like a hash (keep UInt32)	second pass: 1,620,936 values over the full 32-bit range, ~17% float-like and 0.09% FormID hits (chance level): not FormIDs; xEdit wbUnknown(4) | probe: UInt32; range 1863..4.29496E+09; floatlike 273315/1620936; formid hits 1471/1620936 (REFR 1248,INFO 49,RFGP 49,NAVM 22); OR 0xFFFFFFFF maxbits 29	1404264558 x2 | 277345074 x2 | 472742827 x1 | 110156044 x1 | 3876056420 x1 | 3961694692 x1 | 1193045351 x1 | 2716589916 x1
+PNDT	Planet	PlanetBiomeUnknownItem	Unknown1	Double		unknown=true+Unknown*	1	1	10	10	10	0		medium	name it Longitude (radians)	second pass: 10 items, only in SchrodingerIIPlanetData (05E0B5:Starfield.esm): -2.892..2.920 (within +-pi) | probe: double; range -2.892..2.92042	1.9931812040478318 x1 | -0.9231641300879908 x1 | -2.5669836937537007 x1 | 2.234581082714761 x1 | -2.194865574436088 x1 | 0.7863355614166526 x1 | 2.9204234373000104 x1 | 2.075371698146032 x1
+SFBK	SurfaceBlock	BlockEditorMetaDataItem	Unknown2	UInt8		Unknown*	469	0	475	0	0	0	never set		keep	second pass: 0 on all 475 in Starfield.esm and 121 official | probe: Byte; range 0..0	
+-	-	PTTA	Unknown2	Int32	PTTA	Unknown*	0	0	0	0	0	0	never present		keep	second pass: no PTTA subrecord in the data	
+FURN	Furniture	VehicleConfigData	Unknown2	Float	VCCD	Unknown*	0	0	0	0	0	0	never set		CK check 5	second pass (Starfield.esm has none; the official plugins are in row 428 of the first pass): 0 on the 3 official vehicles | probe: float; range 0..0	
+LGDI	LegendaryItem	LegendaryItemHNAMEntry	Unknown2	UInt32		unknown=true+Unknown*	0	0	0	0	0	12		high	named ReferencedModIndex on cov/starfield-naming-batch-r6	second pass: 0-50 on 1,497 entries: a small index into the record's mods, like CNAM/DNAM | probe: UInt32; range 0..50; floatlike 0/1497; formid hits 963/1497 (STAT 450,ACTI 87,MISC 63,VTYP 58); OR 0x3F maxbits 5	1 x43 | 2 x43 | 3 x39 | 4 x39 | 5 x39 | 6 x34 | 7 x34 | 8 x34
+PERS	PERS	PERSItem	Unknown2	UInt32		unknown=true+Unknown*	0	0	0	0	0	5		low	can't tell; looks like a hash (keep UInt32)	second pass: as Unknown1: random-looking over the full 32-bit range, not FormIDs | probe: UInt32; range 2636..4.29496E+09; floatlike 273658/1620936; formid hits 1499/1620936 (REFR 1298,INFO 47,DIAL 27,RFGP 24); OR 0xFFFFFFFF maxbits 29	633822427 x2 | 839256118 x1 | 4256064625 x1 | 871588168 x1 | 1629198291 x1 | 409317465 x1 | 4245202353 x1 | 3383304961 x1
+PNDT	Planet	PlanetBiomeUnknownItem	Unknown2	Double		unknown=true+Unknown*	1	1	10	10	10	0		medium	name it Latitude (radians)	second pass: 10 items, only in SchrodingerIIPlanetData (05E0B5:Starfield.esm): -1.427..1.146 (within +-pi/2) | probe: double; range -1.42738..1.14594	-0.5658875531036978 x1 | -1.3967637921624125 x1 | 1.1459380567797803 x1 | 0.880117249186665 x1 | -0.8949149799362299 x1 | 0.5195906618922361 x1 | -0.4718370811315158 x1 | 0.2362426421224544 x1
+-	-	PTTA	Unknown3	Int32	PTTA	Unknown*	0	0	0	0	0	0	never present		keep	second pass: no PTTA subrecord in the data	
+FURN	Furniture	VehicleConfigData	Unknown3	Float	VCCD	Unknown*	0	0	0	0	0	3		low	CK check 5	second pass (Starfield.esm has none; the official plugins are in row 299 of the first pass): 0.02 on the 3 official vehicles | probe: float; range 0.02..0.02	0.02 x3
+FURN	Furniture	VehicleConfigData	Unknown4	Float	VCCD	Unknown*	0	0	0	0	0	3		low	CK check 5	second pass (Starfield.esm has none; the official plugins are in row 300 of the first pass): 20 on the 3 official vehicles | probe: float; range 20..20	20 x3
+FURN	Furniture	VehicleConfigData	Unknown5	Float	VCCD	Unknown*	0	0	0	0	0	3		low	CK check 5	second pass (Starfield.esm has none; the official plugins are in row 301 of the first pass): 0.05 on the 3 official vehicles | probe: float; range 0.05..0.05	0.05 x3
+FURN	Furniture	VehicleConfigData	Unknown6	Float	VCCD	Unknown*	0	0	0	0	0	3		low	CK check 5	second pass (Starfield.esm has none; the official plugins are in row 302 of the first pass): 0.02 on the 3 official vehicles | probe: float; range 0.02..0.02	0.02 x3
+PNDT/STDT	Planet/Star	PlanetModelComponentXMPM	UnknownStrings	List	XMPM	Unknown*	1812	1812	1812	1812	2	19		medium	name it VariantNames (always one string, "default")	second pass: ["default"] on all 1,692 PNDT + 120 STDT in Starfield.esm and 19 official; xEdit unnamed length-prefixed strings | probe: list	count 1: default x1692
+PNDT/STDT	Planet/Star	PlanetModelComponentXMPM	UnknownSubItems	RefList	XMPM	Unknown*	1812	1812	1812	1812	3	18		medium	name it Materials (each item is a BSResource ID: name + file hash + "mat" + folder hash, xEdit 'Resource:ID')	second pass: 1-2 per planet (1,136 x1, 556 x2), 7 per star; 19 official | probe: list	count 1 of PlanetModelComponentXMPMSubItem x1136 | count 2 of PlanetModelComponentXMPMSubItem x556
+SCCO	SceneCollection	SceneCollection	VNAM	Int32	VNAM	unknown=true+signature-name	0	0	0	0	0	1		low	can't tell (one record, value 1)	second pass (Starfield.esm has none; the official plugins are in row 312 of the first pass): the only SCCO, SFBGS001_MQ04_1000_Bianca_SC_SceneCollection (1046B1:ShatteredSpace.esm): 1; xEdit wbUnknown(VNAM) | probe: Int32; range 1..1; floatlike 0/1; formid hits 1/1 (STAT 1); OR 0x1 maxbits 1	1 x1
+SCCO	SceneCollection	SceneCollection	VNAM2	Int32	VNAM	unknown=true+signature-name	0	0	0	0	0	0	never present		keep	second pass (Starfield.esm has none; the official plugins are in row 551 of the first pass): the only SCCO has one VNAM	
+CELL	Cell	CellXCLAItem	XCLA	Int32	XCLA	unknown=true+signature-name	2785	2785	11140	11140	4	286		medium	name it LayerIndex (u32 1-4)	second pass: on 2,785 cells in Starfield.esm + 286 official: always 4 entries, 1, 2, 3, 4, each followed by XCLD "Default Layer Name N"; xEdit 'Unknown' | probe: Int32; range 1..4; floatlike 0/11140; formid hits 11140/11140 (STAT 8355,DOOR 2785); OR 0x7 maxbits 2	1 x2785 | 2 x2785 | 3 x2785 | 4 x2785
+CELL	Cell	CellXCLAItem	XCLD	String	XCLD	unknown=true+signature-name	2785	2785	11140	11140	4	286		medium	name it LayerName	second pass: "Default Layer Name 1".."4" only (2,785 + 286 cells) | probe: string	Default Layer Name 1 x2785 | Default Layer Name 2 x2785 | Default Layer Name 3 x2785 | Default Layer Name 4 x2785
+SCCO	SceneCollection	SceneCollectionItem	XNAM	UInt64	XNAM	unknown=true+signature-name	0	0	0	0	0	1		low	type it as two Int32 (xEdit), probably the CK graph position X, Y of the scene node	second pass (Starfield.esm has none; the official plugins are in row 313 of the first pass): 10 items in the one SCCO; as (low, high) pairs: (112, 75), (114, 340), (130, 1000), (1282, 68), (1298, 340), (1314, 612), (1314, 884), (1330, 1156): x/y-like grid positions | probe: UInt64; range 2.92058E+11..7.30144E+12; OR 0x7FF000005F2 maxbits 0	322122547312 x1 | 1460288880754 x1 | 4294967296130 x1 | 292057777410 x1 | 1460288881938 x1 | 2628519986466 x1 | 3796751090978 x1 | 4964982195506 x1
+SCCO	SceneCollection	SceneCollection	XNAMs	List	SCCO	unknown=true+signature-name	0	0	0	0	0	0	never set		keep	second pass (Starfield.esm has none; the official plugins are in row 552 of the first pass): the only SCCO has an empty XNAMs list (its XNAMs are read per scene item) | probe: list	
+AACT	ActionRecord	ActionRecord	FNAM	ByteArray	FNAM	unknown=true+signature-name+ByteArray	222	0	222	0	0	0	never set			bytes; len 4x222	
+ACHR	PlacedNpc	EnableParent	Unknown	ByteArray[3]	XESP	Unknown*+ByteArray	1225	0	1225	0	0	0	never set			bytes; len 3x1225	
+ACHR	PlacedNpc	Ownership	Unknown	Int32	XOWN	Unknown*	75	0	75	0	0	0	never set			Int32; range 0..0	
+ACTI	Activator	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+ACTI	Activator	DestructableData	Unknown	Int16	DEST	Unknown*	93	0	93	0	0	0	never set			Int16; range 0..0	
+ACTI	Activator	NavmeshVertex	Unknown	Int32		Unknown*	7	0	190	0	0	0	never set			Int32; range 0..0	
+ACTI	Activator	NavmeshGeometry	Unknown3	Int32	NVNM	Unknown*	7	0	7	0	0	0	never set			Int32; range 0..0	
+ADDN	AddonNode	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+ALCH	Ingestible	Effect	MAGF	Int32	MAGF	unknown=true+signature-name	0	0	0	0	0	0	never set				
+ALCH	Ingestible	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+ALCH	Ingestible	ItemResource	Unknown	UInt32		Unknown*	94	0	94	0	0	0	never set			UInt32; range 0..0	
+ALCH	Ingestible	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	291	0	360	0	0	0	never set			bytes; len 3x360	
+AMMO	Ammunition	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+ANIO	AnimatedObject	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+ARMA	ArmorAddon	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+ARMA	ArmorAddon	ArmorAddon	Unknown	UInt16	DNAM	Unknown*	1106	0	1106	0	0	0	never set			UInt16; range 0..0	
+ARMO	Armor	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+ARMO	Armor	Armor	Unused	ByteArray[3]	FNAM	ByteArray	1017	0	1017	0	0	0	never set	patcher/tools type		bytes; len 3x1017	
+ARTO	ArtObject	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+AVMD	ActorValueModulation	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+BIOM	Biome	BiomeDistantView	Unknown1	Float		Unknown*	431	0	431	0	0	0	never set			float; range 0..0	
+BIOM	Biome	BiomeDistantView	Unknown3	Float		Unknown*	431	0	431	0	0	0	never set			float; range 0..0	
+BIOM	Biome	BiomeObject	Unknown3	ByteArray[28]	GNAM	Unknown*+ByteArray	429	0	49855	0	0	0	never set			bytes; len 28x49855	
+BIOM	Biome	BiomeObject	Unknown5	ByteArray[4]	GNAM	Unknown*+ByteArray	429	0	49855	0	0	0	never set			bytes; len 4x49855	
+BMMO	BiomeMarker	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+BMOD	BoneModifier	BodyPartInfoComponent	GNAM	ByteArray	GNAM	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never set				
+BMOD	BoneModifier	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+BMOD	BoneModifier	BoneModifierSpringBoneData	Unknown4	Float		Unknown*	252	0	252	0	0	0	never set			float; range 0..0	
+BOOK	Book	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+BPTD	BodyPartData	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+CAMS	CameraShot	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+CELL	Cell	Ownership	Unknown	Int32	XOWN	Unknown*	65	0	65	0	0	0	never set			Int32; range 0..0	
+CHAL	Challenge	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	6	0	12	0	0	0	never set			bytes; len 3x12	
+CNDF	ConditionRecord	Condition	Unknown2	UInt16	CTDA	Unknown*	897	0	2545	0	0	0	never set			UInt16; range 0..0	
+COBJ	ConstructibleObject	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	1937	0	2537	0	0	0	never set	patcher/tools type		bytes; len 3x2537	
+CONT	Container	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+CONT	Container	DestructableData	Unknown	Int16	DEST	Unknown*	206	0	206	0	0	0	never set			Int16; range 0..0	
+CPTH	CameraPath	Condition	Unknown2	UInt16	CTDA	Unknown*	54	0	71	0	0	0	never set			UInt16; range 0..0	
+CSTY	CombatStyle	CombatStyleManeuverTiming	Unknown	Float		Unknown*	161	0	322	0	0	0	never set			float; range 0..0	
+CSTY	CombatStyle	CombatStyle	UnknownCSSG	Int16	CSSG	Unknown*	161	0	161	0	0	0	never set			Int16; range 0..0	
+DIAL	DialogTopic	DialogTopic	Unknown	Int32	DIAL	Unknown*	68154	0	68154	0	0	0	never set			Int32; range 0..0	
+DOOR	Door	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+DOOR	Door	NavmeshTriangle	Unknown	UInt8		Unknown*	2	0	8	0	0	0	never set			Byte; range 0..0	
+DOOR	Door	NavmeshVertex	Unknown	Int32		Unknown*	2	0	12	0	0	0	never set			Int32; range 0..0	
+DOOR	Door	NavmeshGeometry	Unknown3	Int32	NVNM	Unknown*	2	0	2	0	0	0	never set			Int32; range 0..0	
+EFSH	EffectShader	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+ENCH	ObjectEffect	Effect	MAGF	Int32	MAGF	unknown=true+signature-name	0	0	0	0	0	0	never set	patcher/tools type			
+ENCH	ObjectEffect	ObjectEffect	MAGF	Int32	MAGF	unknown=true+signature-name	0	0	0	0	0	0	never set	patcher/tools type			
+ENCH	ObjectEffect	ObjectEffect	MUID	Int32	MUID	unknown=true+signature-name	0	0	0	0	0	0	never set	patcher/tools type			
+EXPL	Explosion	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+FACT	Faction	CrimeValues	Unknown	UInt16	CRVA	Unknown*	812	0	812	0	0	0	never set			UInt16; range 0..0	
+FACT	Faction	VendorValues	Unknown	UInt8	VENV	Unknown*	812	0	812	0	0	0	never set			Byte; range 0..0	
+FLOR	Flora	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+FLOR	Flora	DestructableData	Unknown	Int16	DEST	Unknown*	2	0	2	0	0	0	never set			Int16; range 0..0	
+FLST	FormList	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	16	0	206	0	0	0	never set			bytes; len 3x206	
+FURN	Furniture	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+FURN	Furniture	DestructableData	Unknown	Int16	DEST	Unknown*	2	0	2	0	0	0	never set			Int16; range 0..0	
+FURN	Furniture	VehicleConfigData	Unknown2	Float	VCCD	Unknown*	0	0	0	0	0	0	never set			(official plugins only) float; range 0..0	
+GBFM	GenericBaseForm	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+GBFM	GenericBaseForm	DestructableData	Unknown	Int16	DEST	Unknown*	1641	0	1641	0	0	0	never set	patcher/tools type		Int16; range 0..0	
+GBFM	GenericBaseForm	NavmeshTriangle	Unknown	UInt8		Unknown*	834	0	351629	0	0	0	never set	patcher/tools type		Byte; range 0..0	
+GBFM	GenericBaseForm	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	22	0	115	0	0	0	never set	patcher/tools type		bytes; len 3x115	
+GBFM	GenericBaseForm	NavmeshGeometry	Unknown3	Int32	NVNM	Unknown*	837	0	837	0	0	0	never set	patcher/tools type		Int32; range 0..0	
+GRAS	Grass	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+HAZD	Hazard	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+HDPT	HeadPart	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+IDLE	IdleAnimation	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	424	0	712	0	0	0	never set			bytes; len 3x712	
+IDLE	IdleAnimation	Condition	Unknown2	UInt16	CTDA	Unknown*	424	0	712	0	0	0	never set			UInt16; range 0..0	
+IDLM	IdleMarker	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+INFO	DialogResponses	Animation	ACEP	Bool	ACEP	signature-name	6648	0	7588	0	0	0	never set			bool	
+INFO	DialogResponses	Animation	DTGT	Int32	DTGT	unknown=true+signature-name	0	0	0	0	0	0	never set				
+INFO	DialogResponses	DialogResponse	TROI	FormLink	TROI	unknown=true+signature-name	113373	0	130284	0	0	0	never set			formlink	
+INFO	DialogResponses	Condition	Unknown2	UInt16	CTDA	Unknown*	28541	0	43292	0	0	0	never set			UInt16; range 0..0	
+IPCT	Impact	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+IPCT	Impact	Impact	Unknown	Int16	IPCT	Unknown*	1088	0	1088	0	0	0	never set			Int16; range 0..0	
+KEYM	Key	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+LCRT	LocationReferenceType	LocationReferenceType	FNAM	ByteArray	FNAM	unknown=true+signature-name+ByteArray	3053	0	3053	0	0	0	never set			bytes; len 4x3053	
+LGDI	LegendaryItem	LegendaryItem	INAM	RefList	INAM	unknown=true+signature-name	0	0	0	0	0	0	never set				
+LIGH	Light	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+LIGH	Light	LightRoundness	UsesRoundnessUnused	ByteArray[3]		ByteArray	1575	0	1575	0	0	0	never set			bytes; len 3x1575	
+LSCR	LoadScreen	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	90	0	215	0	0	0	never set			bytes; len 3x215	
+LSCR	LoadScreen	Condition	Unknown2	UInt16	CTDA	Unknown*	90	0	215	0	0	0	never set			UInt16; range 0..0	
+LVLB	LeveledBaseForm	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+LVLB	LeveledBaseForm	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	6	0	38	0	0	0	never set			bytes; len 3x38	
+LVLI	LeveledItem	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+LVLI	LeveledItem	FilterKeywordChance	Unknown	Int32		Unknown*	675	0	675	0	0	0	never set	patcher/tools type		Int32; range 0..0	
+LVLN	LeveledNpc	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+LVLN	LeveledNpc	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	23	0	297	0	0	0	never set			bytes; len 3x297	
+LVLP	LeveledPackIn	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+LVLP	LeveledPackIn	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	14	0	56	0	0	0	never set			bytes; len 3x56	
+LVLP	LeveledPackIn	PlanetContentManagerContentPropertiesComponent	ZNAM	UInt32	ZNAM	unknown=true+signature-name	10	0	10	0	0	0	never set			UInt32; range 0..0	
+MATT	MaterialType	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+MESG	Message	Message	INAM	Int32	INAM	unknown=true+signature-name	1149	0	1149	0	0	0	never set			Int32; range 0..0	
+MESG	Message	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	6	0	31	0	0	0	never set			bytes; len 3x31	
+MGEF	MagicEffect	MagicEffectSound	Unknown	ByteArray[3]	ESSH	unknown=true+Unknown*+ByteArray	102	0	198	0	0	0	never set	patcher/tools type		bytes; len 3x198	
+MGEF	MagicEffect	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	245	0	403	0	0	0	never set	patcher/tools type		bytes; len 3x403	
+MGEF	MagicEffect	MagicEffect	Unknown2	ByteArray[6]	MGEF	unknown=true+Unknown*+ByteArray	853	0	853	0	0	0	never set	patcher/tools type		bytes; len 6x853	
+MGEF	MagicEffect	MagicEffect	UnknownCounterEffectCount	UInt16	MGEF	unknown=true+Unknown*	853	0	853	0	0	0	never set	patcher/tools type		UInt16; range 0..0	
+MISC	MiscItem	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+MISC	MiscItem	DestructableData	Unknown	Int16	DEST	Unknown*	2	0	2	0	0	0	never set			Int16; range 0..0	
+MISC	MiscItem	ItemResource	Unknown	UInt32		Unknown*	424	0	424	0	0	0	never set			UInt32; range 0..0	
+MOVT	MovementType	MovementType	FlagsUnused	ByteArray[3]	INTV	ByteArray	43	0	43	0	0	0	never set			bytes; len 3x43	
+MRPH	MorphableObject	MorphableObject	BaseVertexColorUnused	ByteArray[3]	MOBC	ByteArray	998	0	998	0	0	0	never set			bytes; len 3x998	
+MSTT	MoveableStatic	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+MSTT	MoveableStatic	DestructableData	Unknown	Int16	DEST	Unknown*	112	0	112	0	0	0	never set			Int16; range 0..0	
+MUST	MusicTrack	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	47	0	62	0	0	0	never set			bytes; len 3x62	
+NAVI	NavigationMeshInfoMap	NavigationMapInfo	Unknown	ByteArray	NVMI	Unknown*+ByteArray	1	0	56631	0	0	0	never set			bytes; len 0x56631	
+NAVI	NavigationMeshInfoMap	NavigationMapInfo	UnknownCrcs	List	NVMI	Unknown*	1	0	56631	0	0	0	never set			list	
+NAVM	NavigationMesh	NavigationMesh	NNAM	ByteArray	NNAM	signature-name+ByteArray	0	0	0	0	0	0	never set				
+NAVM	NavigationMesh	NavmeshGeometry	Unknown3	Int32	NVNM	Unknown*	56576	0	56576	0	0	0	never set			Int32; range 0..0	
+NPC_	Npc	Npc	BCLR	Int32	BCLR	unknown=true+signature-name	0	0	0	0	0	0	never set	patcher/tools type			
+NPC_	Npc	Npc	EYEC	UInt32	EYEC	unknown=true+signature-name	0	0	0	0	0	0	never set	patcher/tools type			
+NPC_	Npc	Npc	HCLR	Int32	HCLR	unknown=true+signature-name	0	0	0	0	0	0	never set	patcher/tools type			
+OMOD	ArmorModification	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+OMOD	FloraModification	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+OMOD	NpcModification	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+OMOD	ObjectModification	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+OMOD	SpaceshipModification	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+OMOD	WeaponModification	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+OMOD	ArmorModification	AObjectModification	Unknown	UInt16	OMOD	Unknown*	276	0	276	0	0	0	never set	patcher/tools type		UInt16; range 0..0	
+OMOD	FloraModification	AObjectModification	Unknown	UInt16	OMOD	Unknown*	137	0	137	0	0	0	never set	patcher/tools type		UInt16; range 0..0	
+OMOD	NpcModification	AObjectModification	Unknown	UInt16	OMOD	Unknown*	542	0	542	0	0	0	never set	patcher/tools type		UInt16; range 0..0	
+OMOD	ObjectModification	AObjectModification	Unknown	UInt16	OMOD	Unknown*	8	0	8	0	0	0	never set	patcher/tools type		UInt16; range 0..0	
+OMOD	SpaceshipModification	AObjectModification	Unknown	UInt16	OMOD	Unknown*	3	0	3	0	0	0	never set	patcher/tools type		UInt16; range 0..0	
+OMOD	WeaponModification	AObjectModification	Unknown	UInt16	OMOD	Unknown*	1716	0	1716	0	0	0	never set	patcher/tools type		UInt16; range 0..0	
+OMOD	ArmorModification	AObjectModification	Unknown3	UInt32	OMOD	Unknown*	276	0	276	0	0	0	never set	patcher/tools type		UInt32; range 0..0	
+OMOD	FloraModification	AObjectModification	Unknown3	UInt32	OMOD	Unknown*	137	0	137	0	0	0	never set	patcher/tools type		UInt32; range 0..0	
+OMOD	NpcModification	AObjectModification	Unknown3	UInt32	OMOD	Unknown*	542	0	542	0	0	0	never set	patcher/tools type		UInt32; range 0..0	
+OMOD	ObjectModification	AObjectModification	Unknown3	UInt32	OMOD	Unknown*	8	0	8	0	0	0	never set	patcher/tools type		UInt32; range 0..0	
+OMOD	SpaceshipModification	AObjectModification	Unknown3	UInt32	OMOD	Unknown*	3	0	3	0	0	0	never set	patcher/tools type		UInt32; range 0..0	
+OMOD	WeaponModification	AObjectModification	Unknown3	UInt32	OMOD	Unknown*	1716	0	1716	0	0	0	never set	patcher/tools type		UInt32; range 0..0	
+PCBN	PlanetContentManagerBranchNode	PlanetContentManagerContentPropertiesComponent	ZNAM	UInt32	ZNAM	unknown=true+signature-name	254	0	254	0	0	0	never set			UInt32; range 0..0	
+PCCN	PlanetContentManagerContentNode	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	16	0	20	0	0	0	never set			bytes; len 3x20	
+PCCN	PlanetContentManagerContentNode	PlanetContentManagerContentPropertiesComponent	ZNAM	UInt32	ZNAM	unknown=true+signature-name	104	0	104	0	0	0	never set			UInt32; range 0..0	
+PCMT	PlanetContentManagerTree	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	1	0	2	0	0	0	never set			bytes; len 3x2	
+PDCL	ProjectedDecal	ProjectedDecal	PTTA	RefDirect	PDCL	unknown=true+signature-name	0	0	0	0	0	0	never set				
+PGRE	PlacedTrap	EnableParent	Unknown	ByteArray[3]	XESP	Unknown*+ByteArray	106	0	106	0	0	0	never set			bytes; len 3x106	
+PGRE	PlacedTrap	Ownership	Unknown	Int32	XOWN	Unknown*	301	0	301	0	0	0	never set			Int32; range 0..0	
+PHZD	PlacedHazard	EnableParent	Unknown	ByteArray[3]	XESP	Unknown*+ByteArray	74	0	74	0	0	0	never set			bytes; len 3x74	
+PKIN	PackIn	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	46	0	52	0	0	0	never set			bytes; len 3x52	
+PKIN	PackIn	PlanetContentManagerContentPropertiesComponent	ZNAM	UInt32	ZNAM	unknown=true+signature-name	377	0	377	0	0	0	never set			UInt32; range 0..0	
+PNDT	Planet	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+PNDT	Planet	PlanetDetails	Unknown1	Int32	HNAM	unknown=true+Unknown*	1765	0	1765	0	0	0	never set			Int32; range 0..0	
+PNDT	Planet	OrbitalData	Unknown2	UInt16	ENAM	Unknown*	1765	0	1765	0	0	0	never set			UInt16; range 0..0	
+PROJ	Projectile	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+PROJ	Projectile	Projectile	TextureFilesHashes	ByteArray	NAM2	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+PROJ	Projectile	DestructableData	Unknown	Int16	DEST	Unknown*	45	0	45	0	0	0	never set	patcher/tools type		Int16; range 0..0	
+PROJ	Projectile	Projectile	Unused	ByteArray	DATA	ByteArray	265	0	265	0	0	0	never set	patcher/tools type		bytes; len 0x265	
+QUST	Quest	QuestReferenceAlias	ALFG	UInt32	ALFG	unknown=true+signature-name	1961	0	19079	0	0	0	never set			UInt32; range 0..0	
+QUST	Quest	BodyPartInfoComponent	GNAM	ByteArray	GNAM	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never set				
+QUST	Quest	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+QUST	Quest	Quest	Unknown	Int32	QUST	Unknown*	2077	0	2077	0	0	0	never set			Int32; range 0..0	
+QUST	Quest	QuestData	Unused	ByteArray[3]	DNAM	ByteArray	2077	0	2077	0	0	0	never set			bytes; len 3x2077	
+RACE	Race	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+RACE	Race	MovementSpeeds	Unknown	Float		Unknown*	1	0	6	0	0	0	never set			float; range 0..0	
+RACE	Race	Race	Unknown1	ByteArray[28]	DAT2	unknown=true+Unknown*+ByteArray	31	0	31	0	0	0	never set			bytes; len 28x31	
+RACE	Race	Race	Unknown3	ByteArray[4]	DAT2	unknown=true+Unknown*+ByteArray	31	0	31	0	0	0	never set			bytes; len 4x31	
+REFR	PlacedObject	BodyPartInfoComponent	GNAM	ByteArray	GNAM	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never set			(official plugins only) 	
+REFR	PlacedObject	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set			(official plugins only) 	
+REFR	PlacedObject	EnableParent	Unknown	ByteArray[3]	XESP	Unknown*+ByteArray	83980	0	83980	0	0	0	never set			bytes; len 3x83980	
+REFR	PlacedObject	Ownership	Unknown	Int32	XOWN	Unknown*	35412	0	35412	0	0	0	never set			Int32; range 0..0	
+REFR	PlacedObject	TraversalReference	Unknown1	Int32		Unknown*	4544	0	6023	0	0	0	never set			Int32; range 0..0	
+REFR	PlacedObject	PlacedObjectVolumeData	Unknown12	Int32	XVL2	Unknown*	11760	0	11760	0	0	0	never set			Int32; range 0..0	
+REFR	PlacedObject	PlacedObjectCurrentZoneCell	XCZA	ByteArray	XCZA	unknown=true+signature-name+ByteArray	2	0	2	0	0	0	never set			bytes; len 4x2	
+REFR	PlacedObject	PlacedObjectWaterCurrentReference	XCZA	ByteArray	XCZA	unknown=true+signature-name+ByteArray	1	0	2	0	0	0	never set			bytes; len 4x2	
+REFR	PlacedObject	PlacedObject	XLTW	FormLink	XLTW	unknown=true+signature-name	3291860	0	3291860	0	0	0	never set			formlink	
+REFR	PlacedObject	PlacedObject	XMSP	FormLink	XMSP	unknown=true+signature-name	3291860	0	3291860	0	0	0	never set			formlink	
+REFR	PlacedObject	PlacedObject	XPWR	FormLink	XPWR	unknown=true+signature-name	3291860	0	3291860	0	0	0	never set			formlink	
+REFR	PlacedObject	PlacedObject	XTRI	UInt32	XTRI	unknown=true+signature-name	0	0	0	0	0	0	never set				
+REFR	PlacedObject	PlacedObject	XTRV	RefDirect	REFR	signature-name	0	0	0	0	0	0	never set				
+REFR	PlacedObject	PlanetContentManagerContentPropertiesComponent	ZNAM	UInt32	ZNAM	unknown=true+signature-name	1	0	1	0	0	0	never set			UInt32; range 0..0	
+RELA	Relationship	Relationship	Unknown	UInt8	RELA	Unknown*	0	0	0	0	0	0	never set			(official plugins only) Byte; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeCommonTier	Unknown1	Float		Unknown*	32	0	68	0	0	0	never set			float; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeTier	Unknown1	Float		Unknown*	32	0	408	0	0	0	never set			float; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeCommonTier	Unknown2	Float		Unknown*	32	0	68	0	0	0	never set			float; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeTier	Unknown2	Float		Unknown*	32	0	408	0	0	0	never set			float; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeCommonTier	Unknown3	Float		Unknown*	32	0	68	0	0	0	never set			float; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeTier	Unknown3	Float		Unknown*	32	0	408	0	0	0	never set			float; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeCommonTier	Unknown4	Float		Unknown*	32	0	68	0	0	0	never set			float; range 0..0	
+RSGD	ResourceGenerationData	ResourceGenerationBiomeTier	Unknown4	Float		Unknown*	32	0	408	0	0	0	never set			float; range 0..0	
+SCCO	SceneCollection	SceneCollection	VNAM2	Int32	VNAM	unknown=true+signature-name	0	0	0	0	0	0	never set			(official plugins only) 	
+SCCO	SceneCollection	SceneCollection	XNAMs	List	SCCO	unknown=true+signature-name	0	0	0	0	0	0	never set			(official plugins only) list	
+SCEN	Scene	Animation	ACEP	Bool	ACEP	signature-name	110	0	503	0	0	0	never set			bool	
+SCEN	Scene	TimelineSceneAction	CNAM	Int32	CNAM	unknown=true+signature-name	1	0	1	0	0	0	never set			Int32; range 0..0	
+SCEN	Scene	Animation	DTGT	Int32	DTGT	unknown=true+signature-name	0	0	0	0	0	0	never set				
+SCEN	Scene	TimerSceneAction	INTV	Int16	INTV	signature-name	0	0	0	0	0	0	never set				
+SCEN	Scene	PlayerDialogueSceneAction	JAIL	Bool	JAIL	unknown=true+signature-name	2202	0	5379	0	0	0	never set			bool	
+SCEN	Scene	TimerSceneAction	SCQS	Int16	SCQS	signature-name	0	0	0	0	0	0	never set				
+SCOL	StaticCollection	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+SCOL	StaticCollection	StaticPart	Unknown	Int32	ONAM	unknown=true+Unknown*	15	0	83	0	0	0	never set			Int32; range 0..0	
+SECH	SoundEchoMarker	SoundEchoMarker	ECHL	RefDirect	ECHL	unknown=true+signature-name	0	0	0	0	0	0	never set				
+SFBK	SurfaceBlock	BlockEditorMetaDataComponent	UnknownEnding	ByteArray	DAT2	Unknown*+ByteArray	471	0	471	0	0	0	never set			bytes; len 0x471	
+SFPT	SurfacePattern	BlockHeightAdjustmentComponent	DATA	ByteArray	DATA	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never set				
+SFTR	SurfaceTree	SurfaceTreePatternSwapInfoComponentData	Unknown	ByteArray	DAT2	Unknown*+ByteArray	32	0	32	0	0	0	never set			bytes; len 0x32	
+SPEL	Spell	Effect	MAGF	Int32	MAGF	unknown=true+signature-name	0	0	0	0	0	0	never set				
+SPEL	Spell	Spell	MAGF	Int32	MAGF	unknown=true+signature-name	0	0	0	0	0	0	never set				
+SPEL	Spell	Spell	MUID	Int32	MUID	unknown=true+signature-name	0	0	0	0	0	0	never set				
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown1	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown10	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown12	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown3	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown4	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown5	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown7	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown8	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+SPGD	ShaderParticleGeometry	ShaderParticleGeometry	Unknown9	Float	SPGD	Unknown*	1	0	1	0	0	0	never set			float; range 0..0	
+STAT	Static	Static	PTTA	RefDirect	STAT	unknown=true+signature-name	0	0	0	0	0	0	never set				
+STAT	Static	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+STAT	Static	NavmeshVertex	Unknown	Int32		Unknown*	280	0	4130	0	0	0	never set			Int32; range 0..0	
+STAT	Static	NavmeshGeometry	Unknown3	Int32	NVNM	Unknown*	280	0	280	0	0	0	never set			Int32; range 0..0	
+STBH	SnapTemplateBehavior	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	35	0	557	0	0	0	never set			bytes; len 3x557	
+STDT	Star	Star	ONAM	ByteArray	ONAM	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never set				
+STDT	Star	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+STMP	SnapTemplate	SnapNodeEntry	Unknown	UInt32	ENAM	Unknown*	655	0	3128	0	0	0	never set			UInt32; range 0..0	
+STND	SnapTemplateNode	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+TERM	Terminal	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+TERM	Terminal	Terminal	WorkbenchData	ByteArray	WBDT	ByteArray	368	0	368	0	0	0	never set			bytes; len 1x368	
+TMLM	TerminalMenu	TerminalMenuItem	UnusedISET2	ByteArray[3]	ISET	ByteArray	645	0	2340	0	0	0	never set			bytes; len 3x2340	
+TXST	TextureSet	TextureSet	TX15	String	TX15	signature-name	0	0	0	0	0	0	never set				
+WATR	Water	Water	DATA	ByteArray	DATA	unknown=true+signature-name+ByteArray	15	0	15	0	0	0	never set			bytes; len 0x15	
+WATR	Water	Water	GNAM	ByteArray	GNAM	unknown=true+signature-name+ByteArray	15	0	15	0	0	0	never set			bytes; len 12x15	
+WATR	Water	Water	NAM2	String	NAM2	unknown=true+signature-name	0	0	0	0	0	0	never set				
+WATR	Water	Water	NAM3	String	NAM3	unknown=true+signature-name	0	0	0	0	0	0	never set				
+WATR	Water	Water	NAM4	String	NAM4	unknown=true+signature-name	0	0	0	0	0	0	never set				
+WATR	Water	Water	NAM5	UInt8	NAM5	unknown=true+signature-name	0	0	0	0	0	0	never set				
+WATR	Water	Water	NAM6	UInt8	NAM6	unknown=true+signature-name	0	0	0	0	0	0	never set				
+WEAP	Weapon	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+WEAP	Weapon	Weapon	WAMM	ByteArray	WAMM	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+WEAP	Weapon	Weapon	WRUM	ByteArray	WRUM	unknown=true+signature-name+ByteArray	0	0	0	0	0	0	never set	patcher/tools type			
+WRLD	Worldspace	Worldspace	SubCellsUnknown	Int32	WRLD	Unknown*	433	0	433	0	0	0	never set			Int32; range 0..0	
+WRLD	Worldspace	WorldspaceBlock	Unknown	Int32		Unknown*	432	0	1801	0	0	0	never set			Int32; range 0..0	
+WRLD	Worldspace	WorldspaceSubBlock	Unknown	Int32		Unknown*	432	0	1936	0	0	0	never set			Int32; range 0..0	
+WRLD	Worldspace	Condition	Unknown1	ByteArray[3]	CTDA	Unknown*+ByteArray	247	0	432	0	0	0	never set			bytes; len 3x432	
+WRLD	Worldspace	Worldspace	XCLAs	RefList	WRLD	signature-name	433	0	433	0	0	0	never set			list	
+WRLD	Worldspace	PlanetContentManagerContentPropertiesComponent	ZNAM	UInt32	ZNAM	unknown=true+signature-name	364	0	364	0	0	0	never set			UInt32; range 0..0	
+WTHR	Weather	Model	TextureFileHashes	ByteArray	MODT	ByteArray	0	0	0	0	0	0	never set				
+WTHR	Weather	Weather	Unknown	UInt16	WTHR	Unknown*	3	0	3	0	0	0	never set			UInt16; range 0..0	
+WTHR	Weather	WeatherMagic	Unknown	UInt64	UNAM	Unknown*	3	0	3	0	0	0	never set			UInt64; range 0..0	

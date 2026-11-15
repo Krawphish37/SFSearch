@@ -1,0 +1,52 @@
+{"id":"find01","tool":"sfs_find","params":{"query":"Eon"}}
+{"id":"find02","tool":"sfs_find","params":{"query":"0476C4:Starfield.esm"}}
+{"id":"find03","tool":"sfs_find","params":{"query":"000CF2","limit":100}}
+{"id":"find04","tool":"sfs_find","params":{"query":"000CF2","in":"darkstar.esm"}}
+{"id":"find05","tool":"sfs_find","params":{"query":"0003E6,000E82","in":"darkstar.esm"}}
+{"id":"find06","tool":"sfs_find","params":{"query":"3000000 0","in":"darkstar.esm"}}
+{"id":"find07","tool":"sfs_find","params":{"query":"0","in":"darkstar.esm"}}
+{"id":"find08","tool":"sfs_find","params":{"query":"5E+99"}}
+{"id":"find09","tool":"sfs_find","params":{"query":"QuantumHarness"}}
+{"id":"find10","tool":"sfs_find","params":{"query":"DarkStar_Mk2_Helmet_Ecl*"}}
+{"id":"find11","tool":"sfs_find","params":{"query":"DarkStar_Mk2_*","type":"ARMO","in":"darkstar.esm","limit":5}}
+{"id":"find12","tool":"sfs_find","params":{"query":"DarkStar_Mk2_*","type":"ARMO","in":"darkstar.esm","limit":5,"cursor":"5.1d32"}}
+{"id":"find13","tool":"sfs_find","params":{"query":"DarkStar_Mk2_*","type":"ARMO","in":"darkstar.esm","limit":5,"cursor":"5.0000"}}
+{"id":"find14","tool":"sfs_find","params":{"type":"WEAP","in":"darkstarpatch_crimsonx.esm"}}
+{"id":"find15","tool":"sfs_find","params":{"type":"ARMO","in":"darkstarpatch_crimsonx.esm","limit":3}}
+{"id":"find16","tool":"sfs_find","params":{"type":"Weapn"}}
+{"id":"find17","tool":"sfs_find","params":{"type":"WeaponModification","in":"kgcdoom.esm","limit":3}}
+{"id":"find18","tool":"sfs_find","params":{"query":"000806:CrimsonX_Z.esm"}}
+{"id":"find19","tool":"sfs_find","params":{"in":"nope.esm"}}
+{"id":"find20","tool":"sfs_find","params":{"query":"000867:MissionsGalore.esm"}}
+{"id":"find21","tool":"sfs_find","params":{"query":"370003E6"}}
+{"id":"find22","tool":"sfs_find","params":{"query":"Bed","limit":3}}
+{"id":"find23","tool":"sfs_find","params":{"type":"WEAP","limit":5}}
+{"id":"find24","tool":"sfs_find","params":{"query":"kgcDoom_MQ01 SFTA03 NoSuchEditorID"}}
+{"id":"find25","tool":"sfs_find","params":{"query":"000001:nope.esm"}}
+{"id":"find26","tool":"sfs_find","params":{"query":"FFFFFF:Starfield.esm"}}
+{"id":"find27","tool":"sfs_find","params":{}}
+{"id":"find28","tool":"sfs_find","params":{"plugin":"darkstar.esm","query":"Eon"}}
+{"id":"find29","tool":"sfs_find","params":{"query":"Eon","type":"KYWD"}}
+{"id":"find30","tool":"sfs_find","params":{"query":"*","in":"weap_starlight.esm","limit":3}}
+{"id":"find31","tool":"sfs_find","params":{"type":"REFR","in":"Starfield.esm","limit":2}}
+{"id":"find32","tool":"sfs_find","params":{"query":"003A8F","type":"LVLI"}}
+{"id":"find33","tool":"sfs_find","params":{"query":"0476C4:Starfield.esm","in":"darkstar.esm"}}
+{"id":"find34","tool":"sfs_find","params":{"type":"KYWD","in":"darkstarpatch_*.esm","query":"*Quality*","limit":4}}
+{"id":"find35","tool":"sfs_find","params":{"query":"Samson"}}
+{"id":"find36","tool":"sfs_find","params":{"query":"Galaxy Handbook"}}
+{"id":"find37","tool":"sfs_find","params":{"query":"New Atlantis","limit":10}}
+{"id":"find38","tool":"sfs_find","params":{"query":"The Well"}}
+{"id":"find39","tool":"sfs_find","params":{"query":"Everbright Commons"}}
+{"id":"find40","tool":"sfs_find","params":{"query":"Akila City","limit":10}}
+{"id":"find41","tool":"sfs_find","params":{"query":"Neon","type":"WRLD,CELL","limit":10}}
+{"id":"find42","tool":"sfs_find","params":{"query":"NAViewport,01251C:Starfield.esm,CityNewAtlantisLodgeInt"}}
+{"id":"find43","tool":"sfs_find","params":{"text":"[^\\x00-\\x7F]","from":"stored","limit":50}}
+{"id":"find44","tool":"sfs_find","params":{"text":"(?i)galaxy handbook"}}
+{"id":"find45","tool":"sfs_find","params":{"text":"^イーオン$","in":"Starfield.esm","type":"WEAP","language":"ja"}}
+{"id":"find46","tool":"sfs_find","params":{"text":"Samson.s Art","from":"stored"}}
+{"id":"find47","tool":"sfs_find","params":{"text":"[unclosed"}}
+{"id":"find48","tool":"sfs_find","params":{"text":"^Fast travel","type":"GMST"}}
+{"id":"find49","tool":"sfs_find","params":{"text":"^(Accept Bounty|Activate)$","type":"PERK"}}
+{"id":"find50","tool":"sfs_find","params":{"text":"There.s a slate on the desk","in":"stlazarusawakened.esm"}}
+{"id":"find51","tool":"sfs_find","params":{"text":"^The Lodge$","in":"Starfield.esm","world":true}}
+{"id":"find52","tool":"sfs_find","params":{"query":"Eon","world":true}}

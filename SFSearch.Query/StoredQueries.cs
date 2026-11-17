@@ -55,6 +55,8 @@ public sealed class StoredAnswer
     public StoredQuery? Query { get; set; }
     public ScopeKind Scope { get; set; }
     public List<string> Plugins { get; } = new();
+    /// <summary>How the plugins were named, when a set was among them: "@official (33 plugins)" (GAPS S117). Null: by their names.</summary>
+    public string? Named { get; set; }
     /// <summary>The arguments as they were bound, defaults included.</summary>
     public Dictionary<string, object?> Arguments { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<StoredTable> Tables { get; } = new();
@@ -70,8 +72,10 @@ public sealed class StoredAnswer
     string QueryLine()
     {
         if (Query == null) return "";
-        var args = Arguments.Where(a => a.Value != null).Select(a => $"{a.Key}={Convert.ToString(a.Value, CultureInfo.InvariantCulture)}");
-        string scope = Scope == ScopeKind.Plugins ? $"plugins {string.Join(", ", Plugins)}" : Scope.ToString().ToLowerInvariant();
+        // A plugin argument that only repeats a named set's plugins (plugin=@official) is said once, as the set
+        bool SetsPlugins(KeyValuePair<string, object?> a) => Named != null && a.Key.Equals("plugin", StringComparison.OrdinalIgnoreCase) && a.Value is string s && s == string.Join(",", Plugins);
+        var args = Arguments.Where(a => a.Value != null && !SetsPlugins(a)).Select(a => $"{a.Key}={Convert.ToString(a.Value, CultureInfo.InvariantCulture)}");
+        string scope = Scope == ScopeKind.Plugins ? $"plugins {Named ?? string.Join(", ", Plugins)}" : Scope.ToString().ToLowerInvariant();
         return $"[query] {Query.FullName} ({scope}{string.Concat(args.Select(a => "; " + a))}): {Query.Answers}\n";
     }
 
@@ -118,8 +122,9 @@ public sealed class StoredAnswer
                     null => null, long l => JsonValue.Create(l), double d => JsonValue.Create(d), _ => JsonValue.Create(a.Value.ToString()),
                 }))),
             };
+        if (Named != null && o["query"] is JsonObject asked) asked["named"] = Named;
         if (Error != null) o["error"] = new JsonObject { ["what"] = Error, ["fix"] = Fix };
-        if (NotRun != null) o["notRun"] = new JsonObject { ["what"] = NotRun.What, ["seconds"] = Math.Round(NotRun.Seconds, 1), ["memoryMB"] = NotRun.MemoryMB, ["allow"] = "allow_heavy=true" };
+        if (NotRun != null) o["notRun"] = NotRun.ToJson();
         var tables = new JsonArray();
         foreach (var t in Tables)
         {
@@ -285,8 +290,8 @@ public sealed class StoredQueries
         }
         // Records and Links hold only what was read: a query over them must say what to read
         bool names = q.Statements.Any(NamesReadTables);
-        if (names && q.Reads == null) problems.Add("the SQL names Records or Links, which hold only the record types read so far: add a reads line (-- reads: every type, every type with <Field>, or a list of types)");
-        if (!names && q.Reads != null) problems.Add("the header has a reads line, and the SQL names neither Records nor Links: name the record types' own tables and drop the line");
+        if (names && q.Reads == null) problems.Add("the SQL names Records, Links or Conditions, which hold only the record types read so far: add a reads line (-- reads: every type, every type with <Field>, or a list of types)");
+        if (!names && q.Reads != null) problems.Add("the header has a reads line, and the SQL names neither Records, Links nor Conditions: name the record types' own tables and drop the line");
         if (problems.Count == q.Problems.Count)
             foreach (var d in q.Columns)
                 if (!returned.Contains(d.Name)) problems.Add($"the header describes the column {d.Name}, and no SELECT returns it");
@@ -363,13 +368,24 @@ public sealed class StoredQueries
         bool pluginPicksScope = q.Param("plugin") != null && given.ContainsKey("plugin") && !q.Statements.Any(s => s.Parameters.Contains("plugin", StringComparer.OrdinalIgnoreCase));
         var scope = request.Scope ?? (pluginPicksScope ? ScopeKind.Plugins : q.Scope!.Value);
         var plugins = request.Plugins.Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
+        bool fromArgument = false;
         if (scope == ScopeKind.Plugins && plugins.Count == 0 && given.TryGetValue("plugin", out var named))
-            plugins = named.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        { plugins = PluginSets.Split(named); fromArgument = true; }
         if (scope == ScopeKind.Plugins && plugins.Count == 0)
-            throw new QueryException($"{q.FullName} reads the plugins it is given, and none was named", "name one or more: plugin=Starfield.esm (several with commas), or ask for the winners or the versions scope");
-        if (scope == ScopeKind.Plugins && !given.ContainsKey("plugin") && q.Param("plugin") != null) given["plugin"] = string.Join(",", plugins);
+            throw new QueryException($"{q.FullName} reads the plugins it is given, and none was named", "name one or more: plugin=Starfield.esm (several with commas, a name with *, or a set such as @official), or ask for the winners or the versions scope");
         var index = _engine.Records.Index;
         index.Refresh();
+        // A set (@official) or a pattern among the plugins stands for its plugins in Data: the one resolver (GAPS S117)
+        if (scope == ScopeKind.Plugins && plugins.Any(p => PluginSets.IsSetWord(p) || PluginSets.IsPattern(p)))
+        {
+            PluginNaming naming;
+            try { naming = PluginSets.Resolve(index, plugins, winnersAllowed: false, verb: $"{q.FullName} in the plugins scope"); }
+            catch (PluginSetException e) { throw new QueryException(e.Message, e.Fix); }
+            plugins = naming.Picks.Select(p => p.Plugin?.Name ?? p.Item).ToList();
+            answer.Named = naming.NamesASet ? naming.Shown(plugins) : null;
+            if (fromArgument) given["plugin"] = string.Join(",", plugins);
+        }
+        if (scope == ScopeKind.Plugins && !given.ContainsKey("plugin") && q.Param("plugin") != null) given["plugin"] = string.Join(",", plugins);
         if (scope == ScopeKind.Plugins && q.WithMasters)
         {
             // One plugin, read together with its masters: the SQL keeps to the plugin with Plugin = :plugin
@@ -505,13 +521,13 @@ public sealed class StoredQueries
         new(string.Concat(pattern.Select(c => c switch { '*' => ".*", '?' => ".", _ => Regex.Escape(c.ToString()) })), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
 
     // ------------------------------------------------------------------ What is read first
-    /// <summary>True when a statement reads from Records or Links (the name stands after FROM or JOIN; a column
+    /// <summary>True when a statement reads from Records, Links or Conditions (the name stands after FROM or JOIN; a column
     /// that happens to be called Records doesn't count).</summary>
     static bool NamesReadTables(StoredStatement s)
     {
         var toks = SqlText.Tokenize(s.Sql);
         for (int i = 1; i < toks.Count; i++)
-            if (toks[i].IsName && (toks[i].Text.Equals("Records", StringComparison.OrdinalIgnoreCase) || toks[i].Text.Equals("Links", StringComparison.OrdinalIgnoreCase))
+            if (toks[i].IsName && (toks[i].Text.Equals("Records", StringComparison.OrdinalIgnoreCase) || toks[i].Text.Equals("Links", StringComparison.OrdinalIgnoreCase) || toks[i].Text.Equals("Conditions", StringComparison.OrdinalIgnoreCase))
                 && (toks[i - 1].Is("FROM") || toks[i - 1].Is("JOIN"))
                 && !(i + 1 < toks.Count && toks[i + 1].IsPunct("(")))
                 return true;

@@ -150,7 +150,7 @@
           { "via": "cli", "args": [ "compare", "records", "atom74.esm", "ccAtom74Mk2", "darkstarpatch_atom74.esm", "--expect", "AttackDamage" ] },
           { "via": "cli", "args": [ "check2", "atom74.esm" ] },
           { "via": "cli", "args": [ "find", "zzzNoSuchRecordzzz" ] },
-          { "via": "cli", "args": [ "query2", "Starfield.esm", "SELECT count(*) AS N FROM PlacedObject WHERE Base = '0002F6:Starfield.esm';" ] }
+          { "via": "cli", "args": [ "query2", "Starfield.esm", "SELECT EditorID, Json FROM Cell LIMIT 2;" ] }
         ],
         "pass_if": [
           {
@@ -189,10 +189,12 @@
         ],
         "pass_if": [
           {
-            "name": "identical, and the scratch folder has no roundtrip files",
+            "name": "identical, and neither the scratch folder nor the kept indexes hold roundtrip files",
             "all": [
               { "call": 1, "part": "out", "matches": "Round trip of atom74\\.esm: IDENTICAL\\." },
-              { "call": 2, "part": "out", "matches": "(?m)^Scratch folder: [^\\n]*: index " },
+              { "call": 2, "part": "out", "matches": "(?m)^Scratch folder: [^\\n]*\\. The service empties it at every start" },
+              { "call": 2, "part": "out", "matches": "(?m)^Kept indexes: header [^\\n]* in [^\\n]*\\\\indexes" },
+              { "call": 2, "part": "out", "not_matches": "(?m)^Kept indexes: [^\\n]*roundtrip" },
               { "call": 2, "part": "out", "not_matches": "(?m)^Scratch folder: [^\\n]*roundtrip [^\\n;]* in [\\d,]+ file" }
             ]
           }
@@ -267,7 +269,7 @@
               { "call": 3, "part": "notes", "matches": "(?m)^\\[source\\] darkstarpatch_crimsonx\\.esm 51 KB, key " },
               { "call": 4, "part": "notes", "matches": "(?m)^\\[source\\] darkstarpatch_crimsonx\\.esm 51 KB, key " },
               { "call": 3, "part": "notes", "not_matches": "52 KB|52\\.0 KB" },
-              { "call": 5, "part": "notes", "matches": "(?m)^\\[source\\] atom74\\.esm (\\d+ KB), key ([0-9a-f]+); [^;\\n]*\\\\atom74\\.esm \\1, key \\2" },
+              { "call": 5, "part": "notes", "matches": "(?m)^\\[source\\] atom74\\.esm (\\d+ KB), key ([0-9a-f]+)(, strings [0-9a-f]+)?; [^;\\n]*\\\\atom74\\.esm \\1, key \\2" },
               { "call": 5, "part": "notes", "not_matches": "\\d\\.\\d KB" },
               { "call": 6, "part": "out", "matches": "(?m)^\\| atom74 - main\\.ba2 \\| 235 \\| 15 MB \\|" },
               { "call": 6, "part": "notes", "matches": "(?m)^\\[source\\] atom74 - main\\.ba2 15 MB, " }
@@ -329,9 +331,9 @@
           {
             "name": "each cost line is \"read\" and then things that were read",
             "all": [
-              { "call": 1, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 317 of 317 records of atom74\\.esm$" },
-              { "call": 2, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 317 of 317 records of atom74\\.esm, the file lists of [\\d,]+ archives?$" },
-              { "call": 3, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 43 meshes \\(323 KB\\) and 52 material files, the file lists of [\\d,]+ archives?$" },
+              { "call": 1, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read (\\d+ records? through Mutagen's reader, [^\\n]*\\([\\d.]+ s\\), )?317 of 317 records of atom74\\.esm$" },
+              { "call": 2, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 317 of 317 records of atom74\\.esm \\(all from their path fields' bytes\\), the file names of [\\d,]+ archives?( \\([^()\\n]*\\))?$" },
+              { "call": 3, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read 44 meshes \\(331 KB\\) and 52 material files, [^\\n]*\\bthe file names of [\\d,]+ archives?\\b" },
               { "call": 4, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read atom74\\.esm whole, then its copy as Mutagen [^ ]+ wrote it \\(" },
               { "call": 5, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read [\\d,]+ of [\\d,]+ records of darkstarpatch_atom74\\.esm, the masters' versions of [\\d,]+ overrides? \\(to compare them\\)$" },
               { "call": 6, "part": "out", "matches": "(?m)^\\[cost\\] [\\d.,]+ m?s; read the link index of 1 plugin \\([\\d,]+ lookups?\\), [\\d,]+ records? to place the links, [\\d,]+ placed references? \\(" },
@@ -533,6 +535,27 @@
             "all": [
               { "call": 1, "part": "out", "matches": "The history begins now: [0-9,]+ plugins remembered as they are\\..* history log written to .*histhome\\\\kept\\\\history\\\\" },
               { "call": 1, "part": "out", "matches": "(?m)^History log: .*histhome\\\\kept\\\\history, " }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 107,
+      "title": "refs and sources2 tell a leveled-list injector by its compiled code, whatever its name, and say how they found it (fix-j2-injectors, GAPS S27)",
+      "before": "SFTA03_MiscSupportQuestScript adds the Volk gun's list to an Astra reward list in its code (LL_Trackers.AddForm(LL_VolkGun, 1, 1)), but its name has no Inject or AddItemToLeveledList in it: refs named only the script and the property, and sources2 called the quest a plain script property.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_refs", "params": { "record": "LL_SFTA03_Astra_VolkGun" } },
+          { "via": "cli", "args": ["sources2", "sfta03.esm", "--item", "LL_SFTA03_Astra_VolkGun", "--types", "LVLI", "--only"] }
+        ],
+        "pass_if": [
+          {
+            "name": "the target list and the call in the code, in both",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^\\| SFTA03_MiscSupport \\(0021BD:sfta03\\.esm\\) \\| QUST Quest \\| VirtualMachineAdapter\\.Scripts\\[\\*\\]\\.Properties\\[\\*\\]\\.Object: script SFTA03:SFTA03_MiscSupportQuestScript, property LL_VolkGun\\. The script adds it to SFBGS003_LL_Astras_3Star \\(2F09A2:Starfield\\.esm\\), found in its code: LeveledItem\\.AddForm in AddVolkGun\\. \\|" },
+              { "call": 2, "part": "out", "matches": "(?m)^  - Injected: SFTA03_MiscSupport \\(0021BD:sfta03\\.esm\\) script SFTA03:SFTA03_MiscSupportQuestScript adds it to SFBGS003_LL_Astras_3Star \\(2F09A2:Starfield\\.esm\\) \\(found in its code: LeveledItem\\.AddForm in AddVolkGun\\)" },
+              { "call": 2, "part": "out", "not_matches": "script property \\(VMAD" }
             ]
           }
         ]

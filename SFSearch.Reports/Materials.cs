@@ -1,12 +1,15 @@
 // materials: the materials a plugin's meshes and records name, where each is, and the textures of those that are
 // files, with what is missing along the way.
-//  - The meshes are the .nif files in the plugin's own archives. A mesh names its materials as text (its header's
+//  - The meshes are the .nif files in the plugin's own archives (a loose file at the same path is read instead: the
+//    game uses it), and every mesh the plugin's records name wherever it is: a loose file in Data, a master's archive
+//    (the game's own too), another plugin's archive (GAPS S8). A mesh no loose file or loaded archive holds is
+//    counted, and left to the assets report. A mesh names its materials as text (its header's
 //    strings, and length-prefixed texts in its blocks), or by hash: a world's object LOD meshes name them by resource
 //    ID (MaterialsMesh.cs, GAPS S46). A material named by hash is the path some other mesh or record of the plugin
 //    writes when the hashes agree; otherwise it is listed by its hashes, and looked up in the compiled databases.
 //  - The records: every text ending in .mat on the plugin's records (a landscape texture's material, a biome's water,
-//    a planet's ring). A record is read only when its bytes hold ".mat". World data is read for a plugin of up to
-//    100,000 records, as scripts does.
+//    a planet's ring), and every mesh (.nif) they name. A record is read only when its bytes hold ".mat" or ".nif".
+//    World data is read for a plugin of up to 100,000 records, as scripts does.
 //  - A material is looked for as a file first: loose in Data, in the plugin's archives, its masters', the other
 //    archives. A .mat file (JSON) is read, and each texture it names is looked for the same way.
 //  - A material that is no file is looked up in the compiled material databases (materialsbeta.cdb): the game's own,
@@ -83,8 +86,13 @@ public sealed class MaterialRow
     public bool NotChecked => NoFile && Database == null && !Missing;
     /// <summary>A .mat file in the plugin's own archives, or named by one of its meshes.</summary>
     public bool FromMeshes { get; set; }
-    /// <summary>The plugin's meshes that name it.</summary>
+    /// <summary>The plugin's meshes that name it, and the meshes its records name elsewhere ("meshes\x.nif (where)").</summary>
     public List<string> UsedBy { get; } = new();
+    /// <summary>Named only by meshes in other plugins' archives (its masters', the game's) that the plugin's records name:
+    /// not by a mesh of its own archives, a loose mesh, a .mat file of its own, or a record (S8).</summary>
+    public bool OnlyElsewhere => _elsewhere && !_own && NamedBy.Count == 0;
+    bool _elsewhere, _own;
+    internal void UsedFrom(bool own) { if (own) _own = true; else _elsewhere = true; }
     /// <summary>The plugin's records that name it: "EditorID (FormKey) SIG Field".</summary>
     public List<string> NamedBy { get; } = new();
     public List<MaterialTexture> Textures { get; } = new();
@@ -132,6 +140,20 @@ public sealed class MaterialsAnswer : ReportAnswer
     public required string Plugin { get; init; }
     public List<string> OwnArchives { get; } = new();
     public int Meshes { get; set; }
+    /// <summary>The meshes the plugin's records name (S8), by path.</summary>
+    public int MeshesNamed { get; set; }
+    /// <summary>Of those, the ones read outside the plugin's own archives, by where each was found: loose, a master's
+    /// archive (the game's own too), another loaded plugin's.</summary>
+    public int MeshesLoose { get; set; }
+    public int MeshesMasters { get; set; }
+    public int MeshesOther { get; set; }
+    public int MeshesOutside => MeshesLoose + MeshesMasters + MeshesOther;
+    /// <summary>Meshes the records name that no loose file and no loaded archive holds: not read (the assets report
+    /// lists them).</summary>
+    public int MeshesNamedMissing => MeshesNotFound.Count;
+    public List<string> MeshesNotFound { get; } = new();
+    /// <summary>Meshes of the plugin's own archives read from a loose file at the same path (the game uses that one).</summary>
+    public int MeshesLooseOverOwn { get; set; }
     /// <summary>The meshes that name a material by hash, and those whose header couldn't be read.</summary>
     public int MeshesByHash { get; set; }
     public int MeshesHeaderUnread { get; set; }
@@ -174,7 +196,8 @@ public sealed class MaterialsAnswer : ReportAnswer
         }).ToArray());
         json["counts"] = new JsonObject
         {
-            ["meshes"] = Meshes, ["meshesNamingByHash"] = MeshesByHash, ["namedByHash"] = ByHash, ["recordsLookedAt"] = RecordsLooked, ["recordsRead"] = RecordsRead, ["materials"] = Rows.Count, ["checked"] = Checked,
+            ["meshes"] = Meshes, ["meshesNamedByRecords"] = MeshesNamed, ["meshesOutsideOwnArchives"] = MeshesOutside, ["meshesLoose"] = MeshesLoose, ["meshesOfMasters"] = MeshesMasters,
+            ["meshesOfOtherPlugins"] = MeshesOther, ["meshesNamedNotFound"] = MeshesNamedMissing, ["meshesLooseOverOwn"] = MeshesLooseOverOwn, ["meshesNamingByHash"] = MeshesByHash, ["namedByHash"] = ByHash, ["recordsLookedAt"] = RecordsLooked, ["recordsRead"] = RecordsRead, ["materials"] = Rows.Count, ["checked"] = Checked,
             ["compiled"] = Compiled, ["compiledInGame"] = CompiledInGame, ["missing"] = Missing, ["notChecked"] = NotChecked, ["textures"] = Rows.Sum(m => m.Textures.Count),
             ["missingTextures"] = MissingTextures, ["materialsWithMissingTextures"] = MaterialsWithMissing, ["unreadable"] = Unreadable,
             ["texturesOfCompiled"] = CompiledTextures, ["texturesTheGameLacks"] = GameLacks,
@@ -182,8 +205,24 @@ public sealed class MaterialsAnswer : ReportAnswer
         // A material named only by hash that a database holds with nothing wrong is counted, not listed: a world's LOD
         // meshes name thousands (sfta01.esm: 6,512, 10.9 MB of rows with their textures). Every other row is listed in
         // full, so every missing material and every problem is in the structured form; the text form lists them all.
+        // Likewise a material only the meshes of other plugins' archives name (its masters', the game's: meshes its records
+        // name, S8), with nothing wrong: darkstar.esm's records name 360 of the game's meshes.
         static bool Folded(MaterialRow m) => m.Hash != null && m.Compiled && !m.HasProblem;
-        json["materials"] = new JsonArray(Rows.Where(m => !Folded(m)).Select(m => (JsonNode)m.ToJson()).ToArray());
+        static bool Elsewhere(MaterialRow m) => !Folded(m) && m.OnlyElsewhere && !m.HasProblem;
+        json["materials"] = new JsonArray(Rows.Where(m => !Folded(m) && !Elsewhere(m)).Select(m => (JsonNode)m.ToJson()).ToArray());
+        var elsewhere = Rows.Where(Elsewhere).ToList();
+        if (elsewhere.Count > 0)
+            json["ofOtherMeshesFound"] = new JsonObject
+            {
+                ["about"] = "Materials named only by meshes in other plugins' archives (its masters', the game's) that its records name, each a file or in a compiled material database the game reads, with all their textures found: counted here, not listed in \"materials\". The text form with detail lists each one.",
+                ["materials"] = elsewhere.Count,
+                ["meshes"] = elsewhere.SelectMany(m => m.UsedBy).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                ["compiled"] = elsewhere.Count(m => m.Compiled),
+                ["compiledInGame"] = elsewhere.Count(m => m.Compiled && m.Database!.IsGame),
+                ["files"] = elsewhere.Count(m => !m.NoFile),
+                ["textures"] = elsewhere.Sum(m => m.Textures.Count),
+                ["texturesTheGameLacks"] = elsewhere.Sum(m => m.Textures.Count(t => t.GameLacks)),
+            };
         var folded = Rows.Where(Folded).ToList();
         if (folded.Count > 0)
             json["namedByHashFound"] = new JsonObject
@@ -223,7 +262,16 @@ public sealed class MaterialsAnswer : ReportAnswer
         var named = new List<string>();
         if (fromRecords > 0) named.Add($"{N(fromRecords)} named by its records");
         if (ByHash > 0) named.Add($"{N(ByHash)} named only by hash, in {Plural(MeshesByHash, "mesh", "meshes")}");
-        body.Head.Add($"Materials of {Plugin}: {Plural(OwnArchives.Count, "archive")}, {Plural(Meshes, "mesh", "meshes")}, {Plural(Rows.Count, "material")}" +
+        string outside = "";
+        if (MeshesOutside > 0)
+        {
+            var where = new List<string>();
+            if (MeshesLoose > 0) where.Add($"{N(MeshesLoose)} loose");
+            if (MeshesMasters > 0) where.Add($"{N(MeshesMasters)} in its masters' archives");
+            if (MeshesOther > 0) where.Add($"{N(MeshesOther)} in other plugins' archives");
+            outside = $", {Plural(MeshesOutside, "mesh", "meshes")} its records name elsewhere ({string.Join(", ", where)})";
+        }
+        body.Head.Add($"Materials of {Plugin}: {Plural(OwnArchives.Count, "archive")}, {Plural(Meshes, "mesh", "meshes")}{outside}, {Plural(Rows.Count, "material")}" +
             (named.Count > 0 ? $" ({string.Join("; ", named)})." : "."));
         string compiled = $"{N(Compiled)} compiled into a material database" + (Compiled > 0 ? $" ({N(CompiledInGame)} the game's, {N(Compiled - CompiledInGame)} a mod's)" : "");
         body.Head.Add($"{N(Checked)} material files read, {compiled}, {N(Missing)} missing{(NotChecked > 0 ? $", {N(NotChecked)} not judged" : "")}; " +
@@ -287,6 +335,14 @@ public sealed class MaterialsReport
         return found.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>A mesh path on a record, as Data may name it: as written, then under "meshes\" (a model "Weapons\x.nif"
+    /// is the file "meshes\weapons\x.nif").</summary>
+    internal static List<string> MeshCandidates(string value)
+    {
+        string n = Norm(value);
+        return n.StartsWith("meshes\\", StringComparison.Ordinal) ? new List<string> { n } : new List<string> { n, "meshes\\" + n };
+    }
+
     /// <summary>True when the bytes hold ".mat" in any letter case: a record worth reading for its material paths.</summary>
     static bool HoldsMat(byte[] data)
     {
@@ -299,8 +355,10 @@ public sealed class MaterialsReport
         return false;
     }
 
-    /// <summary>The material paths on the plugin's records, each added to its row with the record and field that name it.</summary>
-    void FromRecords(PluginSide side, ReadScope scope, MaterialsAnswer answer, Func<string, MaterialRow> get)
+    /// <summary>The material paths on the plugin's records, each added to its row with the record and field that name it;
+    /// and the meshes they name (<paramref name="meshes"/>, as written, in lower case): every text that ends in ".nif" in
+    /// a subrecord of a record read anyway, so a record is parsed only when it holds ".mat" (S8).</summary>
+    void FromRecords(PluginSide side, ReadScope scope, MaterialsAnswer answer, Func<string, MaterialRow> get, HashSet<string> meshes)
     {
         var p = side.Plugin;
         if (p.Segment == null || p.Problems.MissingMasters.Count > 0 || p.Problems.ReadError != null)
@@ -322,6 +380,9 @@ public sealed class MaterialsReport
             answer.RecordsLooked++;
             RawRecord raw;
             try { raw = side.Engine.Raw(r); } catch (RecordException) { continue; }
+            foreach (var sub in raw.Subrecords)
+                foreach (var t in MaterialPaths.PathTexts(raw.Content(sub), "nif", null))
+                    if (!t.Contains("$(", StringComparison.Ordinal)) meshes.Add(Norm(t));
             if (!HoldsMat(raw.Data)) continue;
             RecordView view;
             try { view = _s.Compare.View(side.Engine, r); } catch (CompareException) { continue; }
@@ -433,7 +494,27 @@ public sealed class MaterialsReport
             var mats = new Dictionary<string, MaterialRow>(StringComparer.OrdinalIgnoreCase);
             MaterialRow Get(string path) => mats.TryGetValue(path, out var m) ? m : mats[path] = new MaterialRow { Path = path };
             long meshBytes = 0;
-            var hashed = new Dictionary<(uint Dir, uint File), List<string>>();
+            var hashed = new Dictionary<(uint Dir, uint File), List<(string User, bool Own)>>();
+            // A mesh's materials, each added to its row with the mesh as its user ("meshes\x.nif", with where it was
+            // read when that isn't the plugin's own archives)
+            void FromMesh(byte[] bytes, string user, bool ownOrLoose)
+            {
+                meshBytes += bytes.Length;
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var names = MeshMaterialNames.Read(bytes);
+                if (!names.HeaderRead) answer.MeshesHeaderUnread++;
+                foreach (var text in names.Texts)
+                {
+                    string mat = Norm(text);
+                    if (seen.Add(mat)) { var row = Get(mat); row.UsedBy.Add(user); row.FromMeshes = true; row.UsedFrom(ownOrLoose); }
+                }
+                if (names.Hashed.Count > 0) answer.MeshesByHash++;
+                foreach (var id in names.Hashed)
+                {
+                    if (!hashed.TryGetValue(id, out var users)) hashed[id] = users = new List<(string, bool)>();
+                    users.Add((user, ownOrLoose));
+                }
+            }
             foreach (var stamp in own.Archives)
             {
                 var a = store.Open(stamp.Path);
@@ -444,32 +525,38 @@ public sealed class MaterialsReport
                     if (ext == ".nif")
                     {
                         answer.Meshes++;
+                        // A loose file at the same path is the one the game uses
+                        bool loose = store.IsLoose(f.Path);
                         byte[] bytes;
-                        try { bytes = f.Bytes(); }
-                        catch (Exception e) when (e is IOException or InvalidDataException) { answer.Notes.Add($"{f.Path} couldn't be read from {a.Name}: {e.Message}."); continue; }
-                        meshBytes += bytes.Length;
-                        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        var names = MeshMaterialNames.Read(bytes);
-                        if (!names.HeaderRead) answer.MeshesHeaderUnread++;
-                        foreach (var text in names.Texts)
-                        {
-                            string mat = Norm(text);
-                            if (seen.Add(mat)) { var row = Get(mat); row.UsedBy.Add(f.Path); row.FromMeshes = true; }
-                        }
-                        if (names.Hashed.Count > 0) answer.MeshesByHash++;
-                        foreach (var id in names.Hashed)
-                        {
-                            if (!hashed.TryGetValue(id, out var users)) hashed[id] = users = new List<string>();
-                            users.Add(f.Path);
-                        }
+                        try { bytes = loose ? File.ReadAllBytes(Path.Combine(store.DataFolder, f.Path)) : f.Bytes(); }
+                        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { answer.Notes.Add($"{f.Path} couldn't be read from {(loose ? "its loose file" : a.Name)}: {e.Message}."); continue; }
+                        if (loose) answer.MeshesLooseOverOwn++;
+                        FromMesh(bytes, loose ? $"{f.Path} (loose)" : f.Path, true);
                     }
-                    else if (ext == ".mat") Get(Norm(f.Path)).FromMeshes = true;
+                    else if (ext == ".mat") { var row = Get(Norm(f.Path)); row.FromMeshes = true; row.UsedFrom(true); }
                     else if (ext == ".cdb") answer.CompiledDatabases.Add($"{f.Path} ({a.Name})");
                 }
             }
 
-            // The materials its records name
-            if (side != null) FromRecords(side, scope, answer, Get);
+            // The materials its records name, and the meshes they name outside its own archives: loose, a master's (the
+            // game's own too), another plugin's (S8). Each is read once, from where the game takes it.
+            var namedMeshes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (side != null) FromRecords(side, scope, answer, Get, namedMeshes);
+            answer.MeshesNamed = namedMeshes.Count;
+            var readOutside = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var mesh in namedMeshes.OrderBy(m => m, StringComparer.OrdinalIgnoreCase))
+            {
+                var hit = finder.Find(MeshCandidates(mesh));
+                if (!hit.Found) { answer.MeshesNotFound.Add(mesh); continue; }
+                if (hit.Origin == FileOrigin.Own || !readOutside.Add(hit.FoundAs!)) continue; // read above, or already
+                byte[] bytes;
+                try { bytes = finder.Read(hit); }
+                catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { answer.Notes.Add($"{hit.FoundAs} couldn't be read from {hit.Where}: {e.Message}."); continue; }
+                if (hit.Origin == FileOrigin.Loose) answer.MeshesLoose++;
+                else if (hit.Origin == FileOrigin.Master) answer.MeshesMasters++;
+                else answer.MeshesOther++;
+                FromMesh(bytes, $"{hit.FoundAs} ({hit.Where})", hit.Origin == FileOrigin.Loose);
+            }
 
             // The materials meshes name by hash: the path a mesh or record of the plugin writes when the hashes agree,
             // else a row of their own, listed by the hashes
@@ -485,7 +572,7 @@ public sealed class MaterialsReport
                 {
                     if (!byId.TryGetValue(id, out var row)) mats[MaterialRow.HashText(id.Dir, id.File)] = row = new MaterialRow { Path = MaterialRow.HashText(id.Dir, id.File), Hash = id };
                     row.FromMeshes = true;
-                    foreach (var u in users) if (!row.UsedBy.Contains(u, StringComparer.OrdinalIgnoreCase)) row.UsedBy.Add(u);
+                    foreach (var (u, ownUse) in users) { if (!row.UsedBy.Contains(u, StringComparer.OrdinalIgnoreCase)) row.UsedBy.Add(u); row.UsedFrom(ownUse); }
                 }
             }
             if (answer.MeshesHeaderUnread > 0)
@@ -551,16 +638,16 @@ public sealed class MaterialsReport
                 if (none > 0)
                     answer.Sources.Add($"{Plural(none, "other compiled material database")} looked in, holding none of these materials: {string.Join(", ", answer.DatabasesRead.Where(d => d.Db.Error == null && !holding.Contains(d.Db)).Select(d => d.Db.Where).Take(6))}{(none > 6 ? ", …" : "")}");
                 if (candidates.Count > 0)
-                    answer.Sources.Add("the databases the game reads: its own materials\\materialsbeta.cdb and every .cdb in a plugin's \" - Main\" archives, as the game's executable names them (a .cdb loose in Data or in another archive isn't read)");
+                    answer.Sources.Add("the databases the game reads: its own materials\\materialsbeta.cdb and every .cdb in a plugin's \" - Main\" archives, as the game's code reads them (a .cdb loose in Data or in another archive isn't read)");
                 CompiledTextures(store, finder, answer, noFile.Where(m => m.Compiled).ToList());
             }
 
             if (own.Archives.Count == 0 && answer.Rows.Count == 0)
-                answer.EmptyReason = $"{shown} has no archives: no file named \"{Path.GetFileNameWithoutExtension(own.Plugin ?? plugin)} - <part>.ba2\" is in {store.DataFolder}, and none of its records names a material. Its meshes, if it has any, are loose files or its masters'; this report reads the meshes in a plugin's own archives.";
+                answer.EmptyReason = $"{shown} has no archives: no file named \"{Path.GetFileNameWithoutExtension(own.Plugin ?? plugin)} - <part>.ba2\" is in {store.DataFolder}, and none of its records names a material or a mesh that names one. This report reads the meshes in a plugin's own archives and the meshes its records name, wherever they are.";
             else if (answer.Rows.Count == 0)
-                answer.EmptyReason = $"The {Plural(own.Archives.Count, "archive")} of {shown} {(own.Archives.Count == 1 ? "holds" : "hold")} {Plural(answer.Meshes, "mesh", "meshes")} and no material file, no mesh names a material, and no record does.";
+                answer.EmptyReason = $"The {Plural(own.Archives.Count, "archive")} of {shown} {(own.Archives.Count == 1 ? "holds" : "hold")} {Plural(answer.Meshes, "mesh", "meshes")} and no material file, no mesh names a material, and no record names one or a mesh that does.";
             else if (own.Archives.Count == 0)
-                answer.Notes.Add($"{shown} has no archives: only the materials its records name are listed.");
+                answer.Notes.Add($"{shown} has no archives: only the materials its records name, and those of the meshes they name, are listed.");
             if (answer.Missing > 0)
                 answer.Notes.Add($"{Plural(answer.Missing, "material")} {(answer.Missing == 1 ? "is" : "are")} MISSING: no loose file, no archive and none of the {Plural(answer.DatabasesRead.Count, "compiled material database")} in Data holds {(answer.Missing == 1 ? "it" : "them")}. " +
                     "A database knows a material by a hash of its path, so this is a lookup by the path the mesh or record writes" +
@@ -579,8 +666,12 @@ public sealed class MaterialsReport
             if (other > 0) answer.Notes.Add($"{Plural(other, "texture")} {(other == 1 ? "is" : "are")} found only in archives of loaded plugins that aren't masters of {shown}.");
             if (answer.WorldLeftOut > 0) answer.Notes.Add($"{Plural(answer.WorldLeftOut, "world record")} (cells and what they hold) {(answer.WorldLeftOut == 1 ? "was" : "were")} left out: a plugin of more than {N(ScriptsReport.WorldLimit)} records is read without them.");
             if (side != null) ReportSession.AddProblemNotes(answer, side.Plugin);
-            answer.Read.Add($"{Plural(answer.Meshes, "mesh", "meshes")} ({ArchiveStore.SizeText(meshBytes)}) and {Plural(answer.Checked, "material file")}");
-            if (side != null) answer.Read.Add($"{N(answer.RecordsRead)} of {N(answer.RecordsLooked)} records (those whose bytes hold \".mat\")");
+            answer.Read.Add($"{Plural(answer.Meshes + answer.MeshesOutside, "mesh", "meshes")} ({ArchiveStore.SizeText(meshBytes)}) and {Plural(answer.Checked, "material file")}");
+            if (side != null) answer.Read.Add($"{N(answer.RecordsLooked)} records' bytes for the meshes they name, {N(answer.RecordsRead)} of them read whole (those whose bytes hold \".mat\")");
+            if (answer.MeshesNamedMissing > 0)
+                answer.Notes.Add($"{Plural(answer.MeshesNamedMissing, "mesh", "meshes")} its records name {(answer.MeshesNamedMissing == 1 ? "is" : "are")} in no loose file and no loaded archive, so {(answer.MeshesNamedMissing == 1 ? "its" : "their")} materials aren't known ({string.Join(", ", answer.MeshesNotFound.Take(3))}{(answer.MeshesNamedMissing > 3 ? ", …" : "")}; the assets report lists {(answer.MeshesNamedMissing == 1 ? "it" : "them")} with the records that name {(answer.MeshesNamedMissing == 1 ? "it" : "them")}).");
+            if (answer.MeshesLooseOverOwn > 0)
+                answer.Notes.Add($"{Plural(answer.MeshesLooseOverOwn, "mesh", "meshes")} of its own archives {(answer.MeshesLooseOverOwn == 1 ? "is" : "are")} also a loose file in Data: the loose {(answer.MeshesLooseOverOwn == 1 ? "file was" : "files were")} read, as the game uses {(answer.MeshesLooseOverOwn == 1 ? "it" : "them")}.");
             answer.Read.Add($"the file names of {Plural(store.NamesUsed, "archive")}{(store.ListsRead < store.NamesUsed ? $" ({N(store.NamesUsed - store.ListsRead)} from memory)" : "")}");
             if (answer.DatabasesRead.Count > 0)
             {

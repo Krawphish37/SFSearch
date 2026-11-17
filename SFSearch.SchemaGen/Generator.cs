@@ -11,6 +11,8 @@ public sealed class BuildOptions
     /// <summary>The restored Mutagen.Bethesda.Starfield package's folder (its nuspec, .nupkg and loqui\ XML).</summary>
     public string PackageDir = "";
     public string PairsFile = "", EvidenceFile = "", AnnotationsFile = "", OutDb = "";
+    /// <summary>xEdit's record type names (<c>inputs/xedit-record-names-&lt;date&gt;.tsv</c>, GAPS S98).</summary>
+    public string RecordNamesFile = "";
     public string? ReportFile;
     /// <summary>The Creation Kit's names (to-do F30): the data file in the repo, <c>inputs\ck-names-&lt;CK version&gt;.tsv</c>
     /// (<see cref="CkNamesFile"/>). Null builds without them (only <c>--ck-names none</c> asks for that).</summary>
@@ -27,6 +29,8 @@ public sealed class BuildResult
     public PairStats Pairs = null!;
     public List<PairRow> PairRows = new();
     public int RecordRootChecked, RecordRootMissing, EvidenceRows, EvidenceMatched, Annotations;
+    /// <summary>Record types with xEdit's name for them (GAPS S98).</summary>
+    public int RecordTypesNamed;
     public int Objects, ObjectFields, UnknownFields, Paths, Leaves, LeavesWithSubrecord;
     /// <summary>Fields of the properties Mutagen adds beyond its XML (GAPS Part 2 row 8), and how many by name.</summary>
     public int DerivedFields;
@@ -37,8 +41,12 @@ public sealed class BuildResult
     /// objects read in part or whole by hand-written Mutagen code; fields left without an offset for that reason.</summary>
     public Dictionary<string, int> StringsTables = new(), TextForms = new();
     public int CountedLists, HandReadObjects, HandPlacedFields;
+    /// <summary>The CustomLogic steps: their subrecords and the fields their compiled readers fill (GAPS S38).</summary>
+    public HandFillStats HandFills = new();
     /// <summary>Fields and objects with the XML's layout attributes (C186); HandReadLayouts.xml's entries by kind.</summary>
     public int LayoutFields, LayoutObjects;
+    /// <summary>The component kinds the XML gives the BFCB text that picks them (selectorValue, C57 W4; GAPS S64).</summary>
+    public int ComponentKinds;
     public Dictionary<string, int> HandLayouts = new();
     public List<string> RecordRootMissingList = new();
     /// <summary>What the Creation Kit's dump gave, or null when the schema was built without it.</summary>
@@ -47,7 +55,7 @@ public sealed class BuildResult
 
 public static class Generator
 {
-    public const string Version = "7"; // 2: markers (markerType, endMarkerType) and contained subrecords in Objects and ObjectFields
+    public const string Version = "18"; // 2: markers (markerType, endMarkerType) and contained subrecords in Objects and ObjectFields
                                        // 3: ObjectFields.StringsTable, CounterLength, TextForm; Objects.HandRead; no offset for a field hand-written code places
                                        // 4: the XML's layout attributes (ObjectFields.Layout*, SelectedBy; Objects.SelectedBy, SelectorValue,
                                        //    ConditionFunction) and the HandLayouts table (Layouts\HandReadLayouts.xml), C186
@@ -56,6 +64,32 @@ public static class Generator
                                        //    <Sig>DataTypeState, RegionData.DataType) as fields, ObjectFields.Source and ReadOnly (GAPS Part 2 row 8)
                                        // 7: the Creation Kit's names (to-do F30): CkTypes, CkFields, CkMembers (from inputs\ck-names-*.tsv since 2026-11-14);
                                        //    Objects.CkClass, CkName; ObjectFields.CkName, CkField; Enums.CkName, CkMember
+                                       // 8: ObjectFields.CustomSubrecords, CustomFills, FilledBy: the subrecords a CustomLogic step reads and the
+                                       //    fields its compiled reader fills (GAPS S38)
+                                       // 9: Objects.Struct is 0 for an object holding a field whose object starts a subrecord of its own (a
+                                       //    container entry's CNTO and COED, GAPS S59)
+                                       // 10: which BFCB text picks which component: AComponent's SelectedBy, each kind's SelectorValue and the
+                                       //    enum AComponent.ComponentType in Enums, read from Mutagen's hand-written reader and writer (GAPS S64)
+                                       // 11: HandLayouts.Source, and SFSearch's own hand-read layouts (inputs/hand-read-layouts.xml) beside the
+                                       //    package's: the hand-read lists the package's file doesn't lay out (GAPS S67)
+                                       // 12: the plugin header's master (MasterReference: Master in MAST, FileSize in DATA, from the core
+                                       //    project's XML, written by hand) and TES4's master list in SFSearch's hand-read layouts (GAPS S88)
+                                       // 13: MajorRecord and MasterReference read from Mutagen.Bethesda.Core's package (its record XML, fixes.18
+                                       //    on, C49) instead of written by hand: MajorRecord gains UnknownSubrecords and UnknownSubrecordsSource,
+                                       //    its fields come in the XML's order (GAPS Part 2 row 40, to-do J67)
+                                       // 14: RecordTypes.XEdit, xEdit's name of each record type (inputs/xedit-record-names-*.tsv), and xEdit's
+                                       //    names for objects and lists in PairNames and ObjectFields (GAPS S98)
+                                       // 15: Objects.ShortCircuit (the XML's shortCircuitToLastRequired) and a list's entry length after its
+                                       //    count in the field's note (expectedLengthLength), for the link walk (GAPS S105)
+                                       // 16: a point stored Y then X (the XML's swapCoords) says so in its note, for list views read from the
+                                       //    bytes (GAPS S153)
+                                       // 17: Mutagen 0.55.0-fixes.20: HandLayouts without Source (SFSearch's own file is gone, C57 W2: the
+                                       //    package lays out TES4 and the record header, kind Header); Objects.SelectorEnum and
+                                       //    ObjectFields.SelectorEnum (the XML's selectorEnum, C57 W3/W4); the component kinds' selectors and
+                                       //    the engine names read from the XML (selectorValue, engineClass, engineField, engineEnum)
+                                       // 18: Mutagen's property manifest (C60 W6) for the derived properties and the offsets, the XML's fills= for
+                                       //    a Custom field's and a customBinaryEnd's fills (W5); ObjectFields.GenderRecord, MaleMarker,
+                                       //    FemaleMarker (the XML's genderEnumRecord, maleMarker, femaleMarker, C57 W3) for the gendered rule
 
     public static BuildResult Build(BuildOptions o)
     {
@@ -66,17 +100,20 @@ public static class Generator
         if (problems.Count > 0 || source == null) throw new SchemaException("The Mutagen package's record definitions can't be used:\n  " + string.Join("\n  ", problems));
 
         // 2. Objects and their own fields, from the XML; the layouts Mutagen reads by hand (C186)
-        var model = LoquiXml.Load(source.RecordsDir);
         if (source.LayoutsFile == null) throw new SchemaException($"Mutagen {source.Version} carries no {Inputs.LayoutsPath} (it ships from 0.55.0-fixes.14 on, C186).");
+        if (source.ManifestFile == null) throw new SchemaException($"Mutagen {source.Version} carries no {Inputs.ManifestPath} (it ships from 0.55.0-fixes.20 on, C60 W6).");
+        var model = LoquiXml.Load(source.RecordsDir, source.CoreRecordsDir, source.LayoutsFile, source.ManifestFile);
         model.HandLayouts.AddRange(HandLayouts.Load(source.LayoutsFile, model));
         var res = new BuildResult { Model = model };
 
         // 3. The compiled assembly: every field is a property; enum members; may-be-null
         res.Reflect = Reflect.Apply(model);
-        if (res.Reflect.DerivedMissing.Count > 0)
-            throw new SchemaException("Mutagen's compiled records have properties of the kinds its generator adds beyond the XML that the schema didn't derive (Code-Generation.md's rules no longer fit): "
-                + string.Join(", ", res.Reflect.DerivedMissing.Take(20)));
         res.HandReadObjects = Reflect.HandRead(model);
+        // 3a. Which BFCB text picks which kind of component: the XML's selectorValue on each kind (C57 W4, GAPS S64)
+        res.ComponentKinds = model.Variants(Selectors.Component).Count(k => model.Objects[k].SelectorValue != null);
+        // 3b. The subrecords hand-written code reads and the fields it fills: the XML's CustomLogic record types, and the
+        // compiled readers' IL for the fields (GAPS S38)
+        res.HandFills = HandFills.Apply(model);
         foreach (var rt in model.RecordTypes)
             foreach (var (f, _) in model.AllFields(rt.Name))
             {
@@ -88,6 +125,10 @@ public static class Generator
         // 4. xEdit names
         res.PairRows = Inputs.ReadPairs(o.PairsFile);
         res.Pairs = PairMatcher.Match(model, res.PairRows);
+        // 4a. xEdit's record type names (GAPS S98)
+        var recordNames = Inputs.ReadRecordNames(o.RecordNamesFile);
+        foreach (var rt in model.RecordTypes)
+            if (recordNames.TryGetValue(rt.Sig!, out var xn)) { rt.XEditName = xn; res.RecordTypesNamed++; }
 
         // 5. Evidence for unknown fields
         var evidence = Inputs.ReadEvidence(o.EvidenceFile);
@@ -115,7 +156,7 @@ public static class Generator
             res.Ck = CkReflection.Apply(model, model.Ck);
             if (res.Ck.MappingMissing.Count > 0)
                 throw new SchemaException("The Creation Kit's names can't be given to Mutagen's fields: " + string.Join(", ", res.Ck.MappingMissing)
-                    + ". Fix CkReflection's engine names (ObjectClasses, FieldsOf, EnumsOf) for this Mutagen version or this CK names file.");
+                    + ". Mutagen's engineClass, engineField or engineEnum names no class, field or enum of this CK names file.");
         }
 
         // 7. Per record type: how many real fields, paths and unknowns
@@ -165,6 +206,7 @@ public static class Generator
             ("XmlSha256", source.Sha256),
             ("HandLayoutsSha256", Sha(source.LayoutsFile!)),
             ("PairsFile", Path.GetFileName(o.PairsFile)), ("PairsSha256", Sha(o.PairsFile)),
+            ("RecordNamesFile", Path.GetFileName(o.RecordNamesFile)), ("RecordNamesSha256", Sha(o.RecordNamesFile)),
             ("EvidenceFile", Path.GetFileName(o.EvidenceFile)), ("EvidenceSha256", Sha(o.EvidenceFile)),
             ("AnnotationsSha256", File.Exists(o.AnnotationsFile) ? Sha(o.AnnotationsFile) : ""),
             // The CK's names: the Creation Kit and the dump they were taken from (the data file's header), and the data file
@@ -178,30 +220,39 @@ public static class Generator
         meta.Add(("SchemaVersion", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(all))).ToLowerInvariant()[..16]));
         foreach (var (k, v) in meta) model.Meta[k] = v;
 
-        Write(o.OutDb, model, res.PairRows, evidence, typeStats, meta);
+        Write(o.OutDb, model, res.PairRows, res.Pairs.Containers, evidence, typeStats, meta);
         if (o.ReportFile != null) WriteReport(o.ReportFile, res, source);
 
-        Say($"schema.db for {source.Version} ({source.Commit[..10]}, {source.Files} XML files read from the package), schema version {model.Meta["SchemaVersion"]}");
+        Say($"schema.db for {source.Version} ({source.Commit[..10]}, {source.Files} XML files read from the packages), schema version {model.Meta["SchemaVersion"]}");
         Say($"  objects {res.Objects}, record types {model.RecordTypes.Count}, object fields stored {res.ObjectFields}, unknown fields {res.UnknownFields}");
         Say($"  end markers {res.EndMarkers}, start markers {res.Markers} (objects and fields)");
         Say($"  translated texts by strings table {string.Join(", ", res.StringsTables.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => $"{x.Key} {x.Value}"))}; lists with a count length {res.CountedLists}; texts by stored form {string.Join(", ", res.TextForms.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))}");
         Say($"  objects read in part or whole by hand-written Mutagen code {res.HandReadObjects}; fields inside a subrecord that code places, given no offset {res.HandPlacedFields}");
+        var hf = res.HandFills;
+        Say($"  CustomLogic steps {hf.Steps}: subrecords of their own {hf.OwnSubrecords}, inside their object's subrecord {hf.InSubrecord}, in a group's header {hf.GroupHeader}; "
+            + $"steps whose code fills fields (the XML's fills=) {hf.StepsFilling}, fields filled {hf.FieldsFilled}; fields filled from a record's child group (customBinaryEnd) {hf.FieldsFilledAtEnd}, by a binary=Custom field's reader {hf.FieldsFilledByCustomFields}");
+        if (hf.FillNothing.Count > 0) Say("    steps that read subrecords and fill no field of their object: " + string.Join(", ", hf.FillNothing));
+        if (hf.FillsBeyondXml.Count > 0) Say("    fills= names that are no field of the XML (properties Mutagen's hand-written code adds): " + string.Join(", ", hf.FillsBeyondXml));
+        if (hf.FromLayouts.Count > 0) Say("    subrecords of hand-filled fields named by Mutagen's hand-read layouts beyond their step's: " + string.Join(", ", hf.FromLayouts));
+        if (hf.FieldsNoStep.Count > 0) Say("    hand-read fields no step fills and with no subrecord of their own: " + string.Join(", ", hf.FieldsNoStep));
+        Say($"  component kinds with the BFCB text that picks them (the XML's selectorValue): {res.ComponentKinds}");
         Say($"  Mutagen's layout attributes on {res.LayoutFields} fields and {res.LayoutObjects} objects; hand-read layouts {string.Join(", ", res.HandLayouts.Select(x => $"{x.Key} {x.Value}"))}");
         Say($"  paths when every record type is spelled out {res.Paths}; leaf fields {res.Leaves}, with a subrecord signature {res.LeavesWithSubrecord}");
-        Say($"  properties Mutagen adds beyond its XML, derived from its generator's rules: {res.DerivedFields} fields ({string.Join(", ", res.DerivedByName.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))}); compiled getters' such properties all matched: {res.Reflect.DerivedFound}");
+        Say($"  properties Mutagen adds beyond its XML, from its property manifest: {res.DerivedFields} fields ({string.Join(", ", res.DerivedByName.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))})");
         Say($"  compiled check: {res.Reflect.FieldsChecked} fields of {res.Reflect.ObjectsChecked} objects, {res.Reflect.Missing.Count} missing; record-root fields {res.RecordRootChecked}, missing {res.RecordRootMissing}");
         if (res.Reflect.Missing.Count > 0) Say("    missing: " + string.Join(", ", res.Reflect.Missing.Take(20)));
         if (res.Reflect.NoType.Count > 0) Say($"    objects with no compiled getter: {string.Join(", ", res.Reflect.NoType.Take(20))}");
         Say($"    may-be-absent comes from the compiled property; it differs from the XML's own rule on {res.Reflect.NullableChanged} fields");
         Say($"  enums {res.Reflect.EnumsFound} of {res.Reflect.EnumsNamed} found, {res.Reflect.EnumMembers} members{(res.Reflect.EnumsNotFound.Count > 0 ? " (not found: " + string.Join(", ", res.Reflect.EnumsNotFound) + ")" : "")}");
-        Say($"  pairs {res.Pairs.Matched} of {res.Pairs.Rows} matched ({res.Pairs.MatchedShare:P1}): exact {res.Pairs.Exact}, flag {res.Pairs.Flag}, component {res.Pairs.Component}, byte slice {res.Pairs.Bytes}, count {res.Pairs.Count}, whole value {res.Pairs.WholeValue}, by subrecord only {res.Pairs.BySubrecord}; made on a name Mutagen has since changed, matched under the new one {res.Pairs.Renamed}");
+        Say($"  pairs {res.Pairs.Matched} of {res.Pairs.Rows} matched ({res.Pairs.MatchedShare:P1}): exact {res.Pairs.Exact}, flag {res.Pairs.Flag}, component {res.Pairs.Component}, byte slice {res.Pairs.Bytes}, count {res.Pairs.Count}, whole value {res.Pairs.WholeValue}, by subrecord only {res.Pairs.BySubrecord}");
         Say($"    distinct paths {res.Pairs.MatchedDistinct} of {res.Pairs.DistinctPaths}; xEdit's subrecord equals the schema's on {res.Pairs.SubrecordAgree} of {res.Pairs.SubrecordCompared}; signatures taken from xEdit for {res.Pairs.SignaturesFilled} fields");
         foreach (var (reason, n) in res.Pairs.Reasons.OrderByDescending(r => r.Value)) Say($"    unmatched, {reason}: {n}");
         foreach (var (reason, n) in res.Pairs.NotData.OrderByDescending(r => r.Value)) Say($"    not data (Mutagen's own bookkeeping), {reason}: {n}");
         if (res.Ck is { } ck)
             Say($"  the Creation Kit's names ({model.Ck.Source}): {ck.Classes} classes ({ck.TypeNames} named), {ck.Enums} enums; {ck.Fields} fields ({ck.FieldNames} named, {ck.Ranges} with a range), {ck.Members} enum members ({ck.MemberNames} named); {ck.Hidden} hidden, {ck.ToolTips} tooltips; Mutagen objects {ck.MutagenObjects}, fields {ck.MutagenFields}, enum members {ck.MutagenEnumMembers}");
         else Say("  the Creation Kit's names: not read (--ck-names none: the schema is built without them)");
-        Say($"  fields with an xEdit name {res.Pairs.FieldsNamed}, enum members with one {res.Pairs.EnumMembersNamed}; evidence rows {res.EvidenceMatched} of {res.EvidenceRows} matched; annotations {res.Annotations}");
+        Say($"  record types with xEdit's name {res.RecordTypesNamed} of {model.RecordTypes.Count}; objects and lists of record types named after the xEdit element their fields sit in: {res.Pairs.Containers.Count} paths, {res.Pairs.ContainerFieldsNamed} container fields");
+        Say($"  fields with an xEdit name {res.Pairs.FieldsNamed} ({res.Pairs.FlagFieldsNamed} sets of flags named after the element their flags sit in), enum members with one {res.Pairs.EnumMembersNamed}; evidence rows {res.EvidenceMatched} of {res.EvidenceRows} matched; annotations {res.Annotations}");
         return res;
     }
 
@@ -214,11 +265,6 @@ public static class Generator
         sb.Append("# Written by schemagen at every build. A pair listed here needs a rerun of the pairing on current names.\n");
         sb.Append($"# After them: the {notData.Count} pairs whose Mutagen side is Mutagen's own bookkeeping, not data in the file (reason \"not data: …\", not counted above);\n");
         sb.Append("# then two lists of matched pairs worth a look: matched by subrecord only, and matched by name where xEdit's subrecord differs from the schema's.\n");
-        // Pairs made on a name Mutagen has since changed are matched under the new one (PairMatcher.Renamed); a rerun of the pairing makes this line go
-        var renamed = res.PairRows.Where(p => p.RenamedFrom != null).GroupBy(p => p.Detail![(p.Detail!.IndexOf(": ", StringComparison.Ordinal) + 2)..p.Detail!.IndexOf(" since.", StringComparison.Ordinal)])
-            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Key}: {g.Count()}").ToList();
-        if (renamed.Count > 0)
-            sb.Append($"# Matched under Mutagen's new names (the pairs file gives the old ones; a rerun of the pairing on current names makes this line go): {res.PairRows.Count(p => p.RenamedFrom != null)} pairs. {string.Join("; ", renamed)}.\n");
         sb.Append("Sig\tType\tSubrecord\tMutagenPath\txEditPath\tReason\tDetail\n");
         IEnumerable<PairRow> Sorted(IEnumerable<PairRow> rows)
             => rows.OrderBy(p => p.Sig, StringComparer.Ordinal).ThenBy(p => p.MutagenPath, StringComparer.Ordinal).ThenBy(p => p.XEditPath, StringComparer.Ordinal);
@@ -238,15 +284,15 @@ public static class Generator
 
     const string Tables = @"
         CREATE TABLE Meta (Key TEXT PRIMARY KEY, Value TEXT) WITHOUT ROWID;
-        CREATE TABLE RecordTypes (Sig TEXT NOT NULL, Type TEXT PRIMARY KEY, File TEXT, Fields INTEGER, Paths INTEGER, Unknown INTEGER, Named INTEGER) WITHOUT ROWID;
+        CREATE TABLE RecordTypes (Sig TEXT NOT NULL, Type TEXT PRIMARY KEY, File TEXT, Fields INTEGER, Paths INTEGER, Unknown INTEGER, Named INTEGER, XEdit TEXT) WITHOUT ROWID;
         CREATE TABLE Objects (Name TEXT PRIMARY KEY, Base TEXT, Abstract INTEGER, Sig TEXT, ObjType TEXT, Struct INTEGER, FixedSize INTEGER, Variants INTEGER, File TEXT,
-            Marker TEXT, EndMarker TEXT, Contains TEXT, HandRead TEXT, SelectedBy TEXT, SelectorValue TEXT, ConditionFunction TEXT, CkClass TEXT, CkName TEXT) WITHOUT ROWID;
+            Marker TEXT, EndMarker TEXT, Contains TEXT, HandRead TEXT, SelectedBy TEXT, SelectorValue TEXT, ConditionFunction TEXT, CkClass TEXT, CkName TEXT, ShortCircuit TEXT, SelectorEnum TEXT) WITHOUT ROWID;
         CREATE TABLE ObjectFields (Object TEXT NOT NULL, Ord INTEGER NOT NULL, Path TEXT NOT NULL, Name TEXT NOT NULL, Kind TEXT NOT NULL, Subrecord TEXT,
             Offset INTEGER, OffsetRel INTEGER, Size INTEGER, StartsSubrecord INTEGER, Nullable INTEGER, InList INTEGER, RefObject TEXT, LinkTo TEXT, Enum TEXT,
             DefaultValue TEXT, Translated INTEGER, Unknown INTEGER, Custom INTEGER, Property INTEGER, SigMap TEXT, GenericArg TEXT, ClrType TEXT,
             Readable TEXT, XEdit TEXT, XEditPairs INTEGER, Unit TEXT, Note TEXT, Marker TEXT, EndMarker TEXT, StringsTable TEXT, CounterLength INTEGER, TextForm TEXT,
             LayoutOffset TEXT, LayoutBits TEXT, LayoutSubrecord TEXT, LayoutEncoding TEXT, LayoutDroppedBits TEXT, LayoutPresentWhen TEXT, LayoutGroup TEXT, SelectedBy TEXT,
-            LayoutMap TEXT, Source TEXT, ReadOnly INTEGER, CkName TEXT, CkField TEXT, PRIMARY KEY (Object, Ord)) WITHOUT ROWID;
+            LayoutMap TEXT, Source TEXT, ReadOnly INTEGER, CkName TEXT, CkField TEXT, CustomSubrecords TEXT, CustomFills TEXT, FilledBy TEXT, SelectorEnum TEXT, GenderRecord TEXT, MaleMarker TEXT, FemaleMarker TEXT, MaxIsNone INTEGER, ItemMarker TEXT, ItemEndMarker TEXT, PRIMARY KEY (Object, Ord)) WITHOUT ROWID;
         CREATE TABLE HandLayouts (Ord INTEGER PRIMARY KEY, Kind TEXT NOT NULL, Sig TEXT, Object TEXT, Name TEXT, Xml TEXT NOT NULL);
         CREATE TABLE ObjectAncestors (Object TEXT NOT NULL, Level INTEGER NOT NULL, Ancestor TEXT NOT NULL, PRIMARY KEY (Object, Level)) WITHOUT ROWID;
         CREATE TABLE ObjectTargets (Ref TEXT NOT NULL, Idx INTEGER NOT NULL, Target TEXT NOT NULL, Marker TEXT NOT NULL, PRIMARY KEY (Ref, Idx)) WITHOUT ROWID;
@@ -315,7 +361,16 @@ public static class Generator
           LEFT JOIN UnknownEvidence e ON e.Sig = w.Sig AND e.Object = f.Object AND e.Field = f.Name AND f.Path = f.Name;";
     }
 
-    static void Write(string outDb, SchemaModel model, List<PairRow> pairs, List<EvidenceRow> evidence,
+    /// <summary>
+    /// The Mutagen name of the field a pair names: the field the pair was matched to (its object and order), else the
+    /// path's last part. A readable name falls back to it where xEdit's is a non-name and it says more (PairMatcher.ReadableName).
+    /// </summary>
+    static string MutagenName(SchemaModel model, PairRow p, string path)
+        => p.Object != null && p.Ord != null && model.Objects.TryGetValue(p.Object, out var o) && o.Fields.FirstOrDefault(f => f.Ord == p.Ord) is { } def
+            ? def.Name
+            : path.Split('.')[^1].Replace("[*]", "");
+
+    static void Write(string outDb, SchemaModel model, List<PairRow> pairs, List<PairMatcher.ContainerName> containers, List<EvidenceRow> evidence,
         Dictionary<string, (int Fields, int Paths, int Unknown, int Named)> typeStats, List<(string, string)> meta)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outDb))!);
@@ -334,7 +389,7 @@ public static class Generator
             foreach (var o in model.Objects.Values.OrderBy(o => o.Name, StringComparer.Ordinal))
             {
                 Insert(con, "Objects", o.Name, o.Base, o.Abstract, o.Sig, o.ObjType, o.Struct, o.FixedSize, model.Variants(o.Name).Count, o.File,
-                    o.Marker, o.EndMarker, o.Contains.Count > 0 ? string.Join(",", o.Contains) : null, o.HandRead, o.SelectedBy, o.SelectorValue, o.ConditionFunction, o.CkClass, o.CkName);
+                    o.Marker, o.EndMarker, o.Contains.Count > 0 ? string.Join(",", o.Contains) : null, o.HandRead, o.SelectedBy, o.SelectorValue, o.ConditionFunction, o.CkClass, o.CkName, o.ShortCircuit, o.SelectorEnum);
                 int level = 0;
                 foreach (var a in model.Ancestry(o.Name)) Insert(con, "ObjectAncestors", o.Name, level++, a.Name);
                 foreach (var t in model.Targets(o.Name)) Insert(con, "ObjectTargets", o.Name, t.Idx, t.Name, t.Marker);
@@ -344,14 +399,15 @@ public static class Generator
                     Insert(con, "ObjectFields", f.Object, f.Ord, f.Path, f.Name, f.Kind, f.Subrecord, f.Offset, f.OffsetRel, f.Size, f.StartsSubrecord, f.Nullable, f.InList,
                         f.RefObject, f.LinkTo, f.Enum, f.Default, f.Translated, f.Unknown, f.Custom, f.Property, f.SigMap, f.GenericArg, f.ClrType,
                         f.Readable, f.XEdit, f.XEditPairs, f.Unit, f.Note, f.Marker, f.EndMarker, f.StringsTable, f.CounterLength, f.TextForm,
-                        f.LayoutOffset, f.LayoutBits, f.LayoutSubrecord, f.LayoutEncoding, f.LayoutDroppedBits, f.LayoutPresentWhen, f.LayoutGroup, f.SelectedBy, f.LayoutMap, f.Source, f.ReadOnly, f.CkName, f.CkField);
+                        f.LayoutOffset, f.LayoutBits, f.LayoutSubrecord, f.LayoutEncoding, f.LayoutDroppedBits, f.LayoutPresentWhen, f.LayoutGroup, f.SelectedBy, f.LayoutMap, f.Source, f.ReadOnly, f.CkName, f.CkField,
+                        f.CustomSubrecords, f.CustomFills, f.FilledBy, f.SelectorEnum, f.GenderRecord, f.MaleMarker, f.FemaleMarker, f.MaxIsNone, f.ItemMarker, f.ItemEndMarker);
             }
             int hl = 0;
             foreach (var h in model.HandLayouts) Insert(con, "HandLayouts", ++hl, h.Kind, h.Sig, h.Object, h.Name, h.Xml);
             foreach (var rt in model.RecordTypes)
             {
                 var s = typeStats[rt.Name];
-                Insert(con, "RecordTypes", rt.Sig, rt.Name, rt.File, s.Fields, s.Paths, s.Unknown, s.Named);
+                Insert(con, "RecordTypes", rt.Sig, rt.Name, rt.File, s.Fields, s.Paths, s.Unknown, s.Named, rt.XEditName);
             }
             foreach (var (name, members) in model.Enums.OrderBy(e => e.Key, StringComparer.Ordinal))
                 foreach (var m in members.GroupBy(m => m.Name).Select(g => g.First()))
@@ -365,9 +421,13 @@ public static class Generator
             int id = 0;
             var seen = new HashSet<(string, string)>();
             foreach (var p in pairs)
-            {
                 Insert(con, "Pairs", ++id, p.Sig, p.Type, p.Subrecord, p.MutagenPath, p.XEditPath, p.Method, p.Checked, p.Agree, p.Disagree, p.Translation,
                     p.Match, p.Object, p.Ord, p.Part, p.SchemaSubrecord, p.Reason, p.Detail);
+            // Several pairs can name one path: each kind of a list's items has its own xEdit field (a scene's Dialogue and
+            // Radio actions' Topic, a quest's reference and location aliases' Name; J108). The one checked on the most
+            // records names it, then the pairs file's order
+            foreach (var p in pairs.OrderByDescending(p => p.Checked))
+            {
                 // A pair that names a whole value ("Use.Type", "Tier#num") gives the field's own path ("Use", "Tier")
                 string? named = p.Match switch
                 {
@@ -376,8 +436,19 @@ public static class Generator
                     _ => null,
                 };
                 if (named != null && seen.Add((p.Sig, named)))
-                    Insert(con, "PairNames", p.Sig, named, p.XEditPath, PairMatcher.LastName(p.XEditPath));
+                    Insert(con, "PairNames", p.Sig, named, p.XEditPath, PairMatcher.ReadableName(PairMatcher.LastName(p.XEditPath), MutagenName(model, p, named)));
             }
+            // A set of flags no pair names as a whole: the xEdit element all its flags sit in (PairMatcher.FlagParent)
+            foreach (var g in pairs.Where(p => PairMatcher.FlagParent(p) != null).GroupBy(p => (p.Sig, Field: PairMatcher.FlagField(p))).OrderBy(g => g.Key.Sig, StringComparer.Ordinal).ThenBy(g => g.Key.Field, StringComparer.Ordinal))
+            {
+                var parents = g.Select(p => PairMatcher.FlagParent(p)!).Distinct(StringComparer.Ordinal).ToList();
+                if (parents.Count == 1 && seen.Add((g.Key.Sig, g.Key.Field)))
+                    Insert(con, "PairNames", g.Key.Sig, g.Key.Field, parents[0], PairMatcher.ReadableName(PairMatcher.LastName(parents[0]), MutagenName(model, g.First(), g.Key.Field)));
+            }
+            // An object or a list: the xEdit element its paired fields sit in (PairMatcher.ContainerNames, GAPS S98)
+            foreach (var c in containers)
+                if (seen.Add((c.Sig, c.Path)))
+                    Insert(con, "PairNames", c.Sig, c.Path, c.XEditPath, PairMatcher.ReadableName(PairMatcher.LastName(c.XEditPath), c.Def.Name));
             var seenEv = new HashSet<(string, string, string)>();
             foreach (var e in evidence)
                 if (seenEv.Add((e.Sig, e.Object, e.Field)))

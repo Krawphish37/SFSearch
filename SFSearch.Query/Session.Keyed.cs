@@ -50,6 +50,8 @@ public sealed partial class QueryEngine
             _keyed.Clear();
             _keyedJobs.Clear();
             _keyedRoots = new(StringComparer.OrdinalIgnoreCase);
+            _filterRoots = new(StringComparer.OrdinalIgnoreCase);
+            DropKeyedProjections();
         }
 
         Keyed KeyedOf(ScratchFile f)
@@ -87,36 +89,36 @@ public sealed partial class QueryEngine
                         var member = file.Members.First(m => m.Plugin.Equals(plugin.Name, StringComparison.OrdinalIgnoreCase));
                         try { _e._records.Sessions.Get(plugin.Name); }
                         catch (RecordException e) { skipped += group.Count(); firstSkip ??= $"{plugin.Name}: {e.Message}"; continue; }
-                        foreach (var batch in _e._reader.ReadEntries(plugin, group.Select(r => r.Entry).ToArray(), plan, _req.Cancel))
-                            foreach (var row in batch)
-                            {
-                                if (row.Skip != null) { skipped++; firstSkip ??= $"{plugin.Name}: {row.EditorId ?? "(no EditorID)"} ({row.FormKey}): {row.Skip}"; continue; }
-                                string rowSig = _e._schema.SignatureOf(row.Type) ?? sig;
-                                ins.Text(1, row.Type); ins.Text(2, rowSig); ins.Text(3, row.FormKey); ins.Text(4, row.EditorId); ins.Int(5, row.IsOverride ? 1 : 0); ins.Int(6, row.Pos);
-                                if (file.IsSet) { ins.Text(7, plugin.Name); ins.Int(8, member.LoadOrder); ins.Int(9, row.IsWinner ? 1 : 0); }
-                                else { ins.Null(7); ins.Null(8); ins.Null(9); }
-                                ins.Blob(10, row.Jsonb); ins.Blob(11, row.Links); ins.Int(12, ++seq);
-                                ins.Step();
-                                rows++;
-                                if (forLinks && row.Links != null)
-                                    foreach (var (field, idx, path, to) in LinkWalker.Lines(row.Links))
-                                    {
-                                        lnk.Text(1, row.FormKey); lnk.Text(2, row.Type); lnk.Text(3, field); lnk.Int(4, idx); lnk.Text(5, to); lnk.Text(6, path);
-                                        lnk.Text(7, file.IsSet ? plugin.Name : null); lnk.Int(8, file.IsSet ? (row.IsWinner ? 1 : 0) : null);
-                                        lnk.Step();
-                                        links++;
-                                    }
-                            }
+                        foreach (var row in _e._reader.ReadEntries(plugin, group.Select(r => r.Entry).ToArray(), plan, _req.Cancel))
+                        {
+                            if (row.Skip != null) { skipped++; firstSkip ??= $"{plugin.Name}: {row.EditorId ?? "(no EditorID)"} ({row.FormKey}): {row.Skip}"; continue; }
+                            string rowSig = _e._schema.SignatureOf(row.Type) ?? sig;
+                            ins.Text(1, row.Type); ins.Text(2, rowSig); ins.Text(3, row.FormKey); ins.Text(4, row.EditorId); ins.Int(5, row.IsOverride ? 1 : 0); ins.Int(6, row.Pos);
+                            if (file.IsSet) { ins.Text(7, plugin.Name); ins.Int(8, member.LoadOrder); ins.Int(9, row.IsWinner ? 1 : 0); }
+                            else { ins.Null(7); ins.Null(8); ins.Null(9); }
+                            ins.Blob(10, row.Jsonb); ins.Blob(11, row.Links); ins.Int(12, ++seq);
+                            ins.Step();
+                            rows++;
+                            if (forLinks && row.Links != null)
+                                foreach (var (field, idx, path, to) in LinkWalker.Lines(row.Links))
+                                {
+                                    lnk.Text(1, row.FormKey); lnk.Text(2, row.Type); lnk.Text(3, field); lnk.Int(4, idx); lnk.Text(5, to); lnk.Text(6, path);
+                                    lnk.Text(7, file.IsSet ? plugin.Name : null); lnk.Int(8, file.IsSet ? (row.IsWinner ? 1 : 0) : null);
+                                    lnk.Step();
+                                    links++;
+                                }
+                        }
                         ConfirmUnchanged(plugin);
                     }
                     tx.Commit();
                 }
                 string label = sig.Length > 0 ? _e.LabelOf(sig) : "records";
+                bool world = why.StartsWith("from the world link index", StringComparison.Ordinal);
                 _answer.Cost.Read.Add(forLinks
-                    ? $"{rows:N0} record(s) whose bytes hold the FormID, alone ({links:N0} links), {why}, in {Took(clock.Elapsed.TotalSeconds)}"
+                    ? $"{rows:N0} record(s) {(world ? "that link to it" : "whose bytes hold the FormID")}, alone ({links:N0} links), {why}, in {Took(clock.Elapsed.TotalSeconds)}"
                     : $"{label} ({rows:N0} by FormKey, from the header index) from {(byPlugin.Count == 1 ? Index.Plugins[byPlugin[0].Key].Name : $"{byPlugin.Count:N0} plugins")} in {Took(clock.Elapsed.TotalSeconds)}");
-                _usedLabels.Add(forLinks ? "Links (by bytes)" : $"{label} (by FormKey)");
-                _readLabels.Add(forLinks ? "Links (by bytes)" : $"{label} (by FormKey)");
+                _usedLabels.Add(forLinks ? world ? "Links (world link index)" : "Links (by bytes)" : $"{label} (by FormKey)");
+                _readLabels.Add(forLinks ? world ? "Links (world link index)" : "Links (by bytes)" : $"{label} (by FormKey)");
                 if (skipped > 0) Note($"{label}: {skipped:N0} record(s) read by key couldn't be read and aren't in the answer. The first: {firstSkip}");
             }
         }
@@ -140,9 +142,17 @@ public sealed partial class QueryEngine
         /// join: then nothing is narrowed. A FormKey that isn't compared (in the column list, ORDER BY, a function's
         /// argument) is fine.
         /// </summary>
-        static HashSet<string>? FormKeyLiterals(List<Tok> toks)
+        static HashSet<string>? FormKeyLiterals(List<Tok> toks) =>
+            ColumnLiterals(toks, "FormKey", numbers: false) is { } found ? found.Cast<string>().ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
+
+        /// <summary>
+        /// Every literal the statement compares a column of this name with (FormKeyLiterals' rules, for any column, J30):
+        /// texts, and with <paramref name="numbers"/> plain numbers (an integer as a long, any other as a double). Null
+        /// when the column may be compared with anything else.
+        /// </summary>
+        static List<object>? ColumnLiterals(List<Tok> toks, string column, bool numbers)
         {
-            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var keys = new List<object>();
             if (toks.Any(t => t.Is("NATURAL"))) return null;
             Tok At(int i) => i >= 0 && i < toks.Count ? toks[i] : new Tok(TokKind.Punct, ";", 0, 0, 0);
             // A value ends here: nothing after it continues the expression
@@ -150,11 +160,20 @@ public sealed partial class QueryEngine
                 || At(i).Kind == TokKind.Word && !CompareWords.Contains(At(i).Text);
             // A value starts here: nothing before it belongs to the expression
             bool Starts(int i) => i < 0 || At(i).IsPunct("(") || At(i).IsPunct(",") || At(i).Kind == TokKind.Word && !CompareWords.Contains(At(i).Text);
+            bool Literal(Tok t, out object value)
+            {
+                value = t.Text;
+                if (t.Kind == TokKind.String) return true;
+                if (!numbers || t.Kind != TokKind.Number) return false;
+                if (long.TryParse(t.Text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long l)) { value = l; return true; }
+                if (double.TryParse(t.Text, System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent, System.Globalization.CultureInfo.InvariantCulture, out double d)) { value = d; return true; }
+                return false;
+            }
             for (int i = 0; i < toks.Count; i++)
             {
-                if (!toks[i].IsName || !toks[i].Text.Equals("FormKey", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!toks[i].IsName || !toks[i].Text.Equals(column, StringComparison.OrdinalIgnoreCase)) continue;
                 var next = At(i + 1);
-                if (next.IsPunct(".")) continue;   // a table or alias named FormKey
+                if (next.IsPunct(".")) continue;   // a table or alias of that name
                 int before = i - 1;
                 if (At(before).IsPunct(".")) before -= 2;   // p.FormKey
                 var prev = At(before);
@@ -167,29 +186,29 @@ public sealed partial class QueryEngine
                 }
                 if (next.IsPunct("=") || next.IsPunct("=="))
                 {
-                    if (At(i + 2).Kind == TokKind.String && Starts(before) && Ends(i + 3)) { keys.Add(At(i + 2).Text); continue; }
+                    if (Literal(At(i + 2), out var v) && Starts(before) && Ends(i + 3)) { keys.Add(v); continue; }
                     return null;
                 }
                 if (next.Is("IN"))
                 {
                     if (!Starts(before) || !At(i + 2).IsPunct("(")) return null;
                     int j = i + 3;
-                    var found = new List<string>();
+                    var found = new List<object>();
                     while (true)
                     {
-                        if (At(j).Kind != TokKind.String) return null;
-                        found.Add(At(j).Text);
+                        if (!Literal(At(j), out var v)) return null;
+                        found.Add(v);
                         if (At(j + 1).IsPunct(")")) break;
                         if (!At(j + 1).IsPunct(",")) return null;
                         j += 2;
                     }
-                    keys.UnionWith(found);
+                    keys.AddRange(found);
                     continue;
                 }
                 if (prev.IsPunct("=") || prev.IsPunct("=="))
                 {
                     // '…' = FormKey
-                    if (At(before - 1).Kind == TokKind.String && Starts(before - 2) && Ends(i + 1)) { keys.Add(At(before - 1).Text); continue; }
+                    if (Literal(At(before - 1), out var v) && Starts(before - 2) && Ends(i + 1)) { keys.Add(v); continue; }
                     return null;
                 }
                 // Compared in any other way, or part of a longer expression
@@ -212,32 +231,7 @@ public sealed partial class QueryEngine
             if (keys == null || keys.Count == 0) return;
             foreach (var group in probed.Views.Keys.GroupBy(v => v.Root, StringComparer.OrdinalIgnoreCase))
             {
-                bool ok = true;
-                foreach (var v in group)
-                {
-                    // The names a plan line can give this view by: its own and each alias the statement gives it
-                    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { v.Name };
-                    for (int i = 0; i < toks.Count; i++)
-                    {
-                        if (!toks[i].IsName || !toks[i].Text.Equals(v.Name, StringComparison.OrdinalIgnoreCase)) continue;
-                        if (i + 1 < toks.Count && toks[i + 1].IsName) names.Add(toks[i + 1].Text);
-                        if (i + 2 < toks.Count && toks[i + 1].Is("AS") && toks[i + 2].IsName) names.Add(toks[i + 2].Text);
-                    }
-                    string byKey = $" INDEX {KeyIndexName(v)} (FormKey=?)";
-                    bool keyed = false;
-                    foreach (string line in probed.Plan)
-                    {
-                        if (!(line.StartsWith("SCAN ", StringComparison.Ordinal) || line.StartsWith("SEARCH ", StringComparison.Ordinal))) continue;
-                        string rest = line[(line.IndexOf(' ') + 1)..];
-                        int sp = rest.IndexOf(' ');
-                        string name = sp < 0 ? rest : rest[..sp];
-                        if (line.Contains(byKey, StringComparison.Ordinal)) { keyed = true; continue; }
-                        if (names.Contains(name)) { ok = false; break; }
-                    }
-                    if (!keyed) ok = false;
-                    if (!ok) break;
-                }
-                if (ok) _keyedRoots[group.Key] = keys;
+                if (group.All(v => OnlyThrough(toks, v, probed.Plan, $" INDEX {KeyIndexName(v)} (FormKey=?)"))) _keyedRoots[group.Key] = keys;
             }
         }
 

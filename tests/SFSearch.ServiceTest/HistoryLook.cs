@@ -11,7 +11,7 @@ namespace SFSearch.ServiceTest;
 /// design\agent-first\GAPS.md): the service looks for changed plugins by itself, so changes2 tells what changed since
 /// the service last looked, each change dated by that look, and says which look it compares with. It makes its own
 /// home and test Data folder under the test home (three small plugins copied from Data, which is only read), starts its
-/// own service there with the idle check every 8 s (SFSEARCH_TEST_INDEX_EVERY), changes the copies (one updated in
+/// own service there with the idle check every 10 s (pluginCheckSeconds in its sfsearch.json), changes the copies (one updated in
 /// place, one removed, one added), waits for the service's look, and asks changes2. Stops its service at the end.
 /// </summary>
 public static partial class T
@@ -32,9 +32,11 @@ public static partial class T
         File.WriteAllLines(txt, HistoryPlugins.Select(p => "*" + p));
         var env = new Dictionary<string, string>
         {
-            ["SFSEARCH_HOME"] = home, ["SFSEARCH_DATA"] = data, ["SFSEARCH_PLUGINS_TXT"] = txt, ["SFSEARCH_TEST_HOOKS"] = "1", ["SFSEARCH_TEST_INDEX_EVERY"] = "8",
-            ["SFSEARCH_LINKS"] = "0", ["SFSEARCH_WARMUP"] = "0", ["SFSEARCH_WORKERS"] = "2",
+            ["SFSEARCH_HOME"] = home, ["SFSEARCH_DATA"] = data, ["SFSEARCH_PLUGINS_TXT"] = txt, ["SFSEARCH_WORKERS"] = "2",
         };
+        // The service's idle check every 10 s: a real setting (J37; it was the test switch SFSEARCH_TEST_INDEX_EVERY)
+        string cfgPath = Path.Combine(home, "sfsearch.json");
+        File.WriteAllText(cfgPath, "{ \"settingsVersion\": 2, \"pluginCheckSeconds\": 10 }");
         Home = home;
         try
         {
@@ -91,18 +93,21 @@ public static partial class T
                 $"compared with {cw.GetProperty("seen").GetString()} by {cw.GetProperty("byWords").GetString()}; rows: {string.Join("; ", rows.Select(x => $"{x.When} {x.Plugin} {x.Kind}{(x.Now ? " (now)" : "")}"))}");
             r = await Call(Cmd("changes2", HistoryPlugins[0]));
             Check("historylook: one plugin's history says its look too, and what the update did", Regex.IsMatch(r.Out, @"History of weap_starlight\.esm \(.*2 snapshots; compared with the look of .* by a changes call\)") && r.Out.Contains("0 added, 0 removed"),
-                Line(r.Out, "History of") + " / " + Line(r.Out, "Records, from"));
+                Line(r.Out, "History of") + " / " + Line(r.Out, "Records, from") + $" (exit {r.Code}{(r.Out.Contains("History of") ? "" : ": " + Cut(r.Out + r.Err, 400))})");
             r = await Call(Cmd("changes2"));
             Check("historylook: the text form names the look it compares with", Regex.IsMatch(r.Out, @"compared with the look of \d{4}-\d\d-\d\d \d\d:\d\d by a changes call\)") && r.Out.Contains("A change's time is the look that first saw it"),
-                Line(r.Out, "Changes in Data since"));
+                Line(r.Out, "Changes in Data since") + $" (exit {r.Code}{(r.Out.Contains("Changes in Data since") ? "" : ": " + Cut(r.Out + r.Err, 400))})");
 
-            // 6. No look of the service with historyLook off (SFSEARCH_HISTORY=0 for a second service start)
+            // 6. No look of the service with historyLook off in its sfsearch.json, for a second service start (J37: the
+            //    environment override SFSEARCH_HISTORY=0 is gone)
             await RunWith(env, "Service", "stop");
-            var off = new Dictionary<string, string>(env) { ["SFSEARCH_HISTORY"] = "0" };
-            await RunWith(off, "Service", "start");
+            File.WriteAllText(cfgPath, "{ \"settingsVersion\": 2, \"pluginCheckSeconds\": 10, \"historyLook\": false }");
+            await RunWith(env, "Service", "start");
             status = await Status();
-            Check("historylook: with historyLook off the service doesn't look", Line(status, "History (changes2):").Contains("no look by the service (historyLook is off"), Line(status, "History (changes2):"));
-            await RunWith(off, "Service", "stop");
+            string cfg = (await RunWith(env, "Service", "config")).Out;
+            Check("historylook: with historyLook off the service doesn't look", Line(status, "History (changes2):").Contains("no look by the service (historyLook is off") && cfg.Contains("only changes2 looks (historyLook is off)"),
+                Line(status, "History (changes2):") + " / " + Line(cfg, "Changed plugins:"));
+            await RunWith(env, "Service", "stop");
         }
         finally
         {

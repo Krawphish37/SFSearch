@@ -25,6 +25,9 @@ public sealed class ObjDef
     /// with the field through which another object's code reads it (<c>via PerkRank.Effects</c>), joined by "; ". The
     /// schema gives no offset for a field that code places (GAPS S36).</summary>
     public string? HandRead;
+    /// <summary>A record type's name in xEdit ("Weapon", TES4 "Main File Header"): <c>inputs/xedit-record-names-*.tsv</c>
+    /// (GAPS S98). Null for other objects and for a record type xEdit doesn't define.</summary>
+    public string? XEditName;
     public List<string> LinkInterfaces = new();
     public List<FieldDef> Fields = new();
     /// <summary>The XML's layout attributes on an object (C186): <c>SelectedBy</c> (what picks among an abstract
@@ -32,8 +35,18 @@ public sealed class ObjDef
     /// kind: "1", "Quest", "*"), <c>ConditionFunction</c> (a condition data object: the CTDA function index that
     /// picks it). Null when the XML gives none.</summary>
     public string? SelectedBy, SelectorValue, ConditionFunction;
+    /// <summary>The XML's <c>selectorEnum</c> (C57 W3/W4): the enum whose member names the <see cref="SelectorValue"/>s of the
+    /// object's kinds are (<c>AComponent.ComponentType</c>: a component's BFCB text). Null when the values are numbers.</summary>
+    public string? SelectorEnum;
+    /// <summary>The XML's <c>engineClass</c> (C57 W15): the engine's reflected class the object is laid out as
+    /// (<c>BGSAtmosphere</c>). Null for most objects.</summary>
+    public string? EngineClass;
+    /// <summary>The XML's <c>shortCircuitToLastRequired</c> ("ToLastRequired"): in a list, an item reads its fields in any
+    /// order until its last field that is never null has been read; any field after that starts the next item (a race's
+    /// subgraphs). Null for the usual rule, where an item ends at a field it already had or one before it.</summary>
+    public string? ShortCircuit;
     /// <summary>The engine's reflected class the object holds (its REFL is a value of it): <c>BGSAtmosphere</c>. Null for
-    /// most objects. From the CK's names through <see cref="CkReflection.ObjectClasses"/> (to-do F30).</summary>
+    /// most objects. The XML's <see cref="EngineClass"/> found in the CK's names (to-do F30, C57 W15).</summary>
     public string? CkClass;
     /// <summary>The Creation Kit's display name for it: Mutagen's XML (ckName, C220, fixes.17 on), else the CK's names
     /// for <see cref="CkClass"/>. Null without either.</summary>
@@ -42,6 +55,12 @@ public sealed class ObjDef
     /// <summary>Only used while the XML is read: the XML's <c>customBinaryEnd</c> (hand-written code reads what
     /// follows the generated fields).</summary>
     internal string? CustomEnd;
+    /// <summary>Only used while the XML is read: the XML's <c>customBinaryEndFills</c> (C60 W5), the fields that code fills.</summary>
+    internal string? CustomEndFills;
+    /// <summary>Only used while the schema is built: the XML's <c>handRead</c> and <c>handReadFills</c> (C73, fixes.22 on):
+    /// the static method of the object's class that reads the whole object by hand (UnknownComponent's <c>ReadRaw</c>), and
+    /// the fields it fills.</summary>
+    internal string? XmlHandRead, XmlHandReadFills;
     /// <summary>Only used while the schema is built: the hand-read fields of other objects this object is entered
     /// through (<c>PerkRank.Effects</c>), when no generated field enters it.</summary>
     internal List<string> EnteredVia = new();
@@ -99,8 +118,37 @@ public sealed class FieldDef
     /// dump for <see cref="CkField"/>. Null without either (to-do F30).</summary>
     public string? CkName;
     /// <summary>The reflected class's field this Mutagen field is (<c>ExtraBendableSplineParams::ParamData.fThickness</c>),
-    /// from <see cref="CkReflection.FieldsOf"/>. Null for most fields.</summary>
+    /// from the XML's engineField on a field of an object with an engineClass (C57 W15). Null for most fields.</summary>
     public string? CkField;
+    /// <summary>The XML's <c>engineField</c> (the field's name in its object's engine class) and <c>engineEnum</c> (on an
+    /// enum field: the engine's reflected enum whose members are its members by value), C57 W15. Null for most fields.</summary>
+    public string? EngineField, EngineEnum;
+    /// <summary>The XML's <c>selectorEnum</c> on a field (C57 W3): the enum whose member names its kinds' selector values
+    /// are. Null for most fields.</summary>
+    public string? SelectorEnum;
+    /// <summary>
+    /// The subrecords Mutagen's hand-written code reads (GAPS S38), comma-joined in the XML's order. On a CustomLogic
+    /// step: the XML's <c>recordType</c> and its <c>&lt;RecordType&gt;</c> items (a step inside a subrecord: that
+    /// subrecord). On a field that a step fills (<see cref="FilledBy"/>): the subrecords of those steps, so a field such
+    /// as a PERS's <c>Items</c> (from DAT2, with XXXX long forms) has its signatures in the schema. Null otherwise.
+    /// </summary>
+    public string? CustomSubrecords;
+    /// <summary>On a CustomLogic step: the object's fields (and its kinds' fields) its hand-written reader fills,
+    /// comma-joined, as the XML's <c>fills=</c> names them (fixes.18 on, C36/C44; before, read from the compiled IL).
+    /// Null when the code fills none of the object's fields.</summary>
+    public string? CustomFills;
+    /// <summary>On a CustomLogic step: the XML's <c>fills=</c> as given (dotted paths such as "Clouds.XSpeed"; "" when the
+    /// step fills nothing) and <c>writtenFrom=</c> (what the writer makes again what such a step reads from: count:List,
+    /// marker, class, field:Field). Not stored.</summary>
+    public string? XmlFills, WrittenFrom;
+    /// <summary>A gendered value's rule, from the XML (C57 W3; Mutagen's Code-Generation.md, "Gendered values in the binary"):
+    /// <c>GenderRecord</c>, the subrecord that says the gender before each half (genderEnumRecord: up to two, in any order,
+    /// each followed by its half); <c>MaleMarker</c>/<c>FemaleMarker</c>, the empty subrecords before each half.</summary>
+    public string? GenderRecord, MaleMarker, FemaleMarker;
+    /// <summary>On a field: the CustomLogic steps whose compiled reader fills it, comma-joined. Null otherwise.</summary>
+    public string? FilledBy;
+    /// <summary>The signatures of <see cref="CustomSubrecords"/>, split.</summary>
+    public IReadOnlyList<string> CustomSubrecordList => CustomSubrecords is { Length: > 0 } s ? s.Split(',') : Array.Empty<string>();
     /// <summary>
     /// Where Mutagen's hand-written code puts a field it reads itself: the XML's layout attributes (C186, fixes.14 on),
     /// which Mutagen's generator ignores. <c>LayoutOffset</c>: the byte offset in the subrecord's content ("0", "28", or
@@ -114,6 +162,14 @@ public sealed class FieldDef
     /// effect's Modification from the entry point function in DATA). Null when the XML gives none.
     /// </summary>
     public string? LayoutOffset, LayoutBits, LayoutSubrecord, LayoutEncoding, LayoutDroppedBits, LayoutPresentWhen, LayoutGroup, SelectedBy, LayoutMap;
+    /// <summary>On a link: the XML's <c>maxIsNone="true"</c>. A stored FormID of FFFFFFFF is no link there, which Mutagen
+    /// holds as FormKey.None and its serializer writes as "None" (a dialogue response's Emotion, an equip type's
+    /// ConditionActorValue); in any other link field the FormID is read as any other.</summary>
+    public bool MaxIsNone;
+    /// <summary>On a list: the XML's <c>itemMarkerType</c> and <c>itemEndMarkerType</c>, the empty subrecords each item
+    /// sits between (a sound echo marker's Markers: ECHO, the item's subrecords, ECHE; a perk's Ranks: PRRK to PRRF).
+    /// Null for a list whose items have none.</summary>
+    public string? ItemMarker, ItemEndMarker;
 
     /// <summary>The XML's layoutMap as stored number to Mutagen's value ("1:Set" gives 1 → "Set"). Empty without one.</summary>
     public IReadOnlyDictionary<long, string> LayoutMapEntries => LayoutMap is not { Length: > 0 } lm ? new Dictionary<long, string>()
@@ -134,6 +190,24 @@ public sealed class FieldDef
             byte mask = 0;
             for (int i = lo; i <= hi; i++) mask |= (byte)(1 << i);
             return (mask, lo);
+        }
+    }
+
+    /// <summary>The bits <see cref="LayoutDroppedBits"/> names, as a mask of the stored value ("1-3": 0x0E; "7": 0x80;
+    /// "1,3": 0x0A). 0 without one, or when it isn't bit numbers.</summary>
+    public uint LayoutDroppedMask
+    {
+        get
+        {
+            if (LayoutDroppedBits is not { Length: > 0 } d) return 0;
+            uint mask = 0;
+            foreach (string part in d.Split(','))
+            {
+                var ends = part.Split('-');
+                if (!int.TryParse(ends[0], out int lo) || !int.TryParse(ends[^1], out int hi) || lo < 0 || hi > 31 || hi < lo) return 0;
+                for (int i = lo; i <= hi; i++) mask |= 1u << i;
+            }
+            return mask;
         }
     }
 
@@ -164,7 +238,7 @@ public sealed record EnumMember(string Name, long Value, bool IsFlags)
 {
     public string? XEditName { get; set; }
     /// <summary>The Creation Kit's display name for the member, and the reflected enum's member it is
-    /// (<c>BGSBodyPartDefs::LIMB_ENUM.LIMB_FLY_GRAB</c>), where the enum is one of <see cref="CkReflection.EnumsOf"/>.</summary>
+    /// (<c>BGSBodyPartDefs::LIMB_ENUM.LIMB_FLY_GRAB</c>), where a field of the enum has the XML's engineEnum (C57 W15).</summary>
     public string? CkName { get; set; }
     public string? CkMember { get; set; }
 }
@@ -187,12 +261,15 @@ public sealed class SchemaModel
     /// inputs\ck-names-&lt;CK version&gt;.tsv. Empty only in a schema built with --ck-names none.</summary>
     public CkData Ck = new();
 
+    // Every object's fields (bases first), kinds and targets, made by Link and only read after it: the model is safe to
+    // walk from many threads at once with no lock (GAPS S65). Filling them all takes about 1 ms.
     readonly Dictionary<string, List<string>> _children = new(StringComparer.Ordinal);
     readonly Dictionary<string, List<(FieldDef F, int Level)>> _allFields = new(StringComparer.Ordinal);
     readonly Dictionary<string, List<Target>> _targets = new(StringComparer.Ordinal);
     readonly Dictionary<string, List<string>> _variants = new(StringComparer.Ordinal);
 
-    /// <summary>Call once every object is in <see cref="Objects"/>.</summary>
+    /// <summary>Call once every object is in <see cref="Objects"/> with all its fields, before the model is used: it makes
+    /// every object's tables. Nothing changes them after it, so many threads may use the model at once.</summary>
     public void Link()
     {
         _children.Clear(); _allFields.Clear(); _targets.Clear(); _variants.Clear(); RecordTypes.Clear();
@@ -201,6 +278,12 @@ public sealed class SchemaModel
                 (_children.TryGetValue(o.Base, out var l) ? l : _children[o.Base] = new()).Add(o.Name);
         RecordTypes.AddRange(Objects.Values.Where(o => o.ObjType == "Record" && !o.Abstract && o.Sig != null)
             .OrderBy(o => o.Sig, StringComparer.Ordinal).ThenBy(o => o.Name, StringComparer.Ordinal));
+        foreach (var name in Objects.Keys)
+        {
+            _allFields[name] = MakeAllFields(name);
+            _variants[name] = MakeVariants(name);
+        }
+        foreach (var name in Objects.Keys) _targets[name] = MakeTargets(name);
     }
 
     /// <summary>The end marker of an object: its own, else its nearest base's (AComponent's BFCE ends every component).</summary>
@@ -230,21 +313,25 @@ public sealed class SchemaModel
     }
 
     /// <summary>Every field of an object: its bases' fields first (the outermost base first), then its own.</summary>
-    public IReadOnlyList<(FieldDef F, int Level)> AllFields(string obj)
+    public IReadOnlyList<(FieldDef F, int Level)> AllFields(string obj) => _allFields.TryGetValue(obj, out var l) ? l : NoFields;
+
+    static readonly List<(FieldDef F, int Level)> NoFields = new();
+
+    List<(FieldDef F, int Level)> MakeAllFields(string obj)
     {
-        if (_allFields.TryGetValue(obj, out var l)) return l;
-        l = new();
+        var l = new List<(FieldDef F, int Level)>();
         var chain = Ancestry(obj).ToList();
         for (int level = chain.Count - 1; level >= 0; level--)
             foreach (var f in chain[level].Fields) l.Add((f, level));
-        return _allFields[obj] = l;
+        return l;
     }
 
     /// <summary>Every concrete object that derives from this one, by name.</summary>
-    public IReadOnlyList<string> Variants(string obj)
+    public IReadOnlyList<string> Variants(string obj) => _variants.TryGetValue(obj, out var l) ? l : Array.Empty<string>();
+
+    List<string> MakeVariants(string obj)
     {
-        if (_variants.TryGetValue(obj, out var l)) return l;
-        l = new();
+        var l = new List<string>();
         void Add(string n, int guard)
         {
             if (guard > 50 || !_children.TryGetValue(n, out var kids)) return;
@@ -252,7 +339,7 @@ public sealed class SchemaModel
         }
         Add(obj, 0);
         l.Sort(StringComparer.Ordinal);
-        return _variants[obj] = l;
+        return l;
     }
 
     /// <summary>
@@ -260,17 +347,16 @@ public sealed class SchemaModel
     /// <c>{Variant}</c> marker (and itself too when it isn't abstract). A base with over 100 variants (the 612 condition
     /// functions): only the base's own fields, spelled out once; the variants are listed by <c>describe</c> on the base.
     /// </summary>
-    public IReadOnlyList<Target> Targets(string refObj)
+    public IReadOnlyList<Target> Targets(string refObj) => _targets.TryGetValue(refObj, out var l) ? l : Array.Empty<Target>();
+
+    List<Target> MakeTargets(string refObj)
     {
-        if (_targets.TryGetValue(refObj, out var l)) return l;
-        l = new();
-        if (Objects.TryGetValue(refObj, out var o))
-        {
-            var v = Variants(refObj);
-            if (!o.Abstract || v.Count == 0 || v.Count > BigVariantLimit) l.Add(new(refObj, "", 0));
-            if (v.Count is > 0 and <= BigVariantLimit) foreach (var s in v) l.Add(new(s, "{" + s + "}", l.Count));
-        }
-        return _targets[refObj] = l;
+        var l = new List<Target>();
+        var o = Objects[refObj];
+        var v = Variants(refObj);
+        if (!o.Abstract || v.Count == 0 || v.Count > BigVariantLimit) l.Add(new(refObj, "", 0));
+        if (v.Count is > 0 and <= BigVariantLimit) foreach (var s in v) l.Add(new(s, "{" + s + "}", l.Count));
+        return l;
     }
 
     public static string? MapSig(string? map, string? sig)

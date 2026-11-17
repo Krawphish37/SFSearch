@@ -14,6 +14,18 @@ static class FilesContractTests
     static void Check(bool ok, string what) => Ctx.Check(ok, what);
     static string N(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
 
+    static GrepAnswer Grep(ArchiveReport archive, string target, string text, bool regex = false)
+    {
+        using var plan = archive.PlanGrep(target, new GrepOptions { Text = text, Regex = regex });
+        return archive.Grep(plan);
+    }
+
+    static ReportAnswer Encodings(ArchiveReport archive, string target, bool count, params string[] kinds)
+    {
+        using var plan = archive.PlanEncodings(target, new GrepOptions { Text = "", Extensions = kinds, Count = count });
+        return count ? archive.EncodingsCount(plan) : archive.Encodings(plan);
+    }
+
     public static string OutputContract(Ctx ctx)
     {
         var s = ctx.Session;
@@ -27,6 +39,13 @@ static class FilesContractTests
             ("archive list", archive.List("darkstar.esm", "*.mat")),
             ("archive find", archive.Find("bullpupdummyreceiver")),
             ("archive show", archive.Show("darkstar.esm", archive.List("darkstar.esm", "*.mat").Files[0].Path)),
+            ("archive grep", Grep(archive, "darkstar.esm", @"textures\darkstar")),
+            // J80: a regex outside ASCII near a character's places, and one read as text (its note says why)
+            ("archive grep near", Grep(archive, "darkstar.esm", @"([äöü])\1", regex: true)),
+            ("archive grep in runs", Grep(archive, "darkstar.esm", @"\w+ö", regex: true)),
+            ("archive grep read as text", Grep(archive, "darkstar.esm", "[^ö]+ö", regex: true)),
+            ("archive encoding", Encodings(archive, "darkstar.esm", false, "strings", "dlstrings", "ilstrings")),
+            ("archive encoding count", Encodings(archive, "darkstar.esm", true)),
             ("assets", assets.Assets("kgcdoom.esm")),
             ("materials", materials.Materials("aa50_longwatch.esm")),
             ("changes", changes.Changes()),
@@ -37,6 +56,10 @@ static class FilesContractTests
             answers.Add(("scripts", scripts.Scripts("darkstar.esm")));
             answers.Add(("scripts find", scripts.Scripts("darkstar.esm", new ScriptsOptions { Find = "AddItem" })));
         }
+        static bool AsTextNote(ReportAnswer a) => a.Notes.Any(n => n.StartsWith("This regular expression is matched on the files read as text", StringComparison.Ordinal) && n.Contains("no limit to a hit's length", StringComparison.Ordinal));
+        Check(AsTextNote(answers.First(x => x.Name == "archive grep read as text").Answer), "grep [^ö]+ö: no note saying it is read as text and why");
+        Check(!AsTextNote(answers.First(x => x.Name == "archive grep near").Answer), @"grep ([äöü])\1: a note says it is read as text");
+        Check(!AsTextNote(answers.First(x => x.Name == "archive grep in runs").Answer), @"grep \w+ö: a note says it is read as text");
         var log = new StringBuilder();
         int texts = 0;
         foreach (var (name, a) in answers)
@@ -90,6 +113,8 @@ static class FilesContractTests
         var empties = new List<(string What, ReportAnswer Answer, string Says)>
         {
             ("a plugin with no archives", archive.Summary("darkstarpatch_atom74.esm"), "has no archives"),
+            ("the encodings of a plugin with no archives", Encodings(archive, "darkstarpatch_atom74.esm", false), "has no archives"),
+            ("the encodings of files that are all ASCII", Encodings(archive, "darkstar.esm", false, "mat"), "No file read holds text outside ASCII"),
             ("a pattern that fits nothing", archive.List("darkstar.esm", "*.nosuchkind"), "files in 2 archives were looked at"),
             ("a find that hits nothing in all of Data", archive.Find("zz_no_such_file_zz"), "archives were looked at"),
             ("assets of a plugin whose records name no file", assets.Assets("darkstarpatch_atom74.esm"), ""),

@@ -47,15 +47,41 @@ public sealed class QueryOptions
     public Func<long, string, string?>? HeavyGate { get; init; }
     /// <summary>A type too big to read whole is read for the columns a query names. True (the default): the plain
     /// columns (links, numbers, yes/no, enum names, plain text, points) straight from Mutagen's object, with no JSON
-    /// (DirectColumns.cs, GAPS S5). False: every column through the record's JSON, as before; the tests compare the two.</summary>
-    public bool DirectColumns { get; init; } = true;
+    /// (DirectColumns.cs, GAPS S5). False: every column through the record's JSON, as before. Internal (J81): only the
+    /// tests (sfsquery-tests, through InternalsVisibleTo) set it false, to hold the two ways against each other.</summary>
+    internal bool DirectColumns { get; init; } = true;
+    /// <summary>
+    /// The memory one command may hold (MB, the whole process's private bytes), asked when a statement starts: the
+    /// service's allowance for the command (workerMaxMB, or a heavy command's own). A statement that takes the process
+    /// past it is stopped with a clear error instead of growing until the PC runs out (GAPS S104). Null, or 0 or less:
+    /// no limit. It also sizes how much of a statement's temporary tables SQLite keeps in memory before it writes the
+    /// rest to temporary files (<see cref="SqliteTuning.TempFolder"/>).
+    /// </summary>
+    public Func<long>? MemoryLimitMB { get; init; }
+    /// <summary>What one statement's temporary files may take (MB), asked when it starts. Internal (J81's rule): only the tests set it. Null, or 0 or less: 4 times
+    /// <see cref="MemoryLimitMB"/>, 4 to 32 GB (16 GB with no memory limit; GAPS S110). Past it the statement stops with
+    /// a clear error.</summary>
+    internal Func<long>? TempFilesLimitMB { get; init; }
+    /// <summary>The setting that raises <see cref="MemoryLimitMB"/>, for the error's fix ("workerMaxMB in sfsearch.json").
+    /// Null: the fix only says to narrow the query.</summary>
+    public string? MemoryLimitSetting { get; init; }
     /// <summary>plugins.txt, for the date in the source line. Null: Starfield's own.</summary>
     public string? PluginsTxt { get; init; }
+    /// <summary>The host's world link index, as an offer (J33): for the plugins whose world records a Links WHERE ToKey = '…'
+    /// statement would have to read whole (they have no world link file), what making their world link index costs and
+    /// what it saves; null when none would be made. A "Not run" answer and the note of types left out offer it as the
+    /// third answer (allow_heavy="save_index").</summary>
+    public Func<IReadOnlyCollection<IndexedPlugin>, IndexOffer?>? WorldIndexOffer { get; init; }
 }
 
 /// <summary>What a link index says of one plugin and one target: the signatures of the records that link to it, and
-/// the signatures it doesn't cover (world data, records the walk couldn't read), which may link to it too.</summary>
-public sealed record LinkHolders(IReadOnlyCollection<string> Signatures, IReadOnlyCollection<string> NotIndexed);
+/// the signatures it doesn't cover (world data, records the walk couldn't read), which may link to it too. With a world
+/// link index (J32): <see cref="WorldEntries"/>, the world records of the plugin that link to it (entries of its
+/// segment), read alone; its world types are then covered, but for the records it couldn't read.
+/// <see cref="WorldTypes"/> (J33): the plugin's world types. Without a world link file (WorldEntries null) they are
+/// what the world link index would cover (and are among <see cref="NotIndexed"/>); with one, those not among NotIndexed
+/// are covered by it, so a statement that names one of them with a ToKey needn't read it whole.</summary>
+public sealed record LinkHolders(IReadOnlyCollection<string> Signatures, IReadOnlyCollection<string> NotIndexed, IReadOnlyList<int>? WorldEntries = null, IReadOnlyCollection<string>? WorldTypes = null);
 
 public sealed partial class QueryEngine : IDisposable
 {
@@ -87,6 +113,7 @@ public sealed partial class QueryEngine : IDisposable
         Views = new ViewBuilder(_schema);
         _reader = new RecordReader(records, options.Threads, options.DirectReaders, c => Functions.RegisterPure(c, Languages.Name(options.Language)));
         GuardScratch();
+        SqliteTuning.TempFolder(Path.Combine(options.ScratchFolder, "temp"));
     }
 
     public void Dispose() => _reader.Dispose();
@@ -115,7 +142,7 @@ public sealed partial class QueryEngine : IDisposable
         return session.Run();
     }
 
-    /// <summary>One plugin's scratch file, for callers that want to look at it (tests).</summary>
+    /// <summary>One plugin's scratch file: the file a session attaches for it (Session.cs), and the tests look into.</summary>
     public ScratchFile PluginFile(IndexedPlugin p) => new()
     {
         Path = Path.Combine(_options.ScratchFolder, ScratchFile.PluginFileName(p.ReadingKey, _recordLanguage, p.Strings)), IsSet = false,
@@ -129,10 +156,10 @@ public sealed partial class QueryEngine : IDisposable
         return Views.Find(view) is { } v ? ViewBuilder.ColumnNames(v, scope == ScopeKind.Versions) : null;
     }
 
-    /// <summary>The three tables that aren't made from the schema.</summary>
+    /// <summary>The five tables that aren't made from the schema.</summary>
     static class Special
     {
-        public static readonly string[] Names = { "Records", "Forms", "Links" };
+        public static readonly string[] Names = { "Records", "Forms", "Links", "Conditions", "Plugins" };
 
         public static List<string>? Columns(string name, bool versions)
         {
@@ -140,9 +167,13 @@ public sealed partial class QueryEngine : IDisposable
                 return versions ? new() { "FormKey", "Type", "Sig", "EditorID", "Name", "Plugin", "IsOverride", "LoadOrder", "IsWinner", "Json" }
                     : new() { "FormKey", "Type", "Sig", "EditorID", "Name", "Plugin", "IsOverride", "Json" };
             if (name.Equals("Forms", StringComparison.OrdinalIgnoreCase))
-                return new() { "FormKey", "Sig", "Type", "EditorID", "Plugin", "Parent", "IsWinner", "IsOverride", "Pos", "LoadOrder" };
+                return new() { "FormKey", "Sig", "Type", "EditorID", "Plugin", "Parent", "IsWinner", "IsOverride", "Pos", "LoadOrder", "Size", "DataSize", "Compressed", "Flags", "FlagNames" };
             if (name.Equals("Links", StringComparison.OrdinalIgnoreCase))
                 return new() { "FromKey", "FromType", "Field", "Idx", "ToKey", "Path", "Plugin" };
+            if (name.Equals("Conditions", StringComparison.OrdinalIgnoreCase))
+                return versions ? ConditionRows.Columns.Concat(new[] { "LoadOrder", "IsWinner" }).ToList() : ConditionRows.Columns.ToList();
+            if (name.Equals("Plugins", StringComparison.OrdinalIgnoreCase))
+                return PluginColumns.ToList();
             return null;
         }
 
@@ -165,4 +196,70 @@ public static class SqliteTuning
         SQLitePCL.Batteries_V2.Init();
         return SQLitePCL.raw.sqlite3_config(SQLitePCL.raw.SQLITE_CONFIG_MEMSTATUS, 0) == SQLitePCL.raw.SQLITE_OK;
     }
+
+    static string? _tempFolder;
+
+    /// <summary>
+    /// Where SQLite writes the temporary files of a sort, a GROUP BY or a temporary table too big for its share of
+    /// memory (GAPS S104): a folder of its own under the query engine's scratch folder, on the drive whose free space
+    /// the engine already checks before a big read. The files are made "delete on close" and "temporary": Windows keeps
+    /// them in its file cache while it has memory to spare, and deletes them when the query ends or the program is
+    /// stopped, so nothing is left behind. Process-wide (SQLite's own setting); the query engine sets it when made and
+    /// at each query's start, so the folder of the engine that runs is the one in use, and is there.
+    /// </summary>
+    public static void TempFolder(string folder)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        folder = Path.GetFullPath(folder);
+        // Made again when it is gone (the scratch folder emptied, or a host that deletes its scratch folder): SQLite
+        // can't open a temporary file in a folder that isn't there ("unable to open database file")
+        try { Directory.CreateDirectory(folder); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Can't be made: SQLite's own choice (the user's TEMP folder) rather than a folder that isn't there
+            if (_tempFolder != null && SqliteWin32.SetTempDirectory(null) == SQLitePCL.raw.SQLITE_OK) _tempFolder = null;
+            return;
+        }
+        if (string.Equals(_tempFolder, folder, StringComparison.OrdinalIgnoreCase)) return;
+        SQLitePCL.Batteries_V2.Init();
+        if (SqliteWin32.SetTempDirectory(folder) == SQLitePCL.raw.SQLITE_OK) _tempFolder = folder;
+    }
+
+    /// <summary>The folder <see cref="TempFolder"/> set, or null (SQLite's own choice: the user's TEMP folder).</summary>
+    public static string? TempFolderInUse => _tempFolder;
+}
+
+/// <summary>
+/// SQLite's own Windows call for its temporary-files folder, made straight to e_sqlite3 (GAPS S109, J87).
+/// SQLitePCLRaw has <c>raw.sqlite3_win32_set_directory</c>, but its provider implements it only in the build for a
+/// Windows target framework (net6.0-windows7.0, net8.0-windows7.0 in 3.x), where it calls
+/// <c>sqlite3_win32_set_directory8</c>. SFSearch targets plain net10.0, so NuGet gives it the provider's cross-platform
+/// build, where the method is compiled as <c>return 1;</c> (SQLITE_ERROR) and sets nothing: SQLitePCLRaw 2.1.12, 2.1.14
+/// and 3.0.5 alike (read in each package's provider; the newest Microsoft.Data.Sqlite changes nothing). The other routes
+/// are worse: PRAGMA temp_store_directory is deprecated and, by SQLite's own words, not threadsafe (the reading threads
+/// and the indexer have connections open while a query starts), and the process's TMP variable would move .NET's and
+/// every child program's temporary files too; a Windows target framework for every program would move their output
+/// folders. So the call SQLitePCLRaw's Windows build makes is made here, the same way: a documented SQLite function
+/// (https://sqlite.org/c3ref/win32_set_directory.html), imported from the e_sqlite3 the provider loaded, under SQLite's own
+/// lock (SQLITE_MUTEX_STATIC_TEMPDIR). Take it out for <c>raw.sqlite3_win32_set_directory</c> if SFSearch is ever built
+/// for a Windows target framework.
+/// </summary>
+static class SqliteWin32
+{
+    /// <summary>SQLITE_WIN32_TEMP_DIRECTORY_TYPE.</summary>
+    const uint TempDirectoryType = 2;
+
+    /// <summary>Sets SQLite's folder for temporary files, process-wide (null: back to SQLite's own choice, TEMP).
+    /// SQLITE_OK (0) when set.</summary>
+    public static int SetTempDirectory(string? folder)
+    {
+        if (folder == null) return SetDirectory8(TempDirectoryType, null);
+        // UTF-8 with its terminating zero, as SQLitePCLRaw's utf8z gives it; a byte array is passed pinned, as a pointer
+        byte[] utf8 = new byte[System.Text.Encoding.UTF8.GetByteCount(folder) + 1];
+        System.Text.Encoding.UTF8.GetBytes(folder, utf8);
+        return SetDirectory8(TempDirectoryType, utf8);
+    }
+
+    [System.Runtime.InteropServices.DllImport("e_sqlite3", EntryPoint = "sqlite3_win32_set_directory8", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, ExactSpelling = true)]
+    static extern int SetDirectory8(uint type, byte[]? path);
 }

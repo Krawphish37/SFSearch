@@ -352,7 +352,13 @@ static class Tests
         Check(j["columns"]!.AsArray().Count == 3 && j["rows"]!.AsArray().Count == all.Count && j["notes"] != null && j["source"]!["plugins"]!.AsArray().Count == 1 && j["cost"]!["seconds"] != null,
             "the JSON form must have columns, rows, notes, source and cost");
         var lo = c.OkLo("SELECT count(*) FROM Weapon", ScopeKind.Winners);
-        Check(lo.LoadOrder != null && lo.ToText().Contains("load order of ") && lo.Sources.Count == MutagenOrder.Loaded(c).Count, $"a load-order answer must name the load order and its plugins: {lo.LoadOrder}, {lo.Sources.Count} sources");
+        // The load order names the plugins the game loads and, when some are left out (Mutagen refuses them, C204), how
+        // many were read and which were left out and why; the sources are the plugins read
+        var enabled = c.Index.Plugins.Where(p => p.Order.Enabled).ToList();
+        var leftOut = enabled.Where(p => !p.CantLoad && p.LeftOut != null).ToList();
+        string want = $"({enabled.Count(p => !p.CantLoad):N0} loaded plugins" + (leftOut.Count == 0 ? "" : $", {MutagenOrder.Loaded(c).Count:N0} read: " + string.Join(", ", leftOut.Take(5).Select(p => $"{p.Name} ({p.LeftOutShort})")));
+        Check(lo.LoadOrder != null && lo.ToText().Contains("load order of ") && lo.LoadOrder.Contains(want, StringComparison.Ordinal) && lo.Sources.Count == MutagenOrder.Loaded(c).Count,
+            $"a load-order answer must name the load order, the plugins loaded and those read and left out (\"{want}\"): {lo.LoadOrder}, {lo.Sources.Count} sources, Mutagen's load order {MutagenOrder.Loaded(c).Count}");
         var err = c.Sql("SELECT * FROM Wepon", SF).ToText();
         Check(err.StartsWith("Error: ") && err.Contains(" Fix: ") && err.Split('\n')[0].Length < 600, $"an error is one line with its fix: {Cut(err)}");
         return $"{all.Count} rows in {n} pages of 40 by cursor, put together equal to the whole answer; a cursor of another query is refused; a 600-character budget cuts the page at {m.Groups[1].Value} rows and its cursor goes on there; the text form has the table, [more], [source] with the plugin's size and content key, and [cost]; the JSON form has the same parts; a load-order answer names {lo.Sources.Count} plugins and \"{lo.LoadOrder}\"; an error is one line with its fix";
@@ -395,12 +401,15 @@ static class Tests
         string before = probe.State();
         foreach (var (sql, must) in new[]
         {
-            ("SELECT count(*) FROM PlacedObject WHERE Base = '0002F6:Starfield.esm'", "PlacedObject in Starfield.esm is 3,291,860 records"),
+            // (a count for one base is read from the records' bytes, its rows alone kept, and needs no notice: J30)
+            ("SELECT Base, count(*) FROM PlacedObject GROUP BY Base", "PlacedObject in Starfield.esm is 3,291,860 records"),
             ("SELECT * FROM PlacedObject LIMIT 1", "PlacedObject in Starfield.esm is 3,291,860 records"),
             ("SELECT count(*) FROM Cell WHERE EditorID LIKE 'x%' AND Json LIKE '%x%'", "Cell in Starfield.esm is"),
             ("SELECT count(*) FROM NavigationMeshInfoMap WHERE Json LIKE '%x%'", "NavigationMeshInfoMap in Starfield.esm is 1 record ("),
             ("SELECT count(*) FROM SurfaceTree WHERE Json LIKE '%x%'", "SurfaceTree in Starfield.esm is"),
-            ("SELECT count(*) FROM NavigationMesh_NavmeshGeometry_Vertices", "NavigationMesh in Starfield.esm is"),
+            // (a navmesh's geometry lists are read from the records' own bytes since Mutagen lays NVNM out, GAPS S153: a
+            // count of its 9,955,594 vertices takes 5.5 s and needs no notice; every navmesh with its JSON still does)
+            ("SELECT count(*) FROM NavigationMesh WHERE Json LIKE '%x%'", "NavigationMesh in Starfield.esm is"),
         })
         {
             var a = c.Sql(sql, SF);
@@ -420,6 +429,51 @@ static class Tests
         using var noRoom = new QueryEngine(c.Records, new QueryOptions { ScratchFolder = Path.Combine(c.Work, "sql"), ScratchSpareMB = 1L << 40 });
         var noDisk = noRoom.Run(new QueryRequest { Sql = "SELECT count(*) FROM SurfaceTree WHERE Json LIKE '%x%'", Plugins = new[] { SF }, AllowHeavy = true });
         Check(noDisk.Error != null && noDisk.Error.Contains("of free disk for its scratch files") && noDisk.Error.Contains("rates measured") && probe.State() == before, $"a heavy read the disk hasn't room for must fail at once: {noDisk.Error}");
+        // GAPS S4 (fix-s4s5-world-reads): no column of a world type is read out of each record's JSON any more. The
+        // columns J75 (S101) found slow that way (20 to 112 s for Cell's Flags) are read from the records' own bytes or
+        // straight from Mutagen's object and run unasked; a column of every one of the 3.29 million placed objects
+        // still asks first (QueryOptions.HeavyRecords), but says it reads the bytes, not the JSON
+        var types = new List<string>();
+        foreach (var (type, column, how) in new[]
+        {
+            ("Cell", "Flags", "from the records' own bytes"), ("Cell", "Name", "from the records' own bytes"), ("NavigationMesh", "MajorFlags", "from the records' own bytes"),
+            ("NavigationMeshInfoMap", "StarfieldMajorRecordFlags", "from the records' own bytes"), ("SurfaceTree", "StarfieldMajorRecordFlags", "from the records' own bytes"),
+            ("Cell", "Location", "from the records' own bytes"), ("NavigationMesh", "NavmeshGeometry_NavmeshVersion", "from the records' own bytes"),
+            ("SurfaceTree", "EdgeSize", "from the records' own bytes"),
+        })
+        {
+            string sql = $"SELECT count(*) FROM {type} WHERE {column} IS NOT NULL";
+            // Each on scratch tables of its own, so that each is read as it would be first
+            using var alone = new QueryEngine(c.Records, new QueryOptions { ScratchFolder = Path.Combine(c.Work, "sql-cost-" + type + "-" + column) });
+            var a = alone.Run(new QueryRequest { Sql = sql, Plugins = new[] { SF }, PageRows = 1_000_000 });
+            Check(a.NotRun == null && a.Error == null && a.Cost.Read.Count == 1 && a.Cost.Read[0].Contains(how, StringComparison.Ordinal) && !a.Cost.Read[0].Contains("JSON", StringComparison.Ordinal),
+                $"\"{sql}\" runs unasked, {how}: {a.Error ?? a.NotRun?.What ?? a.Cost.Text}");
+            types.Add($"{type}.{column} {a.Cost.Seconds:F1} s");
+        }
+        // GAPS S146 (J99): on one engine, a column read before doesn't join the next read of the type: Cell's Name (straight
+        // from the records, through Mutagen) and then Location reads Location alone from the bytes (8.6 s with Name before
+        // J99, 0.7 s now), and a statement naming both joins the two tables, with the counts each gives alone
+        using (var both = new QueryEngine(c.Records, new QueryOptions { ScratchFolder = Path.Combine(c.Work, "sql-s146") }))
+        {
+            QueryAnswer Count(string sql) => both.Run(new QueryRequest { Sql = sql, Plugins = new[] { SF }, PageRows = 1_000_000 });
+            var name = Count("SELECT count(*) FROM Cell WHERE Name IS NOT NULL");
+            var loc = Count("SELECT count(*) FROM Cell WHERE Location IS NOT NULL");
+            Check(name.Error == null && name.NotRun == null && loc.Error == null && loc.NotRun == null && loc.Cost.Read.Count == 1
+                && loc.Cost.Read[0].Contains("column Location, from the records' own bytes", StringComparison.Ordinal),
+                $"S146: Location after Name is read alone, from the bytes: {loc.Error ?? loc.NotRun?.What ?? loc.Cost.Text}");
+            var all = Count("SELECT count(*), count(Name), count(Location) FROM Cell");
+            Check(all.Error == null && Rows(all)[0] == $"{Rows(Count("SELECT count(*) FROM Cell"))[0]} | {Rows(name)[0]} | {Rows(loc)[0]}",
+                $"S146: Name and Location from their two tables: {(all.Error ?? string.Join(" / ", Rows(all)))} against {Rows(name)[0]} and {Rows(loc)[0]}");
+            said.Add($"S146: Cell's Location after its Name read alone from the bytes in {loc.Cost.Seconds:F1} s; both from their two tables: {Rows(all)[0]}");
+        }
+        var placed = c.Sql("SELECT count(*) FROM PlacedObject WHERE StarfieldMajorRecordFlags IS NOT NULL", SF);
+        Check(placed.NotRun != null && placed.NotRun.What.Contains("PlacedObject in Starfield.esm is 3,291,860 records") && placed.NotRun.What.Contains("from the records' own bytes") && !placed.NotRun.What.Contains("JSON"),
+            $"a column of every placed object asks first, read from the bytes: {placed.Error ?? placed.NotRun?.What ?? placed.Cost.Text}");
+        Check(c.Schema.TypesOf("LAND").Count == 0 && c.Index.Plugin(SF)!.Segment!.Signatures.All(s => s.Signature != "LAND"), "Starfield has no LAND records (no type in the schema, none in Starfield.esm)");
+        // Over the load order the same (a set scope reads each plugin's cells in turn)
+        var lo = c.Lo("SELECT count(*) FROM Cell WHERE Flags IS NOT NULL", ScopeKind.Winners);
+        Check(lo.NotRun == null && lo.Error == null && lo.Cost.Read.Any(r => r.Contains("from the records' own bytes", StringComparison.Ordinal)), $"the load order's cells' Flags run from the bytes: {lo.Error ?? lo.NotRun?.What ?? lo.Cost.Text}");
+        said.Add($"read without the JSON, unasked: {string.Join(", ", types)}; the load order's cells' Flags in {lo.Cost.Seconds:F1} s");
         // A small plugin's placed objects are under the limit and just run
         var small = c.Ok("SELECT count(*) FROM PlacedObject", "kgcdoom.esm");
         Check(small.NotRun == null, "a small plugin's placed objects need no notice");
@@ -487,7 +541,7 @@ static class Tests
     {
         var p = c.Index.Plugin(SF)!;
         var fallbacks = new[] { "kgcdoom.esm", "darkstar.esm", "ShatteredSpace.esm", "sfbgs003.esm", "SFBGS00D.esm" }.Where(n => c.Index.Plugin(n)?.Segment != null).ToArray();
-        int withRows = 0, empty = 0, heavy = 0, heavyElsewhere = 0, lists = 0, listRows = 0, typesInSchema = 0;
+        int withRows = 0, empty = 0, heavy = 0, heavyElsewhere = 0, lists = 0, listRows = 0, typesInSchema = 0, jsonChecked = 0;
         var errors = new List<string>(); var lines = new List<string>(); var heavyNames = new List<string>(); var noRecordAnywhere = new List<string>();
         foreach (string root in c.Engine.Views.RootNames.OrderBy(r => r, StringComparer.Ordinal))
         {
@@ -513,6 +567,7 @@ static class Tests
                 empty++;
             }
             else withRows++;
+            jsonChecked += JsonStaysJson(c, cat.Typed, plugin, errors);
             lines.Add($"{root}\t{plugin}\t{a.TotalRows} row(s) of {a.Columns.Count} columns\t{cat.Lists.Count} list views");
             foreach (var list in cat.Lists.Values)
             {
@@ -520,14 +575,49 @@ static class Tests
                 lists++;
                 if (l.Error != null) { errors.Add($"{list.Name}: {l.Error}"); lines.Add($"{list.Name}\tERROR\t{l.Error}"); }
                 else if (l.NotRun != null) { errors.Add($"{list.Name}: {l.NotRun.What}"); }
-                else if (l.TotalRows > 0) listRows++;
+                else if (l.TotalRows > 0) { listRows++; jsonChecked += JsonStaysJson(c, list, plugin, errors); }
             }
+        }
+        // The special views' JSON columns too (GAPS S80)
+        foreach (var (sql, plugin) in new[]
+        {
+            ("SELECT count(*) FROM Records WHERE Type = 'Weapon' AND json_type(json_object('j', Json), '$.j') IS NOT 'object'", "kgcdoom.esm"),
+            ("SELECT count(*) FROM Conditions WHERE Type = 'Quest' AND (json_type(json_object('j', Flags), '$.j') IS NOT 'array' OR json_type(json_object('j', Json), '$.j') IS NOT 'object')", "sfta01.esm"),
+            ("SELECT count(*) FROM Plugins WHERE json_type(json_object('j', Masters), '$.j') IS NOT 'array'", "kgcdoom.esm"),
+        })
+        {
+            var a = c.Sql(sql, plugin);
+            if (a.Error != null || a.NotRun != null) errors.Add($"{sql}: {a.Error ?? a.NotRun!.What}");
+            else if ((long)a.Rows[0][0]! != 0) errors.Add($"{sql}: {a.Rows[0][0]} value(s) come back as text inside json_object (GAPS S80)");
+            else jsonChecked++;
         }
         c.Save("views-all.tsv", lines);
         Check(errors.Count == 0, $"{errors.Count} views failed: {Cut(string.Join("  ||  ", errors.Take(8)), 2000)}");
         int types = c.Schema.Model.RecordTypes.Count;
         Check(c.Schema.Model.RecordTypes.All(t => c.Engine.Views.Find(t.Name) != null), "a record type of the schema has no view");
-        return $"all {types} record types of the schema have a view ({typesInSchema} typed views with the 2 union views; the type ObjectModification is rows of the union view of the same name). On Starfield.esm: {withRows + empty - heavyElsewhere} ran without an SQL error ({withRows - heavyElsewhere} with rows, {empty} empty with the reason said), {heavy} answered with their cost ({string.Join(", ", heavyNames)}) and ran on a smaller plugin that has the type ({heavyElsewhere}){(noRecordAnywhere.Count > 0 ? $"; not run anywhere: {string.Join(", ", noRecordAnywhere)}" : "")}. {lists:N0} list views ran too, {listRows:N0} of them with rows";
+        return $"all {types} record types of the schema have a view ({typesInSchema} typed views with the 2 union views; the type ObjectModification is rows of the union view of the same name). On Starfield.esm: {withRows + empty - heavyElsewhere} ran without an SQL error ({withRows - heavyElsewhere} with rows, {empty} empty with the reason said), {heavy} answered with their cost ({string.Join(", ", heavyNames)}) and ran on a smaller plugin that has the type ({heavyElsewhere}){(noRecordAnywhere.Count > 0 ? $"; not run anywhere: {string.Join(", ", noRecordAnywhere)}" : "")}. {lists:N0} list views ran too, {listRows:N0} of them with rows. {jsonChecked:N0} JSON columns (Json, flags, objects too deep for columns) stay JSON inside json_object (GAPS S80)";
+    }
+
+    /// <summary>
+    /// GAPS S80: each JSON column of a view (its Json, its flags, an object too deep for columns of its own) is JSON
+    /// inside SQLite's JSON functions: json_object embeds it as the object or array it is, not as a string. One column
+    /// of each kind per view, over the view's first rows. Returns how many columns were checked.
+    /// </summary>
+    static int JsonStaysJson(Ctx c, ViewSpec v, string plugin, List<string> errors)
+    {
+        var cols = v.Columns.Where(ViewBuilder.IsJson).GroupBy(x => x.Kind).Select(g => g.First().Name).ToList();
+        if (!v.IsList || !v.ScalarEntries) cols.Add("Json");
+        int n = 0;
+        foreach (string col in cols)
+        {
+            string q = SqlText.Name(col);
+            // The JSON functions over the view's column itself: a value that leaves a subquery loses SQLite's mark anyway
+            var a = c.Sql($"SELECT count(*) FROM (SELECT {q} IS NOT NULL AS has, json_type(json_object('j', {q}), '$.j') AS inside, json_type({q}) AS own FROM {v.Name} LIMIT 20) WHERE has AND inside IS NOT own", plugin);
+            if (a.Error != null || a.NotRun != null) { errors.Add($"{v.Name}.{col} as JSON: {a.Error ?? a.NotRun!.What}"); continue; }
+            if ((long)a.Rows[0][0]! != 0) errors.Add($"{v.Name}.{col}: {a.Rows[0][0]} value(s) come back as text inside json_object, not as JSON (GAPS S80)");
+            n++;
+        }
+        return n;
     }
 
     // ------------------------------------------------------------------ Two processes
@@ -644,13 +734,18 @@ static class Tests
                 foreach (string read in r.Read.Split("; ", StringSplitOptions.RemoveEmptyEntries))
                 {
                     if (who == "A") readsA++; else readsB++;
-                    string key = plugin + ":" + read.Split(' ')[0];
+                    // What was read: the type, and for a read of named columns alone which ones ("Weapon (406, columns
+                    // EditorID, Name, from the records' own bytes) from ..."). One query's named columns and another's
+                    // whole records are two reads of a type, each done once (GAPS S188); the same read twice is the fault
+                    int open = read.IndexOf('('), close = read.IndexOf(") from ", StringComparison.Ordinal);
+                    int comma = open >= 0 && close > open ? read.IndexOf(", ", open, close - open, StringComparison.Ordinal) : -1;
+                    string key = plugin + ":" + read.Split(' ')[0] + (comma < 0 ? "" : " [" + read[(comma + 2)..close] + "]");
                     typesRead[key] = typesRead.GetValueOrDefault(key) + 1;
                 }
         }
         // Links are indexed in steps, for the types read since the last step: both processes may do a step, never the same one
         var twice = typesRead.Where(t => t.Value > 1 && !t.Key.EndsWith(":Links")).Select(t => t.Key).ToList();
-        Check(twice.Count == 0, $"a type was read into the same scratch file by both processes: {string.Join(", ", twice)}");
+        Check(twice.Count == 0, $"the same read went into the same scratch file from both processes: {string.Join(", ", twice)}");
         Check(readsA > 0 && readsB > 0, $"both processes should have filled tables: A did {readsA} reads, B {readsB}");
         return $"two processes ran the same {SharedQueries.Length} queries ({rows:N0} rows) at once on one empty scratch folder, one from the start of the list and one from the middle: no error, every query's rows equal between the two and equal to a third run alone on tables of its own; {readsA + readsB} reads filled the shared tables, {readsA} by one process and {readsB} by the other, no record type by both";
     }
@@ -662,11 +757,20 @@ static class Tests
         // that Starfield.esm's 3.29 million take: only the named columns are read, and no JSON is stored.
         string folder = Path.Combine(c.Work, "sql-columns");
         if (Directory.Exists(folder)) Directory.Delete(folder, true);
-        using var low = new QueryEngine(c.Records, new QueryOptions { ScratchFolder = folder, HeavySeconds = 0.02 });
+        using var low = new QueryEngine(c.Records, new QueryOptions { ScratchFolder = folder, HeavySeconds = 0.001 });
         const string plugin = "kgcdoom.esm";
         var refused = low.Run(new QueryRequest { Sql = "SELECT Base, count(*) FROM PlacedObject GROUP BY Base", Plugins = new[] { plugin } });
         Check(refused.NotRun != null && refused.NotRun.What.Contains("only the column the query names: Base"), $"under the low limit the query must be announced with the columns it reads: {refused.Error ?? refused.NotRun?.What}");
         QueryAnswer Low(string sql) => Must(low.Run(new QueryRequest { Sql = sql, Plugins = new[] { plugin }, AllowHeavy = true, PageRows = 1_000_000 }), sql);
+        // Over a set of plugins too (J63, GAPS S89: a set read the type whole, as JSON): the winners scope and nine plugins
+        var setRefused = low.Run(new QueryRequest { Sql = "SELECT Base, count(*) FROM PlacedObject GROUP BY Base", Scope = ScopeKind.Winners });
+        Check(setRefused.NotRun != null && setRefused.NotRun.What.Contains("only the column the query names: Base, from the records' own bytes") && setRefused.NotRun.What.Contains(" plugins is "),
+            $"over the load order the query must be announced with the column it reads from the bytes: {setRefused.Error ?? setRefused.NotRun?.What}");
+        var nine = c.Index.Plugins.Where(p => p.Segment != null && p.Problems.MissingMasters.Count == 0 && p.LeftOut == null && p.Stamp.Length < 32 << 20 && p.Segment.Signatures.Any(s => s.Signature == "REFR" && s.Count > 0))
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Take(9).Select(p => p.Name).ToArray();
+        var nineRefused = low.Run(new QueryRequest { Sql = "SELECT Base, count(*) FROM PlacedObject GROUP BY Base", Plugins = nine });
+        Check(nineRefused.NotRun != null && nineRefused.NotRun.What.Contains("PlacedObject in 9 plugins is") && nineRefused.NotRun.What.Contains("only the column the query names: Base"),
+            $"over nine plugins (one scratch file) the query must be announced with the column it reads: {nineRefused.Error ?? nineRefused.NotRun?.What}");
         var mod = c.Mod(plugin);
         var placed = mod.EnumerateMajorRecords<IPlacedObjectGetter>().ToList();
 
@@ -706,10 +810,13 @@ static class Tests
             foreach (var r in c.Mod(SF).EnumerateMajorRecords<IPlacedObjectGetter>()) { all++; if (!r.Base.IsNull) counts[r.Base.FormKey] = counts.GetValueOrDefault(r.Base.FormKey) + 1; }
             double mutagenSeconds = clock.Elapsed.TotalSeconds;
             var top = counts.OrderByDescending(k => k.Value).First();
-            var notice = c.Sql($"SELECT count(*) FROM PlacedObject WHERE Base = '{top.Key}'", SF);
+            // A column of all 3.29 million is announced first; a count for one base reads them from their bytes and keeps
+            // only that base's rows (J30), so it isn't heavy
+            var notice = c.Sql("SELECT Base, count(*) FROM PlacedObject GROUP BY Base", SF);
             Check(notice.NotRun != null, "Starfield.esm's placed objects must be announced first");
-            var sf = c.Engine.Run(new QueryRequest { Sql = $"SELECT count(*) FROM PlacedObject WHERE Base = '{top.Key}'", Plugins = new[] { SF }, AllowHeavy = true });
-            Must(sf, "the count on Starfield.esm");
+            var sf = c.Engine.Run(new QueryRequest { Sql = $"SELECT count(*) FROM PlacedObject WHERE Base = '{top.Key}'", Plugins = new[] { SF } });
+            Must(sf, "the count on Starfield.esm, not heavy");
+            Check(sf.Cost.Read.Count == 1 && sf.Cost.Read[0].Contains("only those kept", StringComparison.Ordinal), $"the count for one base keeps only its rows: {sf.Cost.Text}");
             Check((long)sf.Rows[0][0]! == top.Value, $"Starfield.esm: SQL counts {sf.Rows[0][0]} placed objects with the base {top.Key}, Mutagen {top.Value}");
             var groups = c.Engine.Run(new QueryRequest { Sql = "SELECT Base, count(*) FROM PlacedObject WHERE Base IS NOT NULL GROUP BY Base", Plugins = new[] { SF }, AllowHeavy = true, PageRows = 10_000_000 });
             Same("every base of Starfield.esm's placed objects", Rows(Must(groups, "bases")), counts.Select(k => Row(k.Key, k.Value)).ToList(), ordered: false);

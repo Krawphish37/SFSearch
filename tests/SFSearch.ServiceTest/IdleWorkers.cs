@@ -7,7 +7,7 @@ namespace SFSearch.ServiceTest;
 /// <summary>
 /// `idleworkers` (2026-11-13, fix S21 of design\agent-first\GAPS.md): workers started while others wait for the heavy
 /// lane are retired once idle, and never more commands run at once than the setting. A service must run on the test
-/// home with SFSEARCH_TEST_HOOKS=1; SFSEARCH_WORKERS in this program's environment says how many it was started with
+/// home (this program puts the test add-on into it for the run); SFSEARCH_WORKERS in this program's environment says how many it was started with
 /// (default 4). Three commands that find themselves heavy hold the heavy lane in turn (two wait, each on its worker),
 /// while ordinary commands arrive: the service starts more workers for them. Then: while the extra workers are still
 /// there, a wave of more commands than the setting runs at most the setting at once; and within the idle time (10 s)

@@ -10,6 +10,7 @@
 //   sfsrecord list     <plugin> <SIG> [count]                           records of one type, to find one to look at
 //
 // <record> is a FormKey (0003C2:darkstar.esm), a local ID (0003C2), the FormID as the file writes it, or an EditorID.
+// TES4 is the plugin's header (card, json, fields, raw, evidence): sfsrecord evidence Starfield.esm TES4 Stats.NumRecords
 // Options: --json (card, fields, raw, evidence, verify: the same parts as a structured object)
 //          --data <Data folder> (or SFSEARCH_DATA)   --scratch <folder> (or SFSRECORD_SCRATCH; default %TEMP%\sfsrecord-scratch)
 //          --time (print what each step took)   --max-items <n> (card: items printed per list, default 40)   --full (no cuts)
@@ -62,6 +63,31 @@ try
     engine.PreferDirect = direct;
     var use = engine.Sessions.Use(plugin);
     Step("open " + plugin);
+
+    // The plugin header (GAPS S88): its record name is its signature, TES4
+    if (rest.Count > 2 && rest[2].Equals("TES4", StringComparison.OrdinalIgnoreCase) && command is "card" or "json" or "fields" or "raw" or "evidence")
+    {
+        var h = engine.LoadHeader(plugin);
+        Step("read the header");
+        switch (command)
+        {
+            case "card": { var card = engine.HeaderCard(h); Console.WriteLine(asJson ? card.ToJson().ToJsonString(pretty) : card.ToText(full ? int.MaxValue : maxItems, full ? int.MaxValue : 64).TrimEnd('\n')); break; }
+            case "json": Console.WriteLine(engine.HeaderJson(h).ToJsonString(pretty)); break;
+            case "raw": Console.WriteLine(engine.HeaderRawText(h, full ? int.MaxValue : 64).TrimEnd('\n')); break;
+            case "fields":
+                Console.WriteLine(h.Label);
+                foreach (var v in engine.HeaderFields(h, rest.Skip(3))) Console.WriteLine(asJson ? v.ToJson().ToJsonString(pretty) : "  " + v.ToText().Replace("\n", "\n  "));
+                break;
+            case "evidence":
+                foreach (var field in rest.Skip(3)) { var ev = engine.HeaderEvidence(h, field); Console.WriteLine(asJson ? ev.ToJson().ToJsonString(pretty) : ev.ToText().TrimEnd('\n')); }
+                break;
+        }
+        Step(command);
+        engine.Sessions.Confirm(use);
+        foreach (var n in use.Notes) Console.WriteLine("[notes] " + n);
+        if (time) Console.Error.WriteLine("[cost] " + string.Join("; ", steps) + $"; peak memory {Process.GetCurrentProcess().PeakWorkingSet64 / 1048576:N0} MB");
+        return exit;
+    }
 
     switch (command)
     {

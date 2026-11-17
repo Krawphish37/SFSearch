@@ -14,7 +14,7 @@ namespace SFSearch.Service
     /// whenever it changes, so most edits apply without a restart (the worker count applies to new workers).
     /// The memory settings left at 0 are worked out from the PC (<see cref="PcDefaults"/>, 2026-11-12).
     /// </summary>
-    public sealed class ServiceConfig
+    public sealed partial class ServiceConfig
     {
         /// <summary>How many commands run at once. 0 = from this PC (<see cref="PcDefaults"/>).</summary>
         public int Workers { get; set; }
@@ -51,9 +51,86 @@ namespace SFSearch.Service
         public int HeavyJobTimeoutMinutes { get; set; } = 30;
         /// <summary>
         /// The service looks for changed plugins by itself, for changes2's history: at its start and at every idle check
-        /// of the header index (every 10 minutes while idle). False (or SFSEARCH_HISTORY=0): only changes2 looks. (2026-11-13, fix S11.)
+        /// of the header index (<see cref="PluginCheckSeconds"/>). False: only changes2 looks. (2026-11-13, fix S11. The
+        /// environment override SFSEARCH_HISTORY=0 went in J37: a test home sets this in its sfsearch.json.)
         /// </summary>
         public bool HistoryLook { get; set; } = true;
+        /// <summary>
+        /// While no command has come for a while, the service checks every plugin's quick stamp this often (seconds), so a
+        /// plugin added, removed or changed in Data is in the header index and the link index before the next command
+        /// needs it, and changes2's history dates the change by that look. 600 (10 minutes) by default; 10 to 86,400.
+        /// (J37, 2026-11-15: it was fixed at 10 minutes; only a test switch could change it.)
+        /// </summary>
+        public int PluginCheckSeconds { get; set; } = DefaultPluginCheckSeconds;
+        public const int DefaultPluginCheckSeconds = 600, MinPluginCheckSeconds = 10, MaxPluginCheckSeconds = 86400;
+
+        /// <summary>"every 10 minutes", "every 45 seconds": an interval of the idle check in words.</summary>
+        public static string EveryText(int seconds) =>
+            seconds % 60 == 0 ? (seconds == 60 ? "every minute" : $"every {seconds / 60:N0} minutes") : $"every {seconds:N0} seconds";
+        /// <summary>
+        /// The header index and the link index, which the service builds from the plugin files anyway, are kept between
+        /// starts in indexes\ under the home and brought up to date plugin by plugin (J31, 2026-11-15; the user's design:
+        /// "If SFSearch has to build them anyway, why delete them? You pay the cost once."). False: they are emptied at
+        /// every start and built again, as before.
+        /// </summary>
+        public bool KeepStartupIndexes { get; set; } = true;
+        /// <summary>
+        /// The index parts of plugins no longer in Data (taken out, or the copy a changed plugin replaced), in MB (J43,
+        /// from J42/S71, 2026-11-15). 0, the default: deleted when SFSearch notices (the next idle check, command or
+        /// service start), as before; the user's decision for 2.1 ("Let's keep the current behavior now but listen for
+        /// feedback from users."). A number: kept up to that many MB, the plugin out of Data longest deleted first (its parts together, J60), so a plugin put back
+        /// (switching between mod lists) isn't indexed again. Only with <see cref="KeepStartupIndexes"/>.
+        /// </summary>
+        public int KeepRemovedPluginIndexMB { get; set; }
+
+        /// <summary>True when parts of plugins no longer in Data are kept (up to <see cref="KeepRemovedPluginIndexMB"/>).</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool KeepsRemovedParts => KeepStartupIndexes && KeepRemovedPluginIndexMB > 0;
+        /// <summary>
+        /// The garbage collector each worker runs with (J44, 2026-11-15): "auto", "server" or "workstation". Server
+        /// reads a type on many cores about twice as fast and holds more memory per worker; workstation is the other way.
+        /// A command run without the service follows it too (J59: Program.RunOnChosenCollector). The coordinator and the
+        /// MCP server keep workstation.
+        /// "auto" (the default): the workers run server on every PC (J57, GAPS S84: allowed under 2.5 GB a command, a
+        /// server worker holds .NET's heap under that limit, ServiceWorker.HoldHeapUnder, so an 8 GB PC's 1.5 GB holds too); a command run without the
+        /// service, which has no such limit, runs server when one command may use <see cref="ServerGcMinWorkerMB"/> or more
+        /// (workerMaxMB in effect), else workstation. Applies to workers started after a change. Any other word is read as
+        /// "auto" and `Service config` says so.
+        /// </summary>
+        public string WorkerGarbageCollector { get; set; } = "auto";
+
+        /// <summary>
+        /// For a command run without the service, "auto" picks server from this much allowed for one command (MB). Such a
+        /// command has no limit to hold its heap under: unheld, a server process read every cell of Starfield.esm at 2.0 to
+        /// 2.3 GB at its peak (16, 12 and 8 cores), a workstation one at 1.3 to 1.7 GB (J44).
+        /// </summary>
+        public const int ServerGcMinWorkerMB = 2560;
+
+        /// <summary>True when the service's workers run .NET's server garbage collector: the setting; "auto" is server (J57).</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool ServerGcWorkers => (WorkerGarbageCollector ?? "").Trim().ToLowerInvariant() switch
+        {
+            "workstation" => false,
+            _ => true,
+        };
+
+        /// <summary>True when a command run without the service runs the server collector: the setting, or for "auto" this PC's workerMaxMB (J59).</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool ServerGcPlain => (WorkerGarbageCollector ?? "").Trim().ToLowerInvariant() switch
+        {
+            "server" => true,
+            "workstation" => false,
+            _ => WorkerMaxMB >= ServerGcMinWorkerMB,
+        };
+
+        /// <summary>For `Service config`: why the workers run the collector they do.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string WorkerGarbageCollectorWhy => (WorkerGarbageCollector ?? "").Trim().ToLowerInvariant() switch
+        {
+            "server" or "workstation" => "set in sfsearch.json",
+            var w => (w is "auto" ? "auto" : $"\"{WorkerGarbageCollector}\" isn't auto, server or workstation, so auto")
+                + $": the workers server (under 2.5 GB a command, each holds .NET's memory under it); a command without the service {(ServerGcPlain ? "server" : "workstation")}, as one command may use {MemoryInfo.GB(WorkerMaxMB)} GB here, {(ServerGcPlain ? "at least" : "under")} the {MemoryInfo.GB(ServerGcMinWorkerMB)} GB it needs unheld",
+        };
         /// <summary>plugins.txt to read the load order from; empty = Starfield's own (in the current Windows user's AppData).</summary>
         public string? PluginsTxt { get; set; }
         /// <summary>Champollion.exe (Papyrus decompiler) for scripts2; empty = look for it by itself.</summary>
@@ -75,7 +152,7 @@ namespace SFSearch.Service
         /// <summary>
         /// The numbers versions before S17 (2026-11-12) wrote into a new sfsearch.json by themselves, whatever the PC:
         /// 8 workers, workerRecycleMB 3072, workerMaxMB 12288 (1.0.x and 2.0.0) or 6144 (the M4 build). serviceMaxMB was
-        /// already 0. Read from the git history of DefaultText.
+        /// already 0. Read from the git history of DefaultText (WrittenText since J43).
         /// </summary>
         public static readonly IReadOnlyDictionary<string, int[]> OlderDefaults = new Dictionary<string, int[]>
         {
@@ -94,11 +171,11 @@ namespace SFSearch.Service
         /// <summary>What the last rewrite of an older file did, or why it couldn't (for `Service config` and the service log).</summary>
         public static string? RewriteNote { get; private set; }
 
-        /// <summary>The settings now: the file (made if missing, read again when it changes), then environment overrides.</summary>
-        public static ServiceConfig Load(string home)
+        /// <summary>The settings now: the file (made if missing, unless <paramref name="makeFile"/> is false; read again when it changes), then environment overrides.</summary>
+        public static ServiceConfig Load(string home, bool makeFile = true)
         {
             string path = PathFor(home);
-            try { if (!File.Exists(path)) File.WriteAllText(path, DefaultText); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            if (makeFile) try { if (!File.Exists(path)) File.WriteAllText(path, WrittenText(home)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             var stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
             if (_cached == null || stamp != _cachedStamp)
             {
@@ -118,6 +195,7 @@ namespace SFSearch.Service
                         stamp = File.GetLastWriteTimeUtc(path);
                     }
                     _rewritten = RewrittenLines(text);
+                    _fileValues = FileValues(text);
                 }
                 catch (Exception e) when (e is JsonException or IOException)
                 {
@@ -158,8 +236,6 @@ namespace SFSearch.Service
             if (OlderDefaults["workerRecycleMB"].Contains(c.WorkerRecycleMB)) olderNow.Add(("workerRecycleMB", c.WorkerRecycleMB));
             if (OlderDefaults["workerMaxMB"].Contains(c.WorkerMaxMB)) olderNow.Add(("workerMaxMB", c.WorkerMaxMB));
             if (olderNow.Count == 0) return null; // nothing to change: the numbers in it are the user's
-            if (Environment.GetEnvironmentVariable("SFSEARCH_KEEP_SETTINGS_FILE") == "1")
-            { RewriteNote = "sfsearch.json wasn't changed (SFSEARCH_KEEP_SETTINGS_FILE=1)."; return null; }
             string nl = text.Contains("\r\n") ? "\r\n" : "\n";
             var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
             string day = DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
@@ -229,6 +305,7 @@ namespace SFSearch.Service
             if (!from.MemoryFloorMB.StartsWith("set ")) from.MemoryFloorMB = Pc("the larger of 1.5 GB and 5% of its memory", from.MemoryFloorMB);
             return new ServiceConfig
             {
+                SettingsVersion = f.SettingsVersion,
                 Workers = workers,
                 JobTimeoutMinutes = Math.Max(1, I("SFSEARCH_JOB_MINUTES", f.JobTimeoutMinutes)),
                 WorkerRecycleMB = recycle,
@@ -241,8 +318,12 @@ namespace SFSearch.Service
                 HeavyMinMB = Math.Max(1, I("SFSEARCH_HEAVY_MIN_MB", f.HeavyMinMB)),
                 HeavySpareMB = Math.Max(0, I("SFSEARCH_HEAVY_SPARE_MB", f.HeavySpareMB)),
                 HeavyJobTimeoutMinutes = Math.Max(1, I("SFSEARCH_HEAVY_JOB_MINUTES", f.HeavyJobTimeoutMinutes)),
-                HistoryLook = Environment.GetEnvironmentVariable("SFSEARCH_HISTORY") != "0" && f.HistoryLook,
-                Champollion = f.Champollion,
+                HistoryLook = f.HistoryLook,
+                PluginCheckSeconds = Math.Clamp(f.PluginCheckSeconds, MinPluginCheckSeconds, MaxPluginCheckSeconds),
+                KeepStartupIndexes = f.KeepStartupIndexes,
+                KeepRemovedPluginIndexMB = Math.Max(0, f.KeepRemovedPluginIndexMB),
+                WorkerGarbageCollector = f.WorkerGarbageCollector ?? "auto",
+                Champollion = Environment.GetEnvironmentVariable("SFSEARCH_CHAMPOLLION") is string chx && chx.Trim().Length > 0 ? chx : f.Champollion,
                 PluginsTxt = Environment.GetEnvironmentVariable("SFSEARCH_PLUGINS_TXT") is string ptx && ptx.Length > 0 ? ptx : f.PluginsTxt,
             };
         }
@@ -276,11 +357,12 @@ namespace SFSearch.Service
         {
             long total = MemoryInfo.TotalMB();
             var sb = new System.Text.StringBuilder();
-            sb.Append($"Memory settings: this PC has {(total > 0 ? MemoryInfo.GB(total) + " GB" : "an unknown amount of memory")} and {MemoryInfo.Cores()} cores{(MemoryInfo.Pretending ? " (a test's pretend PC: SFSEARCH_TEST_MEMORY)" : "")}. In effect:");
+            sb.Append($"Memory settings: this PC has {(total > 0 ? MemoryInfo.GB(total) + " GB" : "an unknown amount of memory")} and {MemoryInfo.Cores()} cores. In effect:");
             sb.Append($"\n{indent}The workers together: {MemoryInfo.GB(ServiceMaxMB)} GB (serviceMaxMB, {From.ServiceMaxMB}). Above it no new command starts.");
             sb.Append($"\n{indent}Workers: {Workers} at once (workers, {From.Workers}).");
             sb.Append($"\n{indent}One command: {MemoryInfo.GB(WorkerMaxMB)} GB (workerMaxMB, {From.WorkerMaxMB}). Above it the command is stopped. A heavy command has its own allowance; the indexer's jobs may use {MemoryInfo.GB(Math.Max(WorkerMaxMB, IndexAllowanceMB))} GB.");
             sb.Append($"\n{indent}A worker is replaced after a command that left it above {MemoryInfo.GB(WorkerRecycleMB)} GB (workerRecycleMB, {From.WorkerRecycleMB}).");
+            sb.Append($"\n{indent}Commands' garbage collector: {(ServerGcWorkers ? "server" : "workstation")} in the workers, {(ServerGcPlain ? "server" : "workstation")} in a command run without the service (workerGarbageCollector, {WorkerGarbageCollectorWhy}). Server reads faster on many cores and holds more memory per process; workstation holds less and reads slower. A server worker holds .NET's memory under a command's limit when that is under 2.5 GB. A change applies to workers started after it and to the next command run without the service; the service itself and the MCP server run workstation.");
             sb.Append($"\n{indent}The floor: {MemoryInfo.GB(MemoryFloorMB)} GB available (memoryFloorMB, {From.MemoryFloorMB}). Under it, while commands run, the indexer gives way, then the biggest command is stopped with a clear error and can be asked again. New commands wait until Windows has {MemoryInfo.GB(HoldNewWorkBelowMB)} GB available.");
             if (RewriteNote != null) sb.Append($"\n{indent}{RewriteNote}");
             return sb.ToString();
@@ -291,19 +373,6 @@ namespace SFSearch.Service
 
         /// <summary>No new command starts (while others run) when Windows has this much available or less: the floor and half a GB, at least 2 GB.</summary>
         public int HoldNewWorkBelowMB => Math.Max(2048, MemoryFloorMB + 512);
-
-        /// <summary>For `Service config`: where the file is and what's in effect.</summary>
-        public static string Describe(string home)
-        {
-            var c = Load(home);
-            return $@"Settings file: {PathFor(home)}{(LastProblem != null ? "\nWARNING: " + LastProblem : "")}
-Workers: {c.Workers} at once. Each command may take {c.JobTimeoutMinutes} min. A worker is replaced after {c.WorkerRecycleCommands} commands or {c.WorkerRecycleMB} MB, and stopped above {c.WorkerMaxMB} MB.
-{c.MemoryLines()}
-Heavy commands (estimated at {c.HeavyMinMB} MB or more): one at a time, each may take {c.HeavyJobTimeoutMinutes} min, and one starts only when Windows has its estimate plus {c.HeavySpareMB} MB available.
-Changed plugins (changes2's history): {(c.HistoryLook ? "the service looks by itself, at its start and every 10 min while idle (historyLook)" : "only changes2 looks (historyLook is off, or SFSEARCH_HISTORY=0)")}.
-Queue limit: {c.QueueLimit}.{UnusedLines(home)}
-Environment variables (SFSEARCH_WORKERS, SFSEARCH_HISTORY=0, ...) override the file.";
-        }
 
         /// <summary>
         /// Settings an older sfsearch.json may still hold that this version reads past: the warm-up and dataCapGB were for
@@ -317,58 +386,5 @@ Environment variables (SFSEARCH_WORKERS, SFSEARCH_HISTORY=0, ...) override the f
             var unused = new[] { "warmup", "dataCapGB" }.Where(k => System.Text.RegularExpressions.Regex.IsMatch(text, "\"" + k + "\"\\s*:", System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToList();
             return unused.Count == 0 ? "" : $"\nNo longer used: {string.Join(" and ", unused)} in sfsearch.json (they were for the older commands' tables, removed in 2.0). They change nothing; delete them when you like.";
         }
-
-        const string DefaultText = @"// SFSearch settings: the service. Edit and save: SFSearch reads this again by itself.
-// Delete a line to use its default. Environment variables of the same setting (SFSEARCH_WORKERS, SFSEARCH_HISTORY=0, ...)
-// override this file. 'sfs.cmd Service config' shows what's in effect.
-{
-  // The version of this file's settings. 2: every number below is yours (versions before 2026-11-13 wrote fixed memory numbers by themselves).
-  ""settingsVersion"": 2,
-  // Memory: 0 means SFSearch works the number out from this PC's memory and cores when it starts, so the same file
-  // suits an 8 GB laptop and a 64 GB PC. A number you put in is kept as you set it. 'sfs.cmd Service config' shows
-  // each number in effect and where it came from.
-  // How many commands run at once (each in its own worker program). 0 = one per 2 GB of serviceMaxMB, at least 2,
-  // at most 8 and at most the PC's cores less 2 (8 on a 32 GB PC or bigger).
-  ""workers"": 0,
-  // A command running longer than this is stopped with a clear error.
-  ""jobTimeoutMinutes"": 10,
-  // A worker is replaced after a command that left it above workerRecycleMB, or after workerRecycleCommands commands.
-  // A command is stopped mid-way above workerMaxMB.
-  // 0 = workerMaxMB is a third of serviceMaxMB (at least 1536, at most 6144: 2.7 GB on a 16 GB PC, 6 GB on a 64 GB PC),
-  // and workerRecycleMB half of workerMaxMB (at least 1024, at most 3072).
-  ""workerRecycleMB"": 0,
-  ""workerMaxMB"": 0,
-  ""workerRecycleCommands"": 500,
-  // All workers together may hold this much memory (MB). Above it no new command starts until some is given back.
-  // 0 = half of this PC's memory.
-  ""serviceMaxMB"": 0,
-  // While commands run and Windows has less than this available (MB), the indexer gives way, then the biggest
-  // command is stopped with a clear error (it can be asked again), before Windows has to page.
-  // 0 = the larger of 1536 and 5% of this PC's memory.
-  ""memoryFloorMB"": 0,
-  // Heavy commands: one that estimates itself at heavyMinMB or more runs one at a time, and starts only when Windows
-  // has its estimate plus heavySpareMB available. If not, it fails at once with a clear line: it never waits, and it
-  // never starts and makes the PC page. A heavy command may hold more than workerMaxMB: up to its estimate and half
-  // again (heavySpareMB more at most), and has its own time limit.
-  ""heavyMinMB"": 2048,
-  ""heavySpareMB"": 4096,
-  ""heavyJobTimeoutMinutes"": 30,
-  // changes2 tells what changed in Data (plugins added, removed, updated; patches at risk). The service looks by itself
-  // at its start and every 10 minutes while idle, so a change is dated near when it happened and changes2 compares
-  // with the service's last look. A look when nothing changed takes a few milliseconds. The history it keeps (kept\history)
-  // holds each plugin copy's FormKeys and record types, no record contents. false = only changes2 looks.
-  ""historyLook"": true,
-  // More waiting commands than this are turned away with ""busy, try again"".
-  ""queueLimit"": 500,
-
-  // Champollion.exe, the Papyrus decompiler scripts2 uses (version 1.3.2 or newer). Leave empty to look for it in
-  // SFSearch's tools\champollion folder.
-  ""champollion"": """",
-
-  // The load order (plugins.txt) to use. Leave empty for Starfield's own, in your Windows user's AppData folder. Set it to
-  // read another one, e.g. a second Windows account's: C:\\Users\\Other\\AppData\\Local\\Starfield\\Plugins.txt
-  ""pluginsTxt"": """"
-}
-";
     }
 }

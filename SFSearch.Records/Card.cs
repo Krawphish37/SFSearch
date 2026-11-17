@@ -226,7 +226,25 @@ public sealed class Card
         if (f.Kind == "ByteArray") return Cut(t, maxBytes);
         if (f.Kind is "String" or "Text" && (t.Length == 0 || t != t.Trim() || t.Contains('\n'))) return JsonSerializer.Serialize(t, Relaxed);
         if (f.Languages is { Count: > 1 }) return $"{t}   [{f.Languages.Count} languages]";
+        // A GUID (a sound reference's Wwise events): the form Wwise and xEdit show first, since that is the one that
+        // finds the event; Mutagen's .NET form of the same 16 bytes, which the JSON and the views' columns give, beside it
+        if (f.Kind == "Guid" && WwiseGuid(t) is { } wwise) return $"{wwise}   [Wwise and xEdit's form; {t} as Mutagen reads it]";
         return t;
+    }
+
+    /// <summary>
+    /// A GUID as Wwise and xEdit show it, from the text .NET (and so Mutagen and the JSON) gives for the same 16 bytes.
+    /// .NET reads bytes 0-3, 4-5 and 6-7 as little-endian numbers and prints 8-15 in order; Wwise reads two
+    /// little-endian 64-bit halves. So "A97E454F-4307-41EE-45D0-7BD23FC3DE8D" is "{41EE4307-A97E-454F-8DDE-C33FD27BD045}",
+    /// the event ITM_Generic_Weapon_Rifle_Light_Up. Null when the text is no GUID.
+    /// </summary>
+    public static string? WwiseGuid(string? netText)
+    {
+        if (netText == null || !Guid.TryParse(netText, out var g)) return null;
+        var b = g.ToByteArray();
+        ulong first = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(b), second = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(b.AsSpan(8));
+        string a = first.ToString("X16", CultureInfo.InvariantCulture), c = second.ToString("X16", CultureInfo.InvariantCulture);
+        return $"{{{a[..8]}-{a[8..12]}-{a[12..]}-{c[..4]}-{c[4..]}}}";
     }
 
     static readonly JsonSerializerOptions Relaxed = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };

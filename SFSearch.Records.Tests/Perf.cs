@@ -103,6 +103,9 @@ static class Perf
         int next = 0; long ticks = 0, sum = 0;
         Exception? failure = null;
         var index = e.Index;
+        // The "bytes" stage: Mutagen's reader of one record, as the session makes it (the same masters' sizes)
+        using var reader = Mutagen.Bethesda.Plugins.Binary.MajorRecordReader.FromPath(new Mutagen.Bethesda.Plugins.ModPath(session.ModKey, session.Path), Mutagen.Bethesda.GameRelease.Starfield,
+            new Mutagen.Bethesda.Plugins.Binary.Parameters.BinaryReadParameters { MasterFlagsLookup = session.MasterFlags });
         void Work()
         {
             long mine = 0, t = 0;
@@ -138,9 +141,8 @@ static class Perf
                             case "bytes":
                             {
                                 var info = index.Describe(r);
-                                // As RecordEngine.Load and PluginSession.DirectBuffer read now
-                                if ((info.Flags & RawRecord.CompressedFlag) != 0 && info.Size >= 4) session.ReadAt(info.Offset, first);
-                                mine += session.DirectBuffer(info.Offset, holder, out _).Length;
+                                // As RecordEngine.Load reads now: Mutagen's MajorRecordReader, a holder's children as headers (C58 W9)
+                                mine += reader.ReadBytesAt(info.Offset, holder ? Mutagen.Bethesda.Plugins.Binary.ChildRecordRead.Headers : Mutagen.Bethesda.Plugins.Binary.ChildRecordRead.None).Length;
                                 break;
                             }
                             case "load":
@@ -149,7 +151,7 @@ static class Perf
                             case "json":
                             {
                                 var rec = e.Load(r);
-                                string json = e.Schema.HoldsRecords(rec.Type) ? e.Json(rec).ToJsonString() : RecordSerializer.ToJson(rec.Record, rec.Type);
+                                string json = e.Schema.HoldsRecords(rec.Type) ? e.Json(rec).ToJsonString() : RecordSerializer.ToJson(rec.Record);
                                 mine += json.Length;
                                 break;
                             }

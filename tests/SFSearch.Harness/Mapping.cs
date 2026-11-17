@@ -28,7 +28,7 @@ public static class Mapping
         ["Names"] = "find", ["Refs"] = "refs2", ["Conflicts"] = "compare", ["LoadOrder"] = "loadorder2", ["Leveled"] = "leveled2",
         ["Dialogue"] = "dialogue2", ["Sources"] = "sources2", ["Scripts"] = "scripts2", ["Changes"] = "changes2", ["Archive"] = "archive2",
         ["Materials"] = "materials2", ["Assets"] = "assets2", ["PluginDiff"] = "compare", ["Live"] = "record", ["VerifyDb"] = "record",
-        ["LossCheck"] = "check2", ["Databases"] = "status", ["Session"] = "Service",
+        ["LossCheck"] = "check2", ["Databases"] = "indexes", ["Session"] = "Service",
         ["Add"] = "", ["BuildCache"] = "", ["LiveScanCheck"] = "",
     };
 

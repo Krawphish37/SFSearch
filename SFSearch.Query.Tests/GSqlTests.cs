@@ -42,10 +42,18 @@ static class GSqlTests
     public static string DirectColumns(Ctx c)
     {
         var said = new List<string>();
+        // J30: the columns read from the records' own bytes, against Mutagen record by record
+        foreach (var (plugin, type) in c.Heavy ? new[] { (KGC, "Cell"), (KGC, "PlacedObject"), (SF, "Cell"), (SF, "PlacedObject") } : new[] { (KGC, "Cell"), (KGC, "PlacedObject") })
+            said.Add(RawAgainstMutagen(c, plugin, type));
+        string[] RawColumns(string type) { var v = c.Engine.Views.Catalog(type).Typed; return v.Columns.Where(col => RawColumn.For(v, col, c.Schema) != null).Select(col => col.Name).ToArray(); }
         var cases = new List<(string Plugin, string Type, string[]? Columns)>
         {
             (KGC, "PlacedObject", null), (SF, "Weapon", null), (SF, "Armor", null), (SF, "Book", null), (KGC, "Npc", null),
+            // Every column read from the bytes at once: the table read so, against the one read through the JSON
+            (KGC, "PlacedObject", RawColumns("PlacedObject")), (KGC, "Cell", RawColumns("Cell")),
         };
+        // (Starfield.esm's cells and placed objects are held against Mutagen record by record above; their tables read
+        // through the JSON too took 42 s and 69 s more, past the tests' 5 minutes)
         if (c.Heavy)
             cases.Add((SF, "PlacedObject", new[]
             {
@@ -95,8 +103,72 @@ static class GSqlTests
             }
             said.Add($"{sql} = {answer} both ways ({string.Join(", ", times)})");
         }
+        said.Add(Filters(c));
+        // J63 (GAPS S89): the same routes over a set of plugins, the winners and the versions scope
+        said.Add(SetScopeTests.Run(c));
         return string.Join("; ", said);
     }
+
+    /// <summary>
+    /// J30: every record of a type, each column RawColumn reads from the record's bytes against DirectColumn on
+    /// Mutagen's object of the same record: the same value and kind, or the record left to Mutagen (the bytes can't
+    /// say it for sure). Each column on its own, so one column read through Mutagen doesn't hide the others.
+    /// <paramref name="only"/>: the columns held (all the bytes read, when null).
+    /// </summary>
+    internal static string RawAgainstMutagen(Ctx c, string plugin, string type, Func<RawColumn, bool>? only = null)
+    {
+        var view = c.Engine.Views.Catalog(type).Typed;
+        var cols = view.Columns.Select(col => (Spec: col, Raw: RawColumn.For(view, col, c.Schema), Direct: DirectColumn.For(col, "English"))).Where(x => x.Raw != null && (only == null || only(x.Raw))).ToList();
+        Check(cols.Count > 0, $"{type}: no column is read from the bytes");
+        Check(cols.All(x => x.Direct != null), $"{type}: a column read from the bytes has no direct reader");
+        var p = c.Index.Plugin(plugin)!;
+        var entries = p.Segment!.EntriesOf(c.Schema.SignatureOf(type)!).ToArray();
+        var session = c.Records.Sessions.Get(plugin);
+        c.Records.OpenForThreads(entries.Select(e => new RecordRef(p.Id, e)));
+        // A translated text in English, as the direct reader gives it (GAPS S152)
+        var rawPlugin = new RawPlugin(p, session, "English");
+        var readers = cols.Select(x => new RawRecordColumns(new[] { x.Raw! })).ToArray();
+        var fromBytes = new long[cols.Count]; var toMutagen = new long[cols.Count];
+        long records = 0, values = 0; var bad = new List<string>(); long badCount = 0;
+        var clock = Stopwatch.StartNew();
+        foreach (string problem in RecordPipeline.Read<string>(new[] { new ReadSet { Plugin = p, Entries = entries } }, (in PipelineRecord r, List<string> output) =>
+        {
+            Interlocked.Increment(ref records);
+            if (r.Problem != PipelineProblem.None) { output.Add($"{c.Index.Describe(r.Ref).Label}: its bytes can't be read ({r.Problem})"); return; }
+            object rec;
+            try { rec = c.Records.Load(r.Ref).Record; }
+            catch (Exception e) { output.Add($"{c.Index.Describe(r.Ref).Label}: Mutagen couldn't read it ({e.Message})"); return; }
+            var one = new object?[1];
+            for (int k = 0; k < cols.Count; k++)
+            {
+                if (!readers[k].Read(r.Head, r.Data, rawPlugin, one)) { Interlocked.Increment(ref toMutagen[k]); continue; }
+                Interlocked.Increment(ref fromBytes[k]); Interlocked.Increment(ref values);
+                object? m;
+                try { m = cols[k].Direct!.Read(rec); }
+                catch (InvalidOperationException e) { output.Add($"{c.Index.Describe(r.Ref).Label}, column {cols[k].Spec.Name}: read straight from the record, {e.Message}"); continue; }
+                if (!SameValue(one[0], m)) output.Add($"{c.Index.Describe(r.Ref).Label}, column {cols[k].Spec.Name}: from the bytes {Show(one[0])}, Mutagen {Show(m)}");
+            }
+        }, new PipelineOptions { Data = PipelineData.Plain, CostPerByte = PipelineOptions.MutagenCostPerByte, PieceRecords = 512 }))
+        {
+            badCount++;
+            if (bad.Count < 5) bad.Add(problem);
+        }
+        Check(badCount == 0, $"{type} of {plugin}: {badCount:N0} difference(s) between the bytes and Mutagen. The first: {string.Join("; ", bad)}");
+        var left = cols.Select((x, k) => (x.Spec.Name, N: toMutagen[k])).Where(x => x.N > 0).Select(x => $"{x.Name} {x.N:N0}").ToList();
+        return $"{type} of {plugin}: {records:N0} records × {cols.Count} columns read from the bytes ({string.Join(", ", cols.Select(x => x.Spec.Name))}): {values:N0} values equal to Mutagen's, "
+            + $"{(left.Count == 0 ? "none left to Mutagen" : "left to Mutagen: " + string.Join(", ", left))}, in {clock.Elapsed.TotalSeconds:F1} s";
+    }
+
+    static bool SameValue(object? a, object? b) => (a, b) switch
+    {
+        (null, null) => true,
+        (long x, long y) => x == y,
+        (double x, double y) => BitConverter.DoubleToInt64Bits(x) == BitConverter.DoubleToInt64Bits(y),
+        (string x, string y) => string.Equals(x, y, StringComparison.Ordinal),
+        _ => false,
+    };
+
+    static string Show(object? v) => v == null ? "NULL" : $"{v} ({v.GetType().Name})";
 
     /// <summary>The column tables two engines wrote for one type of one plugin, held against each other in SQLite:
     /// every value and its type. Returns the rows.</summary>
@@ -127,6 +199,115 @@ static class GSqlTests
                 throw new TestFailed($"{type} of {plugin.Name}, column {col}: {r.GetInt64(5):N0} record(s) differ. The first, {r.GetString(0)}: direct {r.GetString(1)} ({r.GetString(2)}), through the JSON {r.GetString(3)} ({r.GetString(4)})");
         }
         return rows;
+    }
+
+    /// <summary>
+    /// J30: a statement's col = literal applied while reading. On kgcdoom.esm under a low limit (the route Starfield.esm's
+    /// 3.29 million placed objects take): each filtered statement gives the rows the whole read gives, says it kept only
+    /// the matching records, and stores nothing in the scratch file; each statement where a row with another value could
+    /// count is read without the filter (and gives the same rows too). With --heavy, Starfield.esm's count for one base,
+    /// filtered, against Mutagen's.
+    /// </summary>
+    static string Filters(Ctx c)
+    {
+        var placed = c.Mod(KGC).EnumerateMajorRecords<IPlacedObjectGetter>().ToList();
+        var bases = placed.Where(p => !p.Base.IsNull).GroupBy(p => p.Base.FormKey).OrderByDescending(g => g.Count()).Select(g => g.Key.ToString()).ToList();
+        string b0 = bases[0], b1 = bases[1];
+        var filtered = new[]
+        {
+            $"SELECT FormKey, Base FROM PlacedObject WHERE Base = '{b0}' ORDER BY FormKey",
+            $"SELECT FormKey, Base FROM PlacedObject WHERE '{b0.ToLowerInvariant()}' = Base ORDER BY FormKey",
+            $"SELECT count(*) FROM PlacedObject p WHERE p.Base IN ('{b0}', '{b1}', '000000:Nothing.esm')",
+            $"SELECT FormKey, Base, Scale FROM PlacedObject WHERE Base = '{b1}' AND Scale IS NULL ORDER BY FormKey",
+        };
+        var whole = new[]
+        {
+            $"SELECT FormKey, Base FROM PlacedObject WHERE Base = '{b0}' OR Scale > 1 ORDER BY FormKey",
+            $"SELECT FormKey, Base FROM PlacedObject WHERE Base LIKE '{b0}' ORDER BY FormKey",
+            $"SELECT FormKey, Base FROM PlacedObject WHERE Base = '{b0}' COLLATE BINARY ORDER BY FormKey",
+            $"SELECT a.FormKey FROM PlacedObject a JOIN PlacedObject b ON b.Base = a.Base WHERE a.Base = '{b1}' ORDER BY 1",
+            $"SELECT FormKey, Base FROM PlacedObject WHERE Base = '{b0}' UNION ALL SELECT FormKey, Base FROM PlacedObject WHERE Scale > 1 ORDER BY 1",
+            $"SELECT count(*) FROM PlacedObject WHERE Base = (SELECT Base FROM PlacedObject WHERE Base IS NOT NULL LIMIT 1)",
+        };
+        int n = 0;
+        foreach (string sql in filtered.Concat(whole))
+        {
+            bool expect = n++ < filtered.Length;
+            using var low = Fresh(c, "sql-filter", f => new QueryOptions { ScratchFolder = f, HeavySeconds = 0.0001 });
+            var a = Must(Run(low, sql, KGC, heavy: true), sql);
+            var w = c.Ok(sql, KGC);
+            Same($"\"{sql}\" against the whole read", Rows(a), Rows(w), ordered: true);
+            bool kept = a.Cost.Read.Any(r => r.Contains("only those kept", StringComparison.Ordinal));
+            Check(kept == expect, $"\"{sql}\" must {(expect ? "" : "not ")}be filtered while reading: {a.Cost.Text}");
+            if (expect)
+                using (var con = new SqliteConnection($"Data Source={low.PluginFile(c.Index.Plugin(KGC)!).Path};Mode=ReadOnly;Pooling=False"))
+                {
+                    con.Open();
+                    using var cmd = con.CreateCommand();
+                    cmd.CommandText = "SELECT (SELECT count(*) FROM Rec) + (SELECT count(*) FROM Proj)";
+                    Check((long)cmd.ExecuteScalar()! == 0, $"\"{sql}\": a filtered read stores nothing in the scratch file");
+                }
+        }
+        string said = $"{filtered.Length} statements filtered while reading and {whole.Length} not, each equal to the whole read";
+        if (c.Heavy)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in c.Mod(SF).EnumerateMajorRecords<IPlacedObjectGetter>()) if (!r.Base.IsNull) { string k = r.Base.FormKey.ToString(); counts[k] = counts.GetValueOrDefault(k) + 1; }
+            foreach (string k in new[] { "00003B:Starfield.esm", counts.OrderByDescending(x => x.Value).First().Key })
+            {
+                using var e = Fresh(c, "sql-filter-sf");
+                var a = Must(Run(e, $"SELECT count(*) FROM PlacedObject WHERE Base = '{k}'", SF), k);
+                Check((long)a.Rows[0][0]! == counts.GetValueOrDefault(k), $"Starfield.esm, base {k}: {a.Rows[0][0]} placed objects, Mutagen {counts.GetValueOrDefault(k)}");
+                said += $"; Starfield.esm WHERE Base = '{k}': {a.Rows[0][0]:N0}, equal to Mutagen, in {a.Cost.Seconds:F2} s ({a.Cost.Text})";
+            }
+        }
+        return said;
+    }
+
+    // ------------------------------------------------------------------ S81: a record's sizes in Forms
+    /// <summary>
+    /// GAPS S81: Forms gives each record's Size (stored after its header), DataSize (inflated) and Compressed. On
+    /// SFBGS00D.esm, every record's three values against the file read here (the header's size, and a compressed
+    /// record's first four bytes), and the biggest cell by DataSize (J21 found 03D1E5:SFBGS00D.esm, 1,519,435 bytes
+    /// inflated, with a Python walk of the file).
+    /// </summary>
+    public static string FormsSizes(Ctx c)
+    {
+        const string plugin = "SFBGS00D.esm";
+        var p = c.Index.Plugin(plugin)!;
+        var seg = p.Segment!;
+        var want = new Dictionary<long, (long Size, long Data, long Zip)>();
+        using (var file = File.OpenHandle(p.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            var header = new byte[28];
+            for (int i = 0; i < seg.Count; i++)
+            {
+                var e = seg[i];
+                int n = RandomAccess.Read(file, header, e.Offset);
+                Check(n >= 24, $"{plugin}: no record header at {e.Offset}");
+                long size = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
+                bool zip = (BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8)) & 0x00040000) != 0;
+                long data = zip ? BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(24)) : size;
+                want[e.Offset] = (size, data, zip ? 1 : 0);
+            }
+        }
+        using var e2 = Fresh(c, "sql-forms");
+        var all = Must(Run(e2, "SELECT Pos, Size, DataSize, Compressed FROM Forms", plugin), "Forms sizes");
+        Check(all.Rows.Count == want.Count, $"{plugin}: Forms has {all.Rows.Count:N0} rows, the file {want.Count:N0} records");
+        int bad = 0; string? first = null;
+        foreach (var r in all.Rows)
+        {
+            var w = want[(long)r[0]!];
+            if ((long)r[1]! != w.Size || (long)r[2]! != w.Data || (long)r[3]! != w.Zip) { bad++; first ??= $"at {r[0]}: {r[1]}/{r[2]}/{r[3]}, the file {w.Size}/{w.Data}/{w.Zip}"; }
+        }
+        Check(bad == 0, $"{plugin}: {bad:N0} records' sizes differ from the file's. The first {first}");
+        // The biggest cell as stored is the one J21's walk found; as read (inflated) another one is bigger
+        var stored = Must(Run(e2, "SELECT FormKey, Size, DataSize FROM Forms WHERE Type = 'Cell' ORDER BY Size DESC LIMIT 1", plugin), "the biggest cell stored");
+        Check(Row(stored.Rows[0][0], stored.Rows[0][1], stored.Rows[0][2]) == Row("03D1E5:SFBGS00D.esm", 982494L, 1519435L), $"the biggest cell of {plugin} as stored: {Row(stored.Rows[0])}");
+        var cells = seg.EntriesOf("CELL").Select(i => want[seg[i].Offset]).ToList();
+        var top = Must(Run(e2, "SELECT FormKey, Size, DataSize FROM Forms WHERE Type = 'Cell' ORDER BY DataSize DESC LIMIT 1", plugin), "the biggest cell");
+        Check((long)top.Rows[0][2]! == cells.Max(x => x.Data), $"the biggest cell of {plugin} as read: {Row(top.Rows[0])}, the file's biggest is {cells.Max(x => x.Data)} bytes");
+        return $"{plugin}: {want.Count:N0} records' Size, DataSize and Compressed equal to the file's; the biggest cell stored {Row(stored.Rows[0])}, as read {Row(top.Rows[0])}";
     }
 
     // ------------------------------------------------------------------ S28: a typed view narrowed by FormKey
@@ -186,7 +367,11 @@ static class GSqlTests
         foreach (string sql in refused)
         {
             var a = e.Run(new QueryRequest { Sql = sql, Plugins = new[] { SF }, Parameters = new Dictionary<string, object?> { ["fk"] = k0 } });
-            Check(a.Error == null && a.NotRun != null && !a.Cost.Read.Any(), $"\"{sql}\" must not be narrowed by FormKey: {a.Error ?? (a.NotRun == null ? "it ran: " + a.Cost.Text : "")}");
+            // Not by FormKey from the header index. The typed view joined to a list by FormKey (USING) is read for the
+            // list's FormKeys instead since J21 (ListReads.cs), which gives every row: that statement may run
+            bool joined = a.Cost.Read.Any(r => r.Contains("with the FormKeys that hold the list", StringComparison.Ordinal));
+            Check(a.Error == null && (a.NotRun != null && !a.Cost.Read.Any() || joined) && !a.Cost.Read.Any(r => r.Contains("by FormKey, from the header index", StringComparison.Ordinal)),
+                $"\"{sql}\" must not be narrowed by FormKey: {a.Error ?? (a.NotRun == null ? "it ran: " + a.Cost.Text : "")}");
         }
         said.Add($"{refused.Length} statements where a row could have another FormKey are announced, not narrowed");
 
@@ -251,7 +436,7 @@ static class GSqlTests
     /// </summary>
     public static string StringsStamp(Ctx c)
     {
-        var data = new HeaderIndex(PluginSource.Folder(c.Data), new IndexOptions { ScratchFolder = Path.Combine(c.Work, "index"), VersionText = "sfsquery-tests strings", StringFiles = new StringFiles(c.Data, null) });
+        var data = new HeaderIndex(PluginSource.Folder(c.Data), new IndexOptions { ScratchFolder = Path.Combine(c.Work, "index"), VersionText = "sfsquery-tests strings", StringFiles = new StringFiles(c.Data) });
         using var _ = data;
         data.Refresh();
         static bool HandsOff(string name) => name.StartsWith("darkstarpatch_", StringComparison.OrdinalIgnoreCase) || System.Text.RegularExpressions.Regex.IsMatch(name, @"^sfta0[1-6]\.esm$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -278,9 +463,12 @@ static class GSqlTests
         string strings = Path.Combine(loose, archived.Name);
         Check(File.Exists(strings) && strings.StartsWith(c.Work, StringComparison.OrdinalIgnoreCase), $"{archived.Name} wasn't taken out into the work folder");
 
+        // The copy and its masters, theirs too (a master with masters of its own can't be loaded without them)
         var files = new List<string> { copy };
-        files.AddRange(source.Header!.Masters.Select(m => data.Plugin(m)!.Path));
-        using var index = new HeaderIndex(PluginSource.FromFiles(files), new IndexOptions { ScratchFolder = Path.Combine(folder, "index"), VersionText = "sfsquery-tests strings", PluginsTxt = "", Ccc = "", StringFiles = new StringFiles(c.Data, null) });
+        var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddMasters(IndexedPlugin of) { foreach (var m in of.Header!.Masters) if (named.Add(m) && data.Plugin(m) is { } mp) { files.Add(mp.Path); AddMasters(mp); } }
+        AddMasters(source);
+        using var index = new HeaderIndex(PluginSource.FromFiles(files), new IndexOptions { ScratchFolder = Path.Combine(folder, "index"), VersionText = "sfsquery-tests strings", PluginsTxt = "", Ccc = "", StringFiles = new StringFiles(c.Data) });
         index.Refresh();
         using var records = new RecordEngine(index, c.Schema, Path.Combine(folder, "verify"), c.Data);
         using var engine = new QueryEngine(records, new QueryOptions { ScratchFolder = Path.Combine(folder, "sql") });

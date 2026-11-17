@@ -36,6 +36,14 @@ public sealed class ProfileOptions
     public string? In { get; init; }
     /// <summary>Samples per field in the text (the JSON keeps up to <see cref="ProfileReport.KeptSamples"/>).</summary>
     public int Samples { get; init; } = 3;
+    /// <summary>The condition census (GAPS S44): every condition of every record (of <see cref="Type"/>, or of every type
+    /// that can hold one), counted by its function.</summary>
+    public bool Conditions { get; init; }
+    /// <summary>With <see cref="Conditions"/>: only this function (its index, 961, or its name).</summary>
+    public string? Function { get; init; }
+    /// <summary>The world link index, when the caller keeps one (GAPS S99): a world type's link field is counted from it
+    /// when every plugin read has its file.</summary>
+    public IWorldLinkIndex? World { get; init; }
 }
 
 /// <summary>One field to profile: a record type and a path of the schema.</summary>
@@ -48,6 +56,8 @@ public sealed class ProfileTarget
     public required FieldRow Row { get; init; }
     /// <summary>A part of the field the path ends in (a point's X), or null.</summary>
     public string? Part { get; init; }
+    /// <summary>A place that holds conditions, counted by function (the condition census), not profiled as a value.</summary>
+    public bool Census { get; init; }
     public string Name => $"{Type}.{Path}";
 }
 
@@ -62,9 +72,19 @@ public sealed class ProfilePlan
     public long MemoryMB { get; init; }
     public required string What { get; init; }
     public List<string> Notes { get; } = new();
+    /// <summary>The condition census: the function asked for, or null for every one.</summary>
+    public long? Function { get; init; }
+    public bool Census => Targets.Count > 0 && Targets.All(t => t.Census);
+    /// <summary>Every field asked is a link field the files' bytes give (GAPS S92): read from them, not through Mutagen.</summary>
+    internal List<ProfileReport.ByteField>? FromBytes { get; init; }
+    /// <summary>The fields are counted from the world link index (GAPS S99): every plugin read has its file.</summary>
+    internal IWorldLinkIndex? FromWorld { get; init; }
+    /// <summary>The plugins whose world link files would answer the fields (whether made or not); null when the index
+    /// can't answer them: what a "save the index" answer would make.</summary>
+    public IReadOnlyList<IndexedPlugin>? WorldPlugins { get; init; }
 }
 
-public sealed class ProfileReport(ReportSession session)
+public sealed partial class ProfileReport(ReportSession session)
 {
     /// <summary>Samples kept per field (nonzero ones; a third as many zero ones).</summary>
     public const int KeptSamples = 12;
@@ -84,7 +104,22 @@ public sealed class ProfileReport(ReportSession session)
         var targets = new List<ProfileTarget>();
         var notes = new List<string>();
         var model = session.Schema.Model;
-        if (o.Unknown)
+        long? function = null;
+        if (o.Conditions)
+        {
+            if (o.Fields.Count > 0 || o.Unknown) throw new ReportException("conditions was given with fields or unknown", "ask for the condition census alone (with a type, or alone for every type)");
+            var types = o.Type == null ? model.RecordTypes.ToList() : TypesNamed(o.Type);
+            foreach (var t in types)
+            {
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var row in model.Expand(t.Name).Where(r => r.Def.RefObject is { } ro && ConditionObjects.Contains(ro)))
+                    if (seen.Add(row.Path)) targets.Add(new ProfileTarget { Type = t.Name, Signature = t.Sig!, Path = row.Path, Row = row, Census = true });
+            }
+            if (targets.Count == 0) throw new ReportException($"{o.Type} can't hold a condition (no field of it is a Condition)", "describe *Conditions* lists the types that can; or leave the type out for every one");
+            if (o.Function is { } fn) function = FunctionIndex(fn);
+        }
+        else if (o.Function != null) throw new ReportException("function was given without conditions", "add --conditions: profile --conditions --function 961");
+        else if (o.Unknown)
         {
             if (o.Fields.Count > 0) throw new ReportException("fields and unknown were both given", "give fields, or unknown (with a type, or alone for every type), not both");
             var types = o.Type == null ? model.RecordTypes.ToList() : TypesNamed(o.Type);
@@ -107,10 +142,38 @@ public sealed class ProfileReport(ReportSession session)
                 if (sigs.Contains(s.Signature)) { records += s.Count; bytes += s.Bytes; }
         double seconds = 0.5 + records * SecondsPerRecord + bytes / 1048576.0 * SecondsPerMB;
         long memory = 300 + bytes / 1048576 * 2;
+        // Link fields whose places the bytes give are read from the bytes on all cores (GAPS S92): as the type
+        // statistics, 0.003 s a MB as stored and 1 µs a record (profile --subrecords "*", ProfileStats.cs)
+        var fromBytes = o.Conditions || o.Unknown ? null : ByteRoute(targets);
+        if (fromBytes != null) { seconds = 0.5 + bytes / 1048576.0 * 0.003 + records * 1e-6; memory = 1500; }
+        // A world type's link field the world link index answers (GAPS S99): its postings, 0.1 µs a record
+        List<IndexedPlugin>? worldPlugins = fromBytes != null && o.World != null && WorldAnswers(fromBytes, session.Schema) ? WorldPlugins(set, targets, o.World) : null;
+        bool fromWorld = worldPlugins is { Count: > 0 } && worldPlugins.All(o.World!.Has);
+        if (fromWorld) { seconds = 0.5 + records * 1e-7; memory = 500; }
         string what = $"The profile of {ReportAnswer.Plural(targets.Count, "field")} reads {ReportAnswer.N(records)} records ({Sizes.Text(bytes)}) of {string.Join(", ", sigs.OrderBy(s => s, StringComparer.Ordinal).Take(8))}{(sigs.Count > 8 ? $" and {sigs.Count - 8} more types" : "")} in {set.Shown}";
-        var plan = new ProfilePlan { Targets = targets, Set = set, Records = records, Bytes = bytes, Seconds = seconds, MemoryMB = memory, What = what };
+        if (o.Conditions) what = $"The condition census reads {ReportAnswer.N(records)} records ({Sizes.Text(bytes)}) of the {ReportAnswer.Plural(sigs.Count, "record type")} that can hold a condition in {set.Shown}";
+        if (fromWorld) what += ", from the world link index";
+        else if (fromBytes != null) what += ", from the files' bytes";
+        var plan = new ProfilePlan
+        {
+            Targets = targets, Set = set, Records = records, Bytes = bytes, Seconds = seconds, MemoryMB = memory, What = what, Function = function,
+            FromBytes = fromBytes, FromWorld = fromWorld ? o.World : null, WorldPlugins = worldPlugins is { Count: > 0 } ? worldPlugins : null,
+        };
         plan.Notes.AddRange(notes);
         return plan;
+    }
+
+    static readonly HashSet<string> ConditionObjects = new(StringComparer.Ordinal) { "Condition", "ConditionFloat", "ConditionGlobal" };
+
+    /// <summary>A condition function by its index (961) or its name (GetGameplayOptionCurrentValue, Mutagen's Condition.Function).</summary>
+    long FunctionIndex(string text)
+    {
+        string t = text.Trim();
+        if (long.TryParse(t, NumberStyles.Integer, CultureInfo.InvariantCulture, out long n)) return n;
+        var members = session.Schema.Enum("Condition.Function") ?? (IReadOnlyList<EnumMember>)Array.Empty<EnumMember>();
+        if (members.FirstOrDefault(m => m.Name.Equals(t, StringComparison.OrdinalIgnoreCase)) is { } m) return m.Value;
+        var near = NearNames.Pick(t, members, x => new[] { x.Name }, 4).Select(x => $"{x.Name} ({x.Value})");
+        throw new ReportException($"there is no condition function named \"{t}\"", NearNames.Fix(near) + "; or give its index (961)");
     }
 
     List<ObjDef> TypesNamed(string text)
@@ -177,7 +240,7 @@ public sealed class ProfileReport(ReportSession session)
     // ------------------------------------------------------------------ Reading
     public ProfileAnswer Run(ProfilePlan plan, int samples = 3) => session.Run(scope =>
     {
-        var answer = new ProfileAnswer { Set = plan.Set, ShownSamples = Math.Clamp(samples, 0, KeptSamples) };
+        var answer = new ProfileAnswer { Set = plan.Set, ShownSamples = Math.Clamp(samples, 0, KeptSamples), Census = plan.Census, FunctionAsked = plan.Function };
         answer.Notes.AddRange(plan.Notes);
         var targets = plan.Targets;
         var fields = targets.Select((t, i) => new FieldStats(t, i)).ToList();
@@ -198,8 +261,10 @@ public sealed class ProfileReport(ReportSession session)
         var index = session.Index;
         int threads = Math.Clamp(Environment.ProcessorCount / 2, 1, 8);
         // Each field's samples are picked by marks seeded by its name: the same samples whatever else is asked with it
-        var walker = new Walker(tries, targets.Select(t => Walker.Seed(t.Name)).ToArray());
-        foreach (var p in plan.Set.Plugins)
+        var walker = new Walker(tries, targets.Select(t => Walker.Seed(t.Name)).ToArray(), targets.Select(t => t.Census).ToArray(), plan.Function);
+        if (plan.FromBytes is { } route && plan.FromWorld is { } world) RunWorld(plan, answer, fields, route, walker, scope, world);
+        else if (plan.FromBytes is { } route2) RunBytes(plan, answer, fields, route2, walker, scope);
+        else foreach (var p in plan.Set.Plugins)
         {
             if (p.Segment is not { } seg)
             {
@@ -240,10 +305,26 @@ public sealed class ProfileReport(ReportSession session)
         {
             f.Finish();
             foreach (var w in f.Words.Values) w.Judge(background, f.Target.Row.Def.Kind is "Float" or "Double");
+            if (f.Targets != null) f.Links = LinkCensus.Of(f.Targets, f.NullLinks, index);
+        }
+        // Several link fields asked together (GroupedPackIn's GNAM and JNAM, one field in two record types): the
+        // census of all their targets as one, each record counted once
+        var linked = fields.Where(f => f.Targets != null).ToList();
+        if (linked.Count > 1)
+        {
+            var all = new Dictionary<FormKey, long>();
+            foreach (var f in linked) foreach (var (k, n) in f.Targets!) all[k] = all.GetValueOrDefault(k) + n;
+            answer.LinksTogether = LinkCensus.Of(all, linked.Sum(f => f.NullLinks), index);
+            answer.LinksTogetherOf = linked.Select(f => f.Target.Name).ToList();
         }
         if (fields.Any(f => f.Words.Values.Any(w => w.Tested > 0)))
             answer.Notes.Add("A 4-byte value is tested as a FormID and a strings ID only when its object ID (low 24 bits) is 0x1000 or more. It reads as links when 90% of the tested values name a record and one record type takes 60% of those and 3 times its share of Starfield.esm's own records (whose IDs fill 91% of 0x000001-0x3FFFFF, 86% of them placed references): the rule of the Mutagen session's analysis (C208).");
-        answer.Read.Add($"{ReportAnswer.N(answer.RecordsRead)} records of {ReportAnswer.Plural(answer.PluginsRead, "plugin")}");
+        answer.Read.Add($"{ReportAnswer.N(answer.RecordsRead)} records of {ReportAnswer.Plural(answer.PluginsRead, "plugin")}{(answer.ReadFromBytes != null ? ", " + answer.ReadFromBytes : "")}");
+        if (plan.Census)
+        {
+            foreach (var f in answer.Functions.Values) f.Finish();
+            answer.Notes.Add("Each condition is counted where Mutagen reads it: its function is the condition data's own (Mutagen's Condition.Function, the index the CTDA stores). The same rows, one per condition, are SQL's Conditions view (query2).");
+        }
         foreach (var (why, n) in answer.Skipped.OrderByDescending(x => x.Value))
             answer.Notes.Add($"{ReportAnswer.Plural(n, "record")} couldn't be read and {(n == 1 ? "is" : "are")} left out: {why}.");
         if (plan.Set.WinnersOnly) answer.Notes.Add("@winners: each record counts once, in the version the game uses (the last loaded plugin that holds it).");
@@ -269,6 +350,15 @@ public sealed class ProfileReport(ReportSession session)
     void Merge(ProfileAnswer answer, List<FieldStats> fields, PluginCtx ctx, BatchResult r)
     {
         answer.RecordsRead += r.Records;
+        answer.CensusRecords += r.CondRecords;
+        foreach (var (fn, acc) in r.Functions)
+        {
+            if (!answer.Functions.TryGetValue(fn, out var f)) answer.Functions[fn] = f = new FunctionStats { Index = fn, Name = acc.Name };
+            f.Conditions += acc.Conditions; f.Records += acc.Records; answer.CensusConditions += acc.Conditions;
+            f.Plugins[ctx.Plugin.Name] = f.Plugins.GetValueOrDefault(ctx.Plugin.Name) + acc.Conditions;
+            foreach (var (t, n) in acc.Types) f.Types[t] = f.Types.GetValueOrDefault(t) + n;
+            f.Offer(acc.Samples);
+        }
         foreach (var (why, n) in r.Skipped) answer.Skipped[why] = answer.Skipped.GetValueOrDefault(why) + n;
         foreach (var (i, acc) in r.Fields)
         {
@@ -304,6 +394,12 @@ public sealed class ProfileReport(ReportSession session)
                 }
             }
             f.Offer(acc.Samples); f.Offer(acc.SamplesZero);
+            f.NullLinks += acc.NullLinks;
+            if (acc.Targets != null)
+            {
+                f.Targets ??= new();
+                foreach (var (k, n) in acc.Targets) f.Targets[k] = f.Targets.GetValueOrDefault(k) + n;
+            }
         }
     }
 
@@ -358,6 +454,9 @@ public sealed class ProfileReport(ReportSession session)
         public readonly Dictionary<string, long> Counts = new(StringComparer.Ordinal);
         public readonly Dictionary<int, long> Lengths = new();
         public readonly Dictionary<int, Dictionary<uint, long>> Words = new();
+        /// <summary>A link field's targets (GAPS S45): each FormKey with its uses; and the null links.</summary>
+        public Dictionary<FormKey, long>? Targets;
+        public long NullLinks;
         public readonly List<ProfileSample> Samples = new(), SamplesZero = new();
         public int LastRecord = -1, LastNonZero = -1, Instance;
         public void Word(int off, uint w)
@@ -367,15 +466,26 @@ public sealed class ProfileReport(ReportSession session)
         }
     }
 
+    sealed class CensusAcc
+    {
+        public string Name = "";
+        public long Conditions, Records;
+        public int LastRecord = -1;
+        public readonly Dictionary<string, long> Types = new(StringComparer.Ordinal);
+        public readonly List<ProfileSample> Samples = new();
+    }
+
     sealed class BatchResult
     {
-        public long Records;
+        public long Records, CondRecords;
+        public int LastCondRecord = -1;
+        public readonly Dictionary<long, CensusAcc> Functions = new();
         public readonly Dictionary<int, Acc> Fields = new();
         public readonly Dictionary<string, long> Skipped = new(StringComparer.Ordinal);
         public Acc Of(int i) => Fields.TryGetValue(i, out var a) ? a : Fields[i] = new Acc();
     }
 
-    sealed class Walker(Dictionary<string, Node> tries, ulong[] seeds)
+    sealed class Walker(Dictionary<string, Node> tries, ulong[] seeds, bool[] census, long? function)
     {
         static readonly ConcurrentDictionary<(Type, string), Func<object, object?>?> Getters = new();
         static readonly ConcurrentDictionary<(Type, string), bool> Kinds = new();
@@ -454,14 +564,31 @@ public sealed class ProfileReport(ReportSession session)
         static object Unwrap(object item)
         {
             var t = item.GetType();
-            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>)) return t.GetProperty("Value")!.GetValue(item)!;
+            // A dictionary's entry, and a 2D array's (Noggog's KeyValue<P2Int, T>: a surface pattern's blocks): its value
+            if (t.IsGenericType && (t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>) || t.GetGenericTypeDefinition() == typeof(Noggog.KeyValue<,>))) return t.GetProperty("Value")!.GetValue(item)!;
             return item;
+        }
+
+        static readonly ConcurrentDictionary<Type, bool> OrIndexTypes = new();
+
+        /// <summary>A FormLinkOrIndex (a condition's parameter, GAPS S158): its link when it is one, else its index, an
+        /// alias's or a package data input's (FormLinkOrIndex.UsesLink, as Mutagen's EnumerateFormLinks follows it).</summary>
+        static object OrIndexValue(object v)
+        {
+            var t = v.GetType();
+            if (!OrIndexTypes.GetOrAdd(t, x => x.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IFormLinkOrIndexGetter<>)))) return v;
+            if (((IFormLinkContainerGetter)v).EnumerateFormLinks().FirstOrDefault() is { } link) return link;
+            bool alias = t.GetMethod("UsesAlias")?.Invoke(v, null) is true;
+            // Index is never null since fixes.20 (C68: a new FormLinkOrIndex has index 0, as the binary write always gave)
+            return new IndexParameter(alias, (uint)t.GetProperty("Index")!.GetValue(v)!);
         }
 
         static bool IsBytes(object v) => v is ReadOnlyMemorySlice<byte> or byte[] or IReadOnlyList<byte> or Memory<byte> or ReadOnlyMemory<byte>;
 
         void Value(int field, object value, object parent, Visit c)
         {
+            if (census[field]) { Census(field, value, c); return; }
+            value = OrIndexValue(value);
             var acc = c.Res.Of(field);
             var (repr, num, bytes) = Repr(value);
             bool zero = IsZero(repr, num, bytes);
@@ -471,6 +598,9 @@ public sealed class ProfileReport(ReportSession session)
             if (!zero && acc.LastNonZero != c.Serial) { acc.LastNonZero = c.Serial; acc.RecordsNonZero++; }
             int instance = acc.Instance++;
             acc.Counts[repr] = acc.Counts.GetValueOrDefault(repr) + 1;
+            // A link: its target, for the census of what the field points at
+            if (value is IFormLinkGetter link) Target(acc, link.IsNull ? null : link.FormKey);
+            else if (value is FormKey key) Target(acc, key.IsNull ? null : key);
             if (num is { } d)
             {
                 if (!double.IsFinite(d)) acc.NonFinite++;
@@ -505,6 +635,54 @@ public sealed class ProfileReport(ReportSession session)
         }
 
         static string LastName(string place) { int b = place.IndexOf('['); return b < 0 ? place : place[..b]; }
+
+        static void Target(Acc acc, FormKey? key)
+        {
+            if (key is not { } k) { acc.NullLinks++; return; }
+            acc.Targets ??= new();
+            acc.Targets[k] = acc.Targets.GetValueOrDefault(k) + 1;
+        }
+
+        /// <summary>One condition, counted by its function (the condition census).</summary>
+        void Census(int field, object value, Visit c)
+        {
+            if (value is not Mutagen.Bethesda.Starfield.IConditionGetter cond) return;
+            var (fn, name) = FunctionOf(cond.Data);
+            if (function is { } only && fn != only) return;
+            var res = c.Res;
+            if (res.LastCondRecord != c.Serial) { res.LastCondRecord = c.Serial; res.CondRecords++; }
+            if (!res.Functions.TryGetValue(fn, out var acc)) res.Functions[fn] = acc = new CensusAcc { Name = name };
+            acc.Conditions++;
+            if (acc.LastRecord != c.Serial) { acc.LastRecord = c.Serial; acc.Records++; }
+            acc.Types[c.Rec.Type] = acc.Types.GetValueOrDefault(c.Rec.Type) + 1;
+            // Samples: the smallest marks of the function, one a record (the same whichever thread reads them)
+            ulong mark = Mark(c.Info.Plugin, c.Info.FormKey, Seed(name), 0);
+            int had = acc.Samples.FindIndex(x => x.Plugin == c.Info.Plugin && x.FormKey == c.Info.FormKey);
+            if (had >= 0) { if (acc.Samples[had].Mark <= mark) return; acc.Samples.RemoveAt(had); }
+            if (acc.Samples.Count >= KeptSamples)
+            {
+                int worst = 0;
+                for (int i = 1; i < acc.Samples.Count; i++) if (acc.Samples[i].Mark > acc.Samples[worst].Mark) worst = i;
+                if (acc.Samples[worst].Mark <= mark) return;
+                acc.Samples.RemoveAt(worst);
+            }
+            var beside = Beside(cond.Data, null);
+            foreach (var kv in Beside(cond, null)) if (beside.Count < 10) beside.Add(kv);
+            acc.Samples.Add(new ProfileSample
+            {
+                Mark = mark, Plugin = c.Info.Plugin, FormKey = c.Info.FormKey, EditorId = c.Rec.Record.EditorID ?? c.Info.EditorId,
+                RecordType = c.Rec.Type, Place = string.Join('.', c.Place), Value = name, Number = fn, Beside = beside,
+            });
+        }
+
+        /// <summary>A condition's function: the condition data's own (Mutagen's IConditionDataGetter.Function, real for
+        /// every ConditionData class since fixes.20, C58 W19).</summary>
+        static (long, string) FunctionOf(Mutagen.Bethesda.Starfield.IConditionDataGetter data)
+        {
+            var f = data.Function;
+            long n = Convert.ToInt64(f, CultureInfo.InvariantCulture);
+            return (n, Enum.IsDefined(f) ? f.ToString() : n.ToString(CultureInfo.InvariantCulture));
+        }
 
         /// <summary>The scalar values beside the field in the object that holds it (at most 10).</summary>
         static List<KeyValuePair<string, string>> Beside(object parent, string? self)
@@ -556,8 +734,14 @@ public sealed class ProfileReport(ReportSession session)
             return null;
         });
 
+        /// <summary>The object is of the kind the path names (<c>{ObjectModFormLinkIntProperty}</c>): its class, its overlay or
+        /// its getter interface, a generic one by its name without the arity (ObjectModFormLinkIntProperty`1).</summary>
         static bool IsKind(object o, string kind) => Kinds.GetOrAdd((o.GetType(), kind), k =>
-            k.Item1.Name == k.Item2 || k.Item1.Name == k.Item2 + "BinaryOverlay" || k.Item1.GetInterfaces().Any(i => i.Name == "I" + k.Item2 + "Getter"));
+        {
+            static string Plain(string name) => name.Split('`')[0];
+            string n = Plain(k.Item1.Name);
+            return n == k.Item2 || n == k.Item2 + "BinaryOverlay" || k.Item1.GetInterfaces().Any(i => Plain(i.Name) == "I" + k.Item2 + "Getter");
+        });
 
         static readonly ConcurrentDictionary<string, (string Name, bool List, string? Kind)> Parsed = new(StringComparer.Ordinal);
         static (string Name, bool List, string? Kind) Parse(string seg) => Parsed.GetOrAdd(seg, s =>
@@ -577,7 +761,7 @@ public sealed class ProfileReport(ReportSession session)
             return h;
         }
 
-        static ulong Mark(string plugin, string formKey, ulong seed, int instance)
+        internal static ulong Mark(string plugin, string formKey, ulong seed, int instance)
         {
             ulong h = 14695981039346656037UL;
             foreach (char ch in plugin) { h ^= char.ToLowerInvariant(ch); h *= 1099511628211UL; }
@@ -611,6 +795,7 @@ public sealed class ProfileReport(ReportSession session)
             case ITranslatedStringGetter ts: return ("\"" + (ts.String is { } x ? (x.Length > 80 ? x[..80] + "…" : x) : "") + "\"", null, null);
             case IFormLinkGetter fl: return (fl.IsNull ? "null" : fl.FormKey.ToString(), null, null);
             case FormKey fk: return (fk.IsNull ? "null" : fk.ToString(), null, null);
+            case IndexParameter ip: return ((ip.Alias ? "alias index " : "package data index ") + ip.Index.ToString(inv), ip.Index, null);
             case ReadOnlyMemorySlice<byte> ms: return Hex(ms.ToArray());
             case byte[] arr: return Hex(arr);
             case IReadOnlyList<byte> bl: return Hex(bl.ToArray());
@@ -705,6 +890,63 @@ public sealed class WordStats
     }
 }
 
+/// <summary>
+/// What a link field points at across the plugins read (GAPS S45): the links that aren't null, the distinct records
+/// they name, and the record type of each (from the header index: the record its owner holds, or else any plugin's
+/// copy of it), by distinct records and by uses; the links to a record that no plugin in Data holds; the most used
+/// targets. C221 asked it of GroupedPackIn's HNAM (39,917 targets, all placed references) with a scratch scan.
+/// </summary>
+public sealed class LinkCensus
+{
+    public long Links, Nulls, Distinct, Missing, MissingUses;
+    /// <summary>By signature: distinct targets and uses.</summary>
+    public readonly SortedDictionary<string, (long Distinct, long Uses)> Types = new(StringComparer.Ordinal);
+    public List<(string FormKey, string? EditorId, string Sig, long Uses)> Top { get; } = new();
+
+    internal static LinkCensus Of(Dictionary<FormKey, long> targets, long nulls, HeaderIndex index)
+    {
+        var c = new LinkCensus { Nulls = nulls, Distinct = targets.Count };
+        var all = new List<(string, string?, string, long)>(targets.Count);
+        foreach (var (k, n) in targets)
+        {
+            c.Links += n;
+            string key = k.ToString();
+            string sig = "", edid = "";
+            if (index.Versions(key) is { } v && v.Holders.Count > 0)
+            {
+                // The record its owner holds, else the first copy in Data
+                var pick = v.Holders[0];
+                foreach (var h in v.Holders) if (index.Plugins[h.Plugin].Name.Equals(k.ModKey.FileName, StringComparison.OrdinalIgnoreCase)) { pick = h; break; }
+                var info = index.Describe(pick);
+                sig = info.Signature; edid = info.EditorId ?? "";
+            }
+            if (sig.Length == 0) { c.Missing++; c.MissingUses += n; sig = "(not in Data)"; }
+            var t = c.Types.GetValueOrDefault(sig);
+            c.Types[sig] = (t.Distinct + 1, t.Uses + n);
+            all.Add((key, edid.Length > 0 ? edid : null, sig, n));
+        }
+        c.Top.AddRange(all.OrderByDescending(x => x.Item4).ThenBy(x => x.Item1, StringComparer.OrdinalIgnoreCase).Take(25));
+        return c;
+    }
+
+    static string N(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
+
+    public string Text(int top) =>
+        $"Points at: {N(Links)} links that aren't null ({N(Nulls)} null) to {N(Distinct)} distinct records: "
+        + string.Join(", ", Types.OrderByDescending(t => t.Value.Uses).Select(t => $"{t.Key} {N(t.Value.Distinct)} ({N(t.Value.Uses)} uses)"))
+        + (Missing > 0 ? $"; {N(Missing)} of them ({N(MissingUses)} uses) are in no plugin in Data" : "")
+        + $". Most used: {string.Join("; ", Top.Take(top).Select(t => $"{t.EditorId ?? "(no EditorID)"} ({t.FormKey}) {t.Sig} ×{N(t.Uses)}"))}.";
+
+    public string Short() => $"links to {string.Join(", ", Types.OrderByDescending(t => t.Value.Uses).Take(3).Select(t => $"{t.Key} {N(t.Value.Distinct)}"))} ({N(Distinct)} distinct, {N(Nulls)} null)";
+
+    public JsonObject ToJson() => new()
+    {
+        ["links"] = Links, ["null"] = Nulls, ["distinct"] = Distinct, ["missing"] = Missing, ["missingUses"] = MissingUses,
+        ["types"] = new JsonObject(Types.Select(t => KeyValuePair.Create(t.Key, (JsonNode?)new JsonObject { ["distinct"] = t.Value.Distinct, ["uses"] = t.Value.Uses }))),
+        ["top"] = new JsonArray(Top.Select(t => (JsonNode)new JsonObject { ["formKey"] = t.FormKey, ["editorId"] = t.EditorId, ["sig"] = t.Sig, ["uses"] = t.Uses }).ToArray()),
+    };
+}
+
 public sealed class PluginCounts
 {
     public long Records, RecordsNonZero, Values, NonZero;
@@ -721,6 +963,10 @@ public sealed class FieldStats(ProfileTarget target, int index)
     public double Min = double.PositiveInfinity, Max = double.NegativeInfinity;
     public readonly Dictionary<int, long> Lengths = new();
     public readonly SortedDictionary<int, WordStats> Words = new();
+    /// <summary>For a link field: every target with its uses (while reading), then the census of them.</summary>
+    internal Dictionary<FormKey, long>? Targets;
+    internal long NullLinks;
+    public LinkCensus? Links { get; internal set; }
     public List<ProfileSample> Samples { get; private set; } = new();
     public PluginCounts Plugin(string name) => Plugins.TryGetValue(name, out var p) ? p : Plugins[name] = new PluginCounts();
     public WordStats WordAt(int off) => Words.TryGetValue(off, out var w) ? w : Words[off] = new WordStats();
@@ -743,10 +989,43 @@ public sealed class FieldStats(ProfileTarget target, int index)
     public IEnumerable<KeyValuePair<string, long>> Top(int n) => Counts.OrderByDescending(v => v.Value).ThenBy(v => v.Key, StringComparer.Ordinal).Take(n);
 }
 
+/// <summary>One condition function in the condition census.</summary>
+public sealed class FunctionStats
+{
+    public long Index { get; init; }
+    public string Name { get; init; } = "";
+    public long Conditions, Records;
+    /// <summary>Conditions by the record type that holds them.</summary>
+    public readonly Dictionary<string, long> Types = new(StringComparer.Ordinal);
+    /// <summary>Conditions by plugin.</summary>
+    public readonly Dictionary<string, long> Plugins = new(StringComparer.OrdinalIgnoreCase);
+    public List<ProfileSample> Samples { get; private set; } = new();
+
+    internal void Offer(List<ProfileSample> more)
+    {
+        Samples.AddRange(more);
+        Samples = Samples.GroupBy(s => (s.Plugin, s.FormKey)).Select(g => g.MinBy(s => s.Mark)!).OrderBy(s => s.Mark).Take(ProfileReport.KeptSamples).ToList();
+    }
+
+    internal void Finish() => Samples = Samples.OrderBy(s => s.Mark).ToList();
+}
+
 public sealed class ProfileAnswer : ReportAnswer
 {
     public override string Kind => "profile";
     public required PluginSet Set { get; init; }
+    /// <summary>The condition census (profile --conditions): <see cref="Functions"/> instead of fields.</summary>
+    public bool Census { get; init; }
+    public long? FunctionAsked { get; init; }
+    public SortedDictionary<long, FunctionStats> Functions { get; } = new();
+    public long CensusConditions { get; set; }
+    /// <summary>How the records were read when not through Mutagen (the files' bytes, GAPS S92), for the Read line.</summary>
+    public string? ReadFromBytes { get; set; }
+    /// <summary>Two or more link fields asked: the census of all their targets together, and which fields.</summary>
+    public LinkCensus? LinksTogether { get; set; }
+    public List<string> LinksTogetherOf { get; set; } = new();
+    /// <summary>Records (each copy in each plugin) that hold at least one condition counted.</summary>
+    public long CensusRecords { get; set; }
     public List<FieldStats> Fields { get; } = new();
     public long RecordsRead { get; set; }
     public int PluginsRead { get; set; }
@@ -797,8 +1076,46 @@ public sealed class ProfileAnswer : ReportAnswer
     static string SampleText(ProfileSample s, bool many) =>
         $"{s.Label}{(many ? " " + s.RecordType : "")} {s.Place} = {Cell(s.Value)}" + (s.Beside.Count > 0 ? $" [beside: {Cell(string.Join("; ", s.Beside.Select(b => b.Key + " " + b.Value)))}]" : "");
 
+    void RenderCensus(ReportBody body, ReportTextOptions options)
+    {
+        int holding = Fields.Select(f => f.Target.Type).Distinct().Count();
+        string which = FunctionAsked is { } fa ? $"function {fa}{(Functions.TryGetValue(fa, out var only) ? " " + only.Name : "")}" : "every function";
+        body.Head.Add($"Condition census ({which}) over {Set.Shown}: {N(CensusConditions)} conditions in {N(CensusRecords)} records, {Plural(Functions.Count, "function")}; {N(RecordsRead)} records of the {Plural(holding, "record type")} that can hold a condition read in {Plural(PluginsRead, "plugin")}.");
+        body.RowNoun = "functions";
+        if (Functions.Count == 0) { body.Empty = $"No condition{(FunctionAsked != null ? " of that function" : "")} in {Set.Shown}."; return; }
+        bool full = options.Detail || Functions.Count == 1;
+        var ordered = Functions.Values.OrderByDescending(f => f.Conditions).ThenBy(f => f.Index).ToList();
+        if (!full)
+        {
+            body.Head.Add("Most used first. --function <index or name> gives one function's plugins, record types and samples; --json has every one in full.");
+            body.Head.Add("");
+            body.Head.Add("| Function | Name | Conditions | Records | Plugins | Record types | Sample |");
+            body.Head.Add("|---|---|---|---|---|---|---|");
+            foreach (var f in ordered)
+            {
+                var types = f.Types.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
+                string typeText = string.Join(", ", types.Take(3).Select(x => $"{x.Key} {N(x.Value)}")) + (types.Count > 3 ? $", +{types.Count - 3}" : "");
+                string sample = f.Samples.FirstOrDefault() is { } s ? $"{s.Label} {s.Place}" : "";
+                body.Rows.Add($"| {f.Index} | {Cell(f.Name)} | {N(f.Conditions)} | {N(f.Records)} | {f.Plugins.Count} | {Cell(typeText)} | {Cell(sample)} |");
+            }
+            return;
+        }
+        foreach (var f in ordered)
+        {
+            var lines = new List<string> { "", $"## {f.Index} {f.Name}", $"{N(f.Conditions)} conditions in {N(f.Records)} records of {Plural(f.Plugins.Count, "plugin")}." };
+            lines.Add($"By record type: {string.Join(", ", f.Types.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.Ordinal).Select(x => $"{x.Key} {N(x.Value)}"))}.");
+            var byPlugin = f.Plugins.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase).ToList();
+            int showP = options.Detail ? byPlugin.Count : 12;
+            lines.Add($"By plugin: {string.Join(", ", byPlugin.Take(showP).Select(x => $"{x.Key} {N(x.Value)}"))}{(byPlugin.Count > showP ? $", … {byPlugin.Count - showP} more plugins (detail lists them)" : "")}.");
+            foreach (var s in f.Samples.Take(options.Detail ? ProfileReport.KeptSamples : Math.Max(ShownSamples, 1)))
+                lines.Add($"- {s.Label} {s.RecordType} {s.Place}" + (s.Beside.Count > 0 ? $" [{Cell(string.Join("; ", s.Beside.Select(b => b.Key + " " + b.Value)))}]" : ""));
+            body.Rows.Add(string.Join("\n", lines));
+        }
+    }
+
     protected override void Render(ReportBody body, ReportTextOptions options)
     {
+        if (Census) { RenderCensus(body, options); return; }
         int types = Fields.Select(f => f.Target.Type).Distinct().Count();
         body.Head.Add($"Profile of {Plural(Fields.Count, "field")} of {Plural(types, "record type")} over {Set.Shown}: {N(RecordsRead)} records read in {Plural(PluginsRead, "plugin")}.");
         bool full = options.Detail || Fields.Count <= FullUpTo;
@@ -813,7 +1130,7 @@ public sealed class ProfileAnswer : ReportAnswer
             {
                 var w = f.Words.GetValueOrDefault(-1) ?? f.Words.Values.FirstOrDefault();
                 long nz = w == null ? 0 : w.N - w.Zero;
-                string reads = w == null ? "" : nz == 0 ? "all 0" : (w.ReadsAs != null ? $"**{w.ReadsAs}**; " : "") + $"float {Pct(w.FloatLike, nz)}" + (w.Tested == 0 ? "; FormID, strings ID: none tested (small)" : $"; of {N(w.Tested)} tested: FormID {Pct(w.FormIdHits, w.Tested)}, strings ID {Pct(w.StringHits, w.Tested)}");
+                string reads = f.Links is { } lcs ? lcs.Short() : w == null ? "" : nz == 0 ? "all 0" : (w.ReadsAs != null ? $"**{w.ReadsAs}**; " : "") + $"float {Pct(w.FloatLike, nz)}" + (w.Tested == 0 ? "; FormID, strings ID: none tested (small)" : $"; of {N(w.Tested)} tested: FormID {Pct(w.FormIdHits, w.Tested)}, strings ID {Pct(w.StringHits, w.Tested)}");
                 body.Rows.Add($"| {Cell(f.Target.Name)} | {Cell(f.Target.Row.Def.Kind)} | {N(f.Records)} ({f.Plugins.Count(p => p.Value.Records > 0)}) | {N(f.Values)} | {Pct(f.Zero, f.Values)} | {N(f.Distinct)}{(f.OtherValues > 0 ? "+" : "")} | {TopText(f, 3)} | {reads} |");
             }
             var empty = Fields.Where(f => f.Values == 0).Select(f => f.Target.Name).ToList();
@@ -837,6 +1154,7 @@ public sealed class ProfileAnswer : ReportAnswer
             lines.Add($"Most common: {TopText(f, options.Detail ? 25 : 10)}.");
             if (f.Lengths.Count > 0) lines.Add($"Lengths in bytes: {string.Join(", ", f.Lengths.OrderByDescending(l => l.Value).ThenBy(l => l.Key).Take(8).Select(l => $"{l.Key} ×{N(l.Value)}"))}.");
             if (f.Words.Count > 0) lines.Add($"As 4-byte values: {WordsText(f)}.");
+            if (f.Links is { } lc) lines.Add(lc.Text(options.Detail ? 25 : 8));
             var byPlugin = f.Plugins.Where(p => p.Value.Records > 0).OrderByDescending(p => p.Value.Values).ThenBy(p => p.Key, StringComparer.OrdinalIgnoreCase).ToList();
             int showP = options.Detail ? byPlugin.Count : 8;
             lines.Add($"By plugin (records, nonzero records; values, nonzero): {string.Join("; ", byPlugin.Take(showP).Select(p => $"{p.Key} {N(p.Value.Records)}, {N(p.Value.RecordsNonZero)}; {N(p.Value.Values)}, {N(p.Value.NonZero)}"))}{(byPlugin.Count > showP ? $"; … {byPlugin.Count - showP} more plugins (detail lists them)" : "")}.");
@@ -848,6 +1166,7 @@ public sealed class ProfileAnswer : ReportAnswer
             body.Rows.Add(string.Join("\n", lines));
         }
         if (Fields.Count == 0) body.Empty = "No field to profile.";
+        if (LinksTogether is { } lt) body.Rows.Add($"\n## The {LinksTogetherOf.Count} link fields together ({string.Join(", ", LinksTogetherOf)})\n{lt.Text(options.Detail ? 25 : 8)}");
     }
 
     protected override void Fill(JsonObject json)
@@ -856,6 +1175,36 @@ public sealed class ProfileAnswer : ReportAnswer
         json["winnersOnly"] = Set.WinnersOnly;
         json["recordsRead"] = RecordsRead;
         json["pluginsRead"] = PluginsRead;
+        if (Census)
+        {
+            json["census"] = "conditions";
+            json["function"] = FunctionAsked;
+            json["conditions"] = CensusConditions;
+            json["recordsWithConditions"] = CensusRecords;
+            json["recordTypes"] = new JsonArray(Fields.Select(f => f.Target.Type).Distinct().Select(t => (JsonNode)t).ToArray());
+            // Every function's counts; its plugins, all its record types and its samples in full only for a few functions
+            // (--function), so the census of every function stays small enough to read
+            bool few = Functions.Count <= FullUpTo;
+            json["functions"] = new JsonArray(Functions.Values.OrderByDescending(f => f.Conditions).ThenBy(f => f.Index).Select(f =>
+            {
+                var types = f.Types.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.Ordinal).ToList();
+                var o = new JsonObject
+                {
+                    ["index"] = f.Index, ["name"] = f.Name, ["conditions"] = f.Conditions, ["records"] = f.Records, ["plugins"] = f.Plugins.Count, ["recordTypes"] = types.Count,
+                    ["byType"] = new JsonObject(types.Take(few ? types.Count : 5).Select(x => KeyValuePair.Create(x.Key, (JsonNode?)x.Value))),
+                };
+                if (few) o["byPlugin"] = new JsonObject(f.Plugins.OrderBy(p => Set.Plugins.FindIndex(x => x.Name.Equals(p.Key, StringComparison.OrdinalIgnoreCase))).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value)));
+                o["samples"] = new JsonArray(f.Samples.Take(few ? f.Samples.Count : 1).Select(s =>
+                {
+                    var so = new JsonObject { ["plugin"] = s.Plugin, ["formKey"] = s.FormKey, ["editorId"] = s.EditorId, ["recordType"] = s.RecordType, ["place"] = s.Place };
+                    if (few) so["beside"] = new JsonObject(s.Beside.Select(b => KeyValuePair.Create(b.Key, (JsonNode?)b.Value)));
+                    return (JsonNode)so;
+                }).ToArray());
+                return (JsonNode)o;
+            }).ToArray());
+            if (Skipped.Count > 0) json["skipped"] = new JsonObject(Skipped.Select(s => KeyValuePair.Create(s.Key, (JsonNode?)s.Value)));
+            return;
+        }
         var arr = new JsonArray();
         foreach (var f in Fields)
         {
@@ -871,6 +1220,7 @@ public sealed class ProfileAnswer : ReportAnswer
                     .Select(p => KeyValuePair.Create(p.Key, (JsonNode?)new JsonObject { ["records"] = p.Value.Records, ["recordsNonZero"] = p.Value.RecordsNonZero, ["values"] = p.Value.Values, ["nonZero"] = p.Value.NonZero }))),
             };
             if (f.Lengths.Count > 0) o["lengths"] = new JsonObject(f.Lengths.OrderBy(l => l.Key).Select(l => KeyValuePair.Create(l.Key.ToString(CultureInfo.InvariantCulture), (JsonNode?)l.Value)));
+            if (f.Links is { } lc) o["links"] = lc.ToJson();
             if (f.Words.Count > 0)
                 o["words"] = new JsonArray(f.Words.Select(w => (JsonNode)new JsonObject
                 {
@@ -887,6 +1237,10 @@ public sealed class ProfileAnswer : ReportAnswer
             arr.Add(o);
         }
         json["fields"] = arr;
+        if (LinksTogether is { } lt) json["linksTogether"] = new JsonObject { ["fields"] = new JsonArray(LinksTogetherOf.Select(x => (JsonNode)x).ToArray()), ["census"] = lt.ToJson() };
         if (Skipped.Count > 0) json["skipped"] = new JsonObject(Skipped.Select(s => KeyValuePair.Create(s.Key, (JsonNode?)s.Value)));
     }
 }
+
+/// <summary>A condition parameter that is an index, not a link: an alias's (UseAliases) or a package data input's.</summary>
+internal readonly record struct IndexParameter(bool Alias, uint Index);

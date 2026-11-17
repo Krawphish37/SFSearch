@@ -600,38 +600,64 @@ static class Tests
                $"{master} moved below {dependent}: reported as a master that loads after it; switched off: reported as a master not loaded";
     }
 
+    /// <summary>
+    /// Rule 5: a plugin that changes while it is read is read again, and one that keeps changing is refused. No hook in
+    /// the index (J37): the refresh runs on one thread over a big plugin of Data (read only, through a scratch folder of
+    /// its own so it is really read) and a smaller copy. Biggest first, so the copy is stamped at the start and read after
+    /// the big one; the copy is changed from another thread meanwhile.
+    /// </summary>
     public static string ChangedDuringRead(Ctx ctx)
     {
         var data = ctx.DataIndex;
         var p = PickPlugin(data, 100_000, 2_000_000);
         long at = HarmlessByte(p.Segment!, p.Stamp.Length / 2, p.Stamp.Length);
         string copy = Copy(ctx, "during", p);
-        var files = MasterClosure(data, new[] { p }).Append(copy).ToList();
-        // 1. The file changes once while it is being read: it is read again, and what is indexed is the new content
-        int calls = 0;
-        using (var index = new HeaderIndex(PluginSource.FromFiles(files), ctx.Options(version: Ctx.Version + "/own-segments")))
+        string slow = RaceTests.SlowPlugin(ctx);
+        var files = new List<string> { slow, copy };
+        // 1. The file changes once, after it was stamped and before it is read: it is read again, and what is indexed is
+        //    the new content under the stamp the file has now (without the second read, the first look's stamp would stay)
+        long flippedAt, took;
+        using (var index = new HeaderIndex(PluginSource.FromFiles(files), RaceTests.SlowOptions(ctx, "during1")))
         {
-            index.AfterReadForTests = name => { if (name == p.Name && Interlocked.Increment(ref calls) == 1) FlipByte(ctx, copy, at, keepDate: false); };
+            var clock = Stopwatch.StartNew();
+            var writer = Task.Run(() => { Thread.Sleep(150); FlipByte(ctx, copy, at, keepDate: false); return clock.ElapsedMilliseconds; });
             index.Refresh();
+            took = clock.ElapsedMilliseconds; flippedAt = writer.Result;
+            Check(took > flippedAt + 50, $"the refresh took {took} ms and the copy changed at {flippedAt} ms: the big plugin's read was too short to hold the change");
             var got = index.Plugin(p.Name)!;
-            Check(calls == 2, $"the plugin was read {calls} time(s); a change during the read should make it 2");
-            Check(got.Segment != null && got.Problems.ReadError == null, "after one change during the read the plugin should be indexed");
+            Check(got.Segment != null && got.Problems.ReadError == null, $"after one change during the refresh the plugin should be indexed; it says: {got.Problems.ReadError}");
             Check(got.ContentKey == Keys.Content(copy) && got.ContentKey != p.ContentKey, "what is indexed isn't the file as it is now");
+            Check(got.Stamp == QuickStamp.Read(copy, out _), "the stamp kept isn't the file's stamp now: the plugin wasn't read again after it changed");
         }
-        // 2. It changes during every read: the plugin gets no segment and says why. Left alone, the next refresh reads it.
-        int reads = 0;
-        using (var index = new HeaderIndex(PluginSource.FromFiles(files), ctx.Options(version: Ctx.Version + "/own-segments")))
+        // 2. It changes all the time while the refresh runs: the plugin gets no segment and says why. Left alone, the next refresh reads it.
+        int flips = 0;
+        using (var index = new HeaderIndex(PluginSource.FromFiles(files), RaceTests.SlowOptions(ctx, "during2")))
         {
-            index.AfterReadForTests = name => { if (name == p.Name) FlipByte(ctx, copy, at, keepDate: false, xor: (byte)(1 << (Interlocked.Increment(ref reads) % 7))); };
+            using var stop = new CancellationTokenSource();
+            var writer = Task.Run(() =>
+            {
+                Thread.Sleep(100);
+                // Opened sharing reads and writes, as the index opens a plugin: the index's reads go on while it is written
+                while (!stop.IsCancellationRequested)
+                {
+                    using (var fs = new FileStream(copy, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
+                    {
+                        fs.Position = at; int b = fs.ReadByte();
+                        fs.Position = at; fs.WriteByte((byte)(b ^ (1 << (++flips % 7))));
+                    }
+                    File.SetLastWriteTimeUtc(copy, DateTime.UtcNow);
+                }
+            });
             index.Refresh();
+            stop.Cancel();
+            writer.Wait();
             var got = index.Plugin(p.Name)!;
             Check(got.Segment == null && got.Problems.ReadError != null && got.Problems.ReadError.Contains("changed while"), $"a plugin that changes during every read should be refused; it has {(got.Segment == null ? "no" : "a")} segment and says: {got.Problems.ReadError}");
-            index.AfterReadForTests = null;
             index.Refresh();
             var later = index.Plugin(p.Name)!;
             Check(later.Segment != null && later.Problems.ReadError == null && later.ContentKey == Keys.Content(copy), "left alone, the plugin should be indexed by the next refresh");
         }
-        return $"{p.Name} (a copy) changed while it was being read: read a second time, and the new content is what is indexed ({calls} reads). Changed during both reads: no segment, and the reason given is \"it changed while it was being read: run the command again\" ({reads} reads); the next refresh, with the file left alone, indexes it";
+        return $"{p.Name} (a copy) changed {flippedAt} ms into a refresh of {took} ms (one thread, {Path.GetFileName(slow)} read first): read a second time, and the new content and stamp are what is indexed. Changed {flips:N0} times during a refresh: no segment, and the reason given is \"it changed while it was being read: run the command again\"; the next refresh, with the file left alone, indexes it";
     }
 
     public static string BrokenFiles(Ctx ctx)

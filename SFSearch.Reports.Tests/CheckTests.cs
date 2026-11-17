@@ -554,6 +554,13 @@ static class CheckTests
             mod.Keywords.AddNew("m11a_keyword");
             string path = Tests.Made.Write(ctx, mod, "made-both-flags", MutagenStyle.Small);
             Tests.Made.SetHeaderFlags(ctx, path, Tests.Made.HeaderFlags(path) | 0x400);   // Mutagen writes no such header: one bit set in the written file
+            // Mutagen reads it as Small (C180, fixes.14), and SFSearch's header gives it the same size
+            MutagenStyle mutagenStyle;
+            using (var read = StarfieldMod.Create(StarfieldRelease.Starfield).FromPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(ctx.Data).Construct())
+                mutagenStyle = read.GetMasterStyle();
+            var header = PluginHeader.Parse(File.ReadAllBytes(path))!;
+            Check(header.BothSizeFlags && mutagenStyle == MutagenStyle.Small && header.Style == SFSearch.Index.MasterStyle.Small,
+                $"both size flags: Mutagen reads it as {mutagenStyle}, SFSearch's header as {header.Style} (both flags: {header.BothSizeFlags})");
             var a = report.Check(path);
             string text = a.ToText();
             ctx.WriteReport("check-made-both-flags.txt", text);
@@ -561,8 +568,9 @@ static class CheckTests
             Check(f.Result == "ERROR" && f.Rows.Count == 1, $"both size flags: {f.Result}, {f.Rows.Count} rows\n{text}");
             string rest = string.Join(", ", a.Findings.Where(x => x.Id != "size-flags" && x.Result is not ("PASS" or "NOT RUN")).Select(x => $"{x.Id} {x.Result}"));
             Check(rest.Length == 0, $"both size flags: other checks found something: {rest}");
-            int notRun = a.Findings.Count(x => x.Result == "NOT RUN");
-            more.Add($"a header with both size flags (set in a file Mutagen wrote as Small): ERROR for the header, and nothing else" + (notRun > 0 ? $"; Mutagen refuses such a file, so the {notRun} checks that read records are NOT RUN, with the reason" : "; its records were read and checked"));
+            string notRun = string.Join(", ", a.Findings.Where(x => x.Result == "NOT RUN").Select(x => x.Id));
+            Check(notRun.Length == 0, $"both size flags: Mutagen reads such a file, but these checks were NOT RUN: {notRun}");
+            more.Add("a header with both size flags (set in a file Mutagen wrote as Small): Mutagen and SFSearch both read it as Small; ERROR for the header, and nothing else; its records were read and checked");
         }
         {
             // A FormID past the plugin's masters. Mutagen writes no such FormID: one byte is changed in a file it wrote.
@@ -966,7 +974,7 @@ static class CheckTests
             Check(Others(a, "formid-form-size", "formid-forms").Length == 0, $"an FE header in a Full plugin: other checks found something: {Others(a, "formid-form-size", "formid-forms")}");
             var side = s.Side(path);
             string raw = side.Engine.RawText(new RecordRef(side.Plugin.Id, Enumerable.Range(0, side.Segment.Count).First(i => side.Segment.EditorId(i) == "f27_keyword_b")));
-            Check(raw.Contains("FormID as stored: FE000801: the Small (light) form, Small number 000, own record 0x801; the plugin's header (Full) doesn't give this form: it gives 01xxxxxx", StringComparison.Ordinal), $"the raw view of the FE header:\n{raw}");
+            Check(raw.Contains("FormID as stored: FE000801: the Small (light) form, Small number 000, own record 0x801 (past the master list, as Mutagen classifies it: a Full plugin has no place in this numbering; it reads as the plugin's own record); the plugin's header (Full) doesn't give this form: it gives 01xxxxxx", StringComparison.Ordinal), $"the raw view of the FE header:\n{raw}");
             parts.Add($"a Full plugin with one header stored FE000801: WARN, {size[0].Line().Trim()}");
         }
         // 4. Real plugins

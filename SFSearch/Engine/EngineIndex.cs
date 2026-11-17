@@ -25,9 +25,10 @@ namespace SFSearch.Engine
 
     /// <summary>
     /// The engine's header index inside SFSearch (design\agent-first, milestones M2 and M5): one HeaderIndex per program,
-    /// over the Data folder, with its segments in the scratch folder (scratch\index under the home). In the service every
-    /// worker maps the same segment files; the indexer lane makes them when the service starts. Run with no service, the
-    /// first use makes them and later runs map them again while each plugin's stamps still match.
+    /// over the Data folder, with its segments in indexes\header under the home (J31: kept between service starts). In
+    /// the service every worker maps the same segment files; the indexer lane brings them up to date when the service
+    /// starts (a new or changed plugin's segment is made, the rest are mapped again), then hashes every plugin once.
+    /// Run with no service, the first use makes them and later runs map them again while each plugin's stamps still match.
     /// <see cref="Check"/> is called before every answer: it compares every plugin's quick stamp (size, date, a hash of
     /// its first and last 64 KB) by equality, never by "newer than", and reads again whatever changed.
     /// </summary>
@@ -43,42 +44,60 @@ namespace SFSearch.Engine
 
         public HeaderIndex Index { get; }
         public string DataFolder { get; }
-        public string ScratchFolder { get; }
+        /// <summary>The folder of the segments: indexes\header under the home.</summary>
+        public string Folder { get; }
         public string? PluginsTxt { get; }
         public string VersionText { get; }
         /// <summary>The last check's result.</summary>
         public Validity Last { get; private set; } = new();
 
-        EngineIndex(string key, string data, string scratch, string? pluginsTxt)
+        EngineIndex(string key, string data, string folder, string? pluginsTxt)
         {
-            _key = key; DataFolder = data; ScratchFolder = scratch; PluginsTxt = pluginsTxt;
+            _key = key; DataFolder = data; Folder = folder; PluginsTxt = pluginsTxt;
             VersionText = "sfsearch " + Extensions.DisplayVersion;
-            Index = new HeaderIndex(PluginSource.Folder(data), new IndexOptions { ScratchFolder = scratch, VersionText = VersionText, PluginsTxt = pluginsTxt, StringFiles = new SFSearch.Records.StringFiles(data, scratch), Refusals = new SFSearch.Records.MutagenRefusals() });
+            Index = new HeaderIndex(PluginSource.Folder(data), new IndexOptions { ScratchFolder = folder, VersionText = VersionText, PluginsTxt = pluginsTxt, StringFiles = new SFSearch.Records.StringFiles(data), Refusals = new SFSearch.Records.MutagenRefusals(), KeepUnusedSegments = KeepsRemovedParts });
         }
+
+        /// <summary>keepRemovedPluginIndexMB (J43): the parts of plugins no longer in Data are kept, and trimmed to that size by <see cref="KeptParts"/>.</summary>
+        public static bool KeepsRemovedParts() => ServiceConfig.Load(Home.Dir, makeFile: false).KeepsRemovedParts;
 
         /// <summary>The index of this program for the Data folder and home in use now. It is made on first use; call <see cref="Check"/> before reading it.</summary>
         public static EngineIndex Get()
         {
             string data = Path.GetFullPath(Home.DataFolder());
-            string scratch = IndexFolder();
+            string folder = IndexFolder();
             string? txt = ServiceConfig.Load(Home.Dir).PluginsTxt is { Length: > 0 } custom ? custom : null;
-            string key = data + "|" + scratch + "|" + txt;
+            string key = data + "|" + folder + "|" + txt;
             lock (_gate)
             {
                 if (_current == null || !_current._key.Equals(key, StringComparison.OrdinalIgnoreCase))
                 {
                     _current?.Dispose();
-                    _current = new EngineIndex(key, data, scratch, txt);
+                    _current = new EngineIndex(key, data, folder, txt);
                 }
                 return _current;
             }
         }
 
         /// <summary>
-        /// scratch\index under the home. In a service worker the coordinator made the scratch folder and emptied it at
-        /// start. A plain run makes it itself, with the marker that tells the service the folder is SFSearch's own.
+        /// indexes\header under the home (J31): kept between service starts unless keepStartupIndexes is false (the
+        /// coordinator then empties it at start). Its stamps.tsv remembers each plugin's quick stamp and content key, so a
+        /// start hashes no plugin whose stamp is unchanged; the start's full check (the indexer lane's sweep) hashes them all.
         /// </summary>
-        public static string IndexFolder() => Path.Combine(Home.Scratch, "index");
+        public static string IndexFolder() => Path.Combine(Home.Indexes, "header");
+
+        /// <summary>
+        /// Lets go of this program's index (after `indexes drop` deleted its files): the next <see cref="Get"/> makes a
+        /// new one from the files. What was built on the old one is let go at its next use (each compares the index).
+        /// </summary>
+        public static void Forget()
+        {
+            lock (_gate)
+            {
+                _current?.Dispose();
+                _current = null;
+            }
+        }
 
         public void Dispose()
         {
@@ -103,7 +122,7 @@ namespace SFSearch.Engine
             if (v.Cold)
             {
                 // One program at a time makes the segments: the others wait, then map what it made
-                using var one = new Mutex(false, @"Local\sfsearch_index_" + Wire.Hash(ScratchFolder));
+                using var one = new Mutex(false, @"Local\sfsearch_index_" + Wire.Hash(Folder));
                 bool held = false;
                 try { held = one.WaitOne(TimeSpan.FromMinutes(3)); } catch (AbandonedMutexException) { held = true; }
                 try { v.Report = Index.Refresh(verifyContent); }
@@ -115,7 +134,7 @@ namespace SFSearch.Engine
 
             if (v.Cold)
             {
-                // What changed since the index was last brought up to date by anyone (the manifest in the scratch folder remembers)
+                // What changed since the index was last brought up to date by anyone (the manifest in the index folder remembers)
                 foreach (var name in r.Hashed)
                     if (Index.Plugin(name) is { } p && before!.TryGetValue(p.Path, out var old) && old != p.ContentKey.ToString())
                         v.Notes.Add($"{name} changed on disk since the header index was last used: it was read again.");
@@ -150,30 +169,42 @@ namespace SFSearch.Engine
         /// (a changed plugin leaves its old segment behind while another program still maps it). A file still mapped
         /// somewhere can't be deleted and stays for the next time.
         /// </summary>
-        public int RemoveUnusedSegments()
+        /// <param name="unusedBefore">The service's start (UTC): unused files written before it go whatever their age (J31,
+        /// the start's full check). A program that wrote one then and still uses it has it mapped, and it stays.</param>
+        public (int Files, long Bytes) RemoveUnusedSegments(DateTime? unusedBefore = null)
         {
-            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var p in Index.Plugins) if (p.Segment != null) used.Add(Path.GetFullPath(p.Segment.Path));
-            foreach (var s in _side.Values) foreach (var p in s.Ix.Plugins) if (p.Segment != null) used.Add(Path.GetFullPath(p.Segment.Path));
-            int removed = 0;
+            var used = UsedSegmentPaths();
+            int removed = 0; long bytes = 0;
             try
             {
-                foreach (var f in Directory.EnumerateFiles(ScratchFolder, "*.seg"))
+                // Segments, and what a program that was stopped while it wrote one left behind
+                foreach (var f in Directory.EnumerateFiles(Folder, "*.seg").Concat(Directory.EnumerateFiles(Folder, "*.tmp")))
                 {
-                    if (used.Contains(Path.GetFullPath(f)) || DateTime.UtcNow - File.GetLastWriteTimeUtc(f) < TimeSpan.FromHours(1)) continue;
-                    try { File.Delete(f); removed++; } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                    if (used.Contains(Path.GetFullPath(f))) continue;
+                    var written = File.GetLastWriteTimeUtc(f);
+                    if (!(unusedBefore is DateTime start && written < start) && DateTime.UtcNow - written < TimeSpan.FromHours(1)) continue;
+                    try { long size = new FileInfo(f).Length; File.Delete(f); removed++; bytes += size; } catch (IOException) { } catch (UnauthorizedAccessException) { }
                 }
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
-            return removed;
+            return (removed, bytes);
         }
 
-        /// <summary>Path to content key, as the scratch folder's stamps.tsv has them now.</summary>
+        /// <summary>The full paths of the segments this program's index and its side indexes (plugins outside Data) use.</summary>
+        public HashSet<string> UsedSegmentPaths()
+        {
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in Index.Plugins) if (p.Segment != null) used.Add(Path.GetFullPath(p.Segment.Path));
+            foreach (var s in _side.Values) foreach (var p in s.Ix.Plugins) if (p.Segment != null) used.Add(Path.GetFullPath(p.Segment.Path));
+            return used;
+        }
+
+        /// <summary>Path to content key, as the index folder's stamps.tsv has them now.</summary>
         Dictionary<string, string> ManifestKeys()
         {
             var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            string path = Path.Combine(ScratchFolder, "stamps.tsv");
+            string path = Path.Combine(Folder, "stamps.tsv");
             try
             {
                 if (!File.Exists(path)) return d;
@@ -241,7 +272,9 @@ namespace SFSearch.Engine
         {
             string path = PluginsTxt ?? LoadOrder.DefaultPluginsTxt;
             var loaded = Index.LoadOrderEntries.Where(e => e.Enabled).ToList();
-            var s = new SourceInfo { Plugin = $"load order ({loaded.Count} loaded, plugins.txt)", Key = Wire.Hash(string.Join("|", loaded.Select(e => e.Slot + "=" + e.Name)))[..8].ToLowerInvariant() };
+            // An enabled plugin with a missing master can't be loaded (Mutagen's load order drops it, xEdit doesn't load it)
+            int cant = loaded.Count(e => Index.Plugin(e.Name) is { CantLoad: true });
+            var s = new SourceInfo { Plugin = $"load order ({loaded.Count - cant} loaded{(cant > 0 ? $", {cant} more enabled that can't be loaded" : "")}, plugins.txt)", Key = Wire.Hash(string.Join("|", loaded.Select(e => e.Slot + "=" + e.Name)))[..8].ToLowerInvariant() };
             try
             {
                 var fi = new FileInfo(path);
@@ -255,7 +288,7 @@ namespace SFSearch.Engine
         // ---------------------------------------------------------------- A plugin file outside Data
         /// <summary>
         /// A plugin given by path, outside Data: an index of its own over that file and the masters it lists (taken from
-        /// Data, with their masters). It shares the scratch folder, so the masters' segments are the ones already made.
+        /// Data, with their masters). It shares the index folder, so the masters' segments are the ones already made.
         /// The file isn't part of the load order. Null when the file isn't a plugin.
         /// </summary>
         public (HeaderIndex Ix, IndexedPlugin Plugin)? ByPath(string path)
@@ -280,7 +313,7 @@ namespace SFSearch.Engine
             if (!_side.TryGetValue(path, out var side) || side.Key != key)
             {
                 if (side.Ix != null) side.Ix.Dispose();
-                side = (key, new HeaderIndex(PluginSource.FromFiles(files), new IndexOptions { ScratchFolder = ScratchFolder, VersionText = VersionText, PluginsTxt = "", Ccc = "", StringFiles = new SFSearch.Records.StringFiles(DataFolder, ScratchFolder), Refusals = new SFSearch.Records.MutagenRefusals() }));
+                side = (key, new HeaderIndex(PluginSource.FromFiles(files), new IndexOptions { ScratchFolder = Folder, VersionText = VersionText, PluginsTxt = "", Ccc = "", StringFiles = new SFSearch.Records.StringFiles(DataFolder), Refusals = new SFSearch.Records.MutagenRefusals(), KeepUnusedSegments = KeepsRemovedParts }));
                 _side[path] = side;
             }
             side.Ix.Refresh();

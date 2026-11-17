@@ -52,7 +52,9 @@ public sealed class ScriptsOptions
 }
 
 /// <summary>One record that carries a script.</summary>
-public sealed record ScriptCarrier(string Record, string FormKey, string Signature, string Script, string Where);
+/// <param name="By">The plugin whose version of the record is read, when it isn't the plugin the record was found in
+/// (a later plugin's override, the one the game uses).</param>
+public sealed record ScriptCarrier(string Record, string FormKey, string Signature, string Script, string Where, string? By = null);
 
 public sealed class ScriptInfo
 {
@@ -121,6 +123,8 @@ public sealed class ScriptsAnswer : ReportAnswer
 {
     public override string Kind => "scripts";
     public required IReadOnlyList<string> Plugins { get; init; }
+    /// <summary>How the plugins were named, when a set was among them: "@official (33 plugins)" (GAPS S117). Null: by their names.</summary>
+    public string? Named { get; init; }
     /// <summary>list, find or show.</summary>
     public required string Mode { get; init; }
     public List<ScriptInfo> Scripts { get; } = new();
@@ -209,7 +213,8 @@ public sealed class ScriptsAnswer : ReportAnswer
             if (c.BuiltBy is { } b) return $"a record the code got with {b.Shown} in {b.Function}" + (b.Record != null ? $": {b.Record} {b.Signature}" : b.NotFound != null ? $" ({b.NotFound})" : b.Targets.Count > 0 ? $": {TargetsText(b, detail)}" : "");
             return c.ItemOrigin switch
             {
-                ValueOrigin.Parameter => $"{c.ItemText} of {c.Function}" + (c.Via == null ? " (decided at run time)" : ""),
+                // What a method of a parameter returns ("what parameter akSource.GetReference() returns"): the Via says whose
+                ValueOrigin.Parameter => (c.ItemText is { } it && it.StartsWith("what ", StringComparison.Ordinal) ? it : $"{c.ItemText} of {c.Function}") + (c.Via == null ? " (decided at run time)" : ""),
                 ValueOrigin.ScriptVariable => $"{c.ItemText} (no function of this script sets it to a record it got in code)",
                 ValueOrigin.Property => c.ItemText ?? "",
                 _ => c.ItemText ?? "",
@@ -250,6 +255,7 @@ public sealed class ScriptsAnswer : ReportAnswer
     protected override void Fill(JsonObject json)
     {
         json["plugins"] = new JsonArray(Plugins.Select(p => (JsonNode)p).ToArray());
+        if (Named != null) json["named"] = Named;
         json["mode"] = Mode;
         json["counts"] = new JsonObject
         {
@@ -290,7 +296,7 @@ public sealed class ScriptsAnswer : ReportAnswer
 
     protected override void Render(ReportBody body, ReportTextOptions o)
     {
-        string who = string.Join(", ", Plugins);
+        string who = Named ?? string.Join(", ", Plugins);
         bool multi = Plugins.Count > 1;
         switch (Mode)
         {
@@ -439,7 +445,22 @@ public sealed class ScriptsReport
             if (o.Fields.Any(f => f.RefObject == "ScriptEntry"))
                 foreach (var a in session.Schema.Model.Ancestry(o.Name).Concat(session.Schema.Model.Variants(o.Name).Select(v => session.Schema.Model.Objects[v])))
                     if (a.Sig is { Length: 4 }) _scriptSubrecords.Add(a.Sig);
+        // The record types that can carry a script block: the raw searches by script name pass over the rest by their
+        // signature alone (Starfield.esm: about 400,000 records outside world data, most of them of types with none)
+        var model = session.Schema.Model;
+        var adapters = new HashSet<string>(model.Objects.Values.Where(o => o.Sig != null && _scriptSubrecords.Contains(o.Sig)).Select(o => o.Name), StringComparer.Ordinal);
+        foreach (var o in model.Objects.Values.Where(o => adapters.Contains(o.Name)).ToList())
+            foreach (var a in model.Ancestry(o.Name)) adapters.Add(a.Name);
+        foreach (var o in model.Objects.Values)
+            if (o.ObjType == "Record" && o.Sig is { Length: 4 } && !o.Abstract
+                && model.Ancestry(o.Name).Any(a => a.Fields.Any(f => (f.Subrecord != null && _scriptSubrecords.Contains(f.Subrecord)) || (f.RefObject != null && adapters.Contains(f.RefObject)))))
+                _scriptRecords.Add(o.Sig);
     }
+
+    /// <summary>The record signatures whose type has a script block (empty when the schema gives none: then all are looked at).</summary>
+    readonly HashSet<string> _scriptRecords = new(StringComparer.Ordinal);
+    internal IReadOnlyCollection<string> ScriptRecordTypes => _scriptRecords;
+    bool MayCarry(string sig) => _scriptRecords.Count == 0 || _scriptRecords.Contains(sig);
 
     /// <summary>The subrecords a record's script lists sit in, as the schema gives them.</summary>
     public IReadOnlyCollection<string> ScriptSubrecords => _scriptSubrecords;
@@ -527,13 +548,18 @@ public sealed class ScriptsReport
     /// the plugin's name, loose files its records attach (by name, in their script blocks), and, again and again, loose
     /// files those scripts use (their parent, a script their code calls, a type they name), when no master holds them
     /// (a master's archive, or a master's name in the path). A loose file stands in for an archived one of the same path.</summary>
-    Collected Collect(ArchiveTarget own, string pluginName, Func<IReadOnlyCollection<string>, (HashSet<string> Named, int Records)>? namedByRecords, Func<string, bool>? masterHolds)
+    /// <paramref name="listing"/>: false when only the compiled scripts are wanted (another plugin's, read for calls): what
+    /// each script uses isn't kept, and a script is read for the loose scripts it uses only when its string table names one.
+    Collected Collect(ArchiveTarget own, string pluginName, Func<IReadOnlyCollection<string>, (HashSet<string> Named, int Records)>? namedByRecords, Func<string, bool>? masterHolds, bool listing = true)
     {
         var store = _s.Archives;
         var c = new Collected();
         var byPath = new Dictionary<string, Pex>(StringComparer.OrdinalIgnoreCase);
         foreach (var stamp in own.Archives)
         {
+            // A texture archive (DX10) holds no script: passed over by its header, without reading its file table; nor
+            // does an archive whose name table (kept for the process) has no compiled script: its file list isn't read
+            if (TexturesOnly(stamp.Path) || _s.Archives.Names(stamp.Path) is { Error: null, Scripts: 0 }) continue;
             var a = store.Open(stamp.Path);
             bool any = false;
             foreach (var f in a.Files)
@@ -583,13 +609,21 @@ public sealed class ScriptsReport
             // The game links them when it loads the script, so they are the plugin's, unless a master holds them.
             var unused = others.Where(r => !byPath.ContainsKey(r)).GroupBy(ScriptOfPath, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
             var queue = new Queue<Pex>(byPath.Values.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
+            // Not listing: a script can use a loose script only when its string table holds that script's name
+            var unusedNames = listing ? null : unused.Keys.Select(k => Encoding.ASCII.GetBytes(k.ToLowerInvariant())).ToList();
             while (queue.Count > 0)
             {
                 var p = queue.Dequeue();
+                if (unusedNames != null)
+                {
+                    if (unused.Count == 0) break;
+                    try { p.Bytes ??= p.Read(); } catch (Exception e) when (e is IOException or InvalidDataException) { continue; }
+                    if (!PexFile.StringTableHolds(p.Bytes, unusedNames)) continue;
+                }
                 foreach (var o in p.Parsed?.Objects ?? new List<PexObject>())
                 {
                     var uses = o.Uses();
-                    c.Uses[o.Name] = uses;
+                    if (listing) c.Uses[o.Name] = uses;
                     foreach (var (script, how) in uses)
                     {
                         if (unused.Count == 0 || !unused.Remove(script, out var rel)) continue;
@@ -602,11 +636,23 @@ public sealed class ScriptsReport
                 }
             }
         }
-        else
+        else if (listing)
             foreach (var p in byPath.Values)
                 foreach (var o in p.Parsed?.Objects ?? new List<PexObject>()) c.Uses[o.Name] = o.Uses();
         c.Pex = byPath.Values.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
         return c;
+    }
+
+    /// <summary>True for a BA2 whose header says it holds textures only (type DX10): it can't hold a compiled script.</summary>
+    static bool TexturesOnly(string path)
+    {
+        try
+        {
+            using var f = System.IO.File.OpenRead(path);
+            Span<byte> head = stackalloc byte[12];
+            return f.Read(head) == 12 && head[..4].SequenceEqual("BTDX"u8) && head[8..12].SequenceEqual("DX10"u8);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
     static string Hex(ReadOnlySpan<byte> bytes) => Convert.ToHexString(bytes).ToLowerInvariant();
@@ -816,7 +862,8 @@ public sealed class ScriptsReport
     /// <summary>The scripts the plugin's records carry. A record is read only when its bytes hold a script block (and,
     /// with <paramref name="only"/>, when the block holds one of those names: then the answer's counts are left alone).
     /// <paramref name="entries"/> gets each script entry with its properties, by script.</summary>
-    List<ScriptCarrier> Carriers(PluginSide side, ReadScope scope, ScriptsAnswer answer, bool? worldAsked, IReadOnlyCollection<string>? only = null, Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>>? entries = null, Dictionary<string, string>? baseOf = null)
+    List<ScriptCarrier> Carriers(PluginSide side, ReadScope scope, ScriptsAnswer answer, bool? worldAsked, IReadOnlyCollection<string>? only = null, Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>>? entries = null, Dictionary<string, string>? baseOf = null,
+        IReadOnlySet<string>? types = null)
     {
         var onlyBytes = only?.Select(x => Encoding.ASCII.GetBytes(x.ToLowerInvariant())).ToList();
         bool count = only == null;
@@ -832,7 +879,7 @@ public sealed class ScriptsReport
         var label = _s.Compare.Labeller(side);
         scope.Touch(side.Engine, side.Name);
         // With names given: the records whose script block holds one, found first from the raw bytes on several threads
-        var pick = onlyBytes != null ? Naming(side, seg, world, onlyBytes) : null;
+        var pick = onlyBytes != null ? Naming(side, seg, world, onlyBytes, types) : null;
         for (int i = 0; i < seg.FirstUnresolved; i++)
         {
             if (pick != null && !pick.Contains(i)) continue;
@@ -867,13 +914,14 @@ public sealed class ScriptsReport
     }
 
     /// <summary>The records of the plugin whose script block holds one of the names, read raw straight from the file.</summary>
-    HashSet<int> Naming(PluginSide side, Segment seg, bool world, List<byte[]> names)
+    /// <paramref name="types"/>: only records of these types can attach the scripts (<see cref="CarrierTypes"/>); null: any.
+    HashSet<int> Naming(PluginSide side, Segment seg, bool world, List<byte[]> names, IReadOnlySet<string>? types = null)
     {
         var at = new List<(long Offset, int Index)>(seg.FirstUnresolved);
         for (int i = 0; i < seg.FirstUnresolved; i++)
         {
             var e = seg[i];
-            if ((!world && ReportSession.IsWorld(seg, e)) || seg.SignatureOf(e) == "NAVI") continue;
+            if ((!world && ReportSession.IsWorld(seg, e)) || seg.SignatureOf(e) == "NAVI" || !MayCarry(seg.SignatureOf(e)) || (types != null && !types.Contains(seg.SignatureOf(e)))) continue;
             at.Add((e.Offset, i));
         }
         at.Sort((a, b) => a.Offset.CompareTo(b.Offset));
@@ -921,7 +969,7 @@ public sealed class ScriptsReport
         for (int i = 0; i < seg.FirstUnresolved; i++)
         {
             var e = seg[i];
-            if ((!world && ReportSession.IsWorld(seg, e)) || seg.SignatureOf(e) == "NAVI") continue;
+            if ((!world && ReportSession.IsWorld(seg, e)) || seg.SignatureOf(e) == "NAVI" || !MayCarry(seg.SignatureOf(e))) continue;
             offsets.Add(e.Offset);
         }
         offsets.Sort();
@@ -961,11 +1009,264 @@ public sealed class ScriptsReport
         return (new HashSet<string>(found.Keys, StringComparer.OrdinalIgnoreCase), offsets.Count);
     }
 
+    // ------------------------------------------------------------------ Beyond the plugin (S9a)
+    /// <summary>A plugin of up to this many records has its world data read too when its records are looked for by the
+    /// names of a few scripts (raw, on several threads): kinggathcreations_spaceship.esm's 371,811 records take about
+    /// a second. Starfield.esm (3.8 million) is read without it unless world is asked for.</summary>
+    public const int NamedWorldLimit = 1_000_000;
+
+    ScriptInjections? _parentFinder;
+
+    /// <summary>The record types that can attach a script of each of these game types (the type a script extends, at
+    /// the top of its chain): the game binds a script only to a record of its type. A quest's script, its aliases' and
+    /// its fragments' are on quests, an actor's on NPCs and placed actors, and so on.</summary>
+    static readonly Dictionary<string, string[]> CarriedBy = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Quest"] = new[] { "QUST" }, ["ReferenceAlias"] = new[] { "QUST" }, ["RefCollectionAlias"] = new[] { "QUST" }, ["LocationAlias"] = new[] { "QUST" },
+        ["Actor"] = new[] { "NPC_", "ACHR" }, ["ActiveMagicEffect"] = new[] { "MGEF" }, ["TopicInfo"] = new[] { "INFO" }, ["Scene"] = new[] { "SCEN" },
+        ["Package"] = new[] { "PACK" }, ["Perk"] = new[] { "PERK" },
+    };
+
+    /// <summary>
+    /// The record types that can attach one of these scripts: each script's chain of parents (as the compiled scripts
+    /// read give it) up to a game type of <see cref="CarriedBy"/>. Null when a script's chain doesn't end in one (an
+    /// ObjectReference's script can be on many types of records): then any type that carries a script block is looked in.
+    /// </summary>
+    HashSet<string>? CarrierTypes(IEnumerable<string> scripts, Dictionary<string, string> parents)
+    {
+        // A script none of the plugin's compiled scripts extends or is (a game script whose property a caller in the
+        // game's code uses, a parent the plugin doesn't ship): its parent from its compiled script, where the game finds it
+        _parentFinder ??= new ScriptInjections(_s.Archives);
+        var types = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var script in scripts)
+        {
+            string? at = script;
+            string[]? found = null;
+            for (int depth = 0; depth < 32 && at is { Length: > 0 } && found == null; depth++)
+                if (!CarriedBy.TryGetValue(at, out found)) at = parents.TryGetValue(at, out var parent) ? parent : _parentFinder.ParentOf(at);
+            if (found == null) return null;
+            types.UnionWith(found);
+        }
+        return types;
+    }
+
+    /// <summary>The plugins the game loads that have the plugin as a master, in load order (none that Mutagen refuses
+    /// or whose masters are missing).</summary>
+    List<IndexedPlugin> Dependents(PluginSide side) =>
+        _s.Index.Plugins.Where(p => p.Order.Enabled && p.LeftOut == null && p.Segment != null && p.Problems.MissingMasters.Count == 0
+                && !p.Name.Equals(side.Name, StringComparison.OrdinalIgnoreCase)
+                && (p.Header?.Masters ?? Array.Empty<string>()).Any(m => m.Equals(side.Name, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(p => p.Order.Position).ToList();
+
+    /// <summary>
+    /// Other plugins' compiled scripts, read for the calls of a function no script of the plugin calls: those of the
+    /// plugins the game loads that have the plugin as a master (their archives, their loose scripts), and, for a script
+    /// the plugin holds a copy of a master's, the masters' (the game's own scripts call a game script the plugin
+    /// replaces). A script is read only when its string table names the function, and each once.
+    /// </summary>
+    sealed class OtherScripts
+    {
+        readonly ScriptsReport _r;
+        readonly PluginSide _side;
+        readonly List<IndexedPlugin> _deps;
+        readonly FileFinder _finder;
+        List<(string Plugin, Pex Pex)>? _depFiles, _masterFiles;
+        readonly Dictionary<Pex, ScriptCodeResult> _read = new();
+        readonly Dictionary<string, bool> _copy = new(StringComparer.OrdinalIgnoreCase);
+        public OtherScripts(ScriptsReport r, PluginSide side, List<IndexedPlugin> deps, FileFinder finder) { _r = r; _side = side; _deps = deps; _finder = finder; }
+        /// <summary>How many other plugins' scripts were looked at, and read for their code.</summary>
+        public int LookedAt => (_depFiles?.Count ?? 0) + (_masterFiles?.Count ?? 0);
+        public int Read => _read.Count;
+        public bool MastersLooked => _masterFiles != null;
+        public string TextFor(string script) => Deps + (_copy.TryGetValue(script, out bool copy) && copy ? $" or of its masters ({string.Join(", ", _side.Masters)})" : "");
+        string Deps => _deps.Count == 0 ? $"a plugin that has {_side.Name} as a master (none does)" : _deps.Count == 1 ? $"the plugin that has {_side.Name} as a master ({_deps[0].Name})" : $"the {N(_deps.Count)} plugins that have {_side.Name} as a master";
+        public string Text => (_deps.Count == 0 ? $"a plugin that has {_side.Name} as a master (none does)" : _deps.Count == 1 ? $"the plugin that has {_side.Name} as a master ({_deps[0].Name})" : $"the {N(_deps.Count)} plugins that have {_side.Name} as a master")
+            + (_masterFiles != null ? $" or of its masters ({string.Join(", ", _side.Masters)})" : "");
+
+        List<(string, Pex)> Load(IEnumerable<string> plugins)
+        {
+            var list = new List<(string, Pex)>();
+            foreach (var name in plugins)
+            {
+                ArchiveTarget own;
+                try { own = ArchiveReport.Resolve(_r._s, name); } catch (ReportException) { continue; }
+                foreach (var p in _r.Collect(own, name, null, null, listing: false).Pex) list.Add((name, p));
+            }
+            return list;
+        }
+
+        public IEnumerable<CallSite> Calls(string script, string function)
+        {
+            _depFiles ??= Load(_deps.Select(d => d.Name));
+            IEnumerable<(string Plugin, Pex Pex)> files = _depFiles;
+            if (!_copy.TryGetValue(script, out bool copy))
+                _copy[script] = copy = _finder.FindNonTexture(PathOfScript(script), loose: false, only: FileOrigin.Master).Origin == FileOrigin.Master;
+            if (copy) files = files.Concat(_masterFiles ??= Load(_side.Masters));
+            var found = new List<CallSite>();
+            // Only a script whose string table names the function can call it: the tables are looked at on every core
+            // (the bytes are read first, one archive at a time), and only those scripts are read for their code
+            var list = files.ToList();
+            foreach (var (_, p) in list)
+                if (p.Bytes == null) try { p.Bytes = p.Read(); } catch (Exception e) when (e is IOException or InvalidDataException) { }
+            var name = new[] { Encoding.ASCII.GetBytes(function.ToLowerInvariant()) };
+            var hits = new bool[list.Count];
+            Parallel.For(0, list.Count, i => hits[i] = _read.ContainsKey(list[i].Pex) || (list[i].Pex.Bytes is { } b && PexFile.StringTableHolds(b, name)));
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (!hits[i]) continue;
+                var (plugin, p) = list[i];
+                if (!_read.TryGetValue(p, out var r))
+                {
+                    var file = p.Parsed;
+                    if (file == null) continue;
+                    r = new ScriptCodeResult { Plugin = plugin };
+                    ScriptCode.Read(file, plugin, r);
+                    _read[p] = r;
+                }
+                foreach (var s in r.Sites) if (s.Function.Equals(function, StringComparison.OrdinalIgnoreCase)) found.Add(s with { CallerPlugin = plugin });
+            }
+            return found;
+        }
+    }
+
+    /// <summary>What was read beyond the plugin's own records for the values of script properties.</summary>
+    sealed class Widened
+    {
+        public int Overridden, Dependents, DependentRecords, MasterRecords, WorldRecords, Removed;
+        public readonly List<string> MastersLooked = new();
+        public readonly List<string> RemovedBy = new();
+        public readonly HashSet<string> WorldLeftOut = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The records the game takes the scripts' property values from, beyond the plugin's own versions of its records:
+    /// each record of the plugin that attaches a script, as the load order's winner sets it (a later plugin's override);
+    /// the records of the plugins the game loads that have the plugin as a master (each as its winner sets it); and,
+    /// for a script none of those attaches that is a copy of a master's script, the masters' records.
+    /// </summary>
+    void Widen(PluginSide side, ReadScope scope, ScriptsAnswer answer, IReadOnlyCollection<string> names, Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>> entries,
+        Dictionary<string, string> baseOf, FileFinder finder, Dictionary<string, RecordView?> views, Widened info, Dictionary<string, string> parents)
+    {
+        // The winner of each record found: a later plugin's override sets the values the game uses
+        void TakeWinners(Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>> found, string plugin)
+        {
+            foreach (var (script, list) in found)
+            {
+                var into = entries.TryGetValue(script, out var l) ? l : entries[script] = new();
+                foreach (var (carrier, entry) in list)
+                {
+                    if (into.Any(x => x.Carrier.FormKey.Equals(carrier.FormKey, StringComparison.OrdinalIgnoreCase) && x.Carrier.Where == carrier.Where)) continue;
+                    var hit = _s.Winner(carrier.FormKey);
+                    string? winner = hit?.Plugin.Name;
+                    if (hit == null || winner == null || winner.Equals(plugin, StringComparison.OrdinalIgnoreCase)) { into.Add((carrier, entry)); continue; }
+                    var view = ViewOf(hit.Value, views);
+                    JsonObject? won = null;
+                    if (view != null) WalkObject(view.Type, view.Json, "", (s2, where, e2) => { if (won == null && s2.Equals(script, StringComparison.OrdinalIgnoreCase) && where == carrier.Where) won = e2; });
+                    if (won == null && view != null) WalkObject(view.Type, view.Json, "", (s2, _, e2) => { if (won == null && s2.Equals(script, StringComparison.OrdinalIgnoreCase)) won = e2; });
+                    if (won == null) { info.Removed++; info.RemovedBy.Add($"{carrier.Record} {carrier.Signature} ({script}; overridden by {winner})"); continue; }
+                    info.Overridden++;
+                    if (view!.Json["Base"] is JsonValue bv && bv.TryGetValue<string>(out var baseKey) && RecordSplit.IsFormKey(baseKey)) baseOf[carrier.FormKey] = ReportSession.Canon(baseKey);
+                    into.Add((carrier with { By = winner }, won));
+                }
+            }
+        }
+        var own = entries.ToDictionary(kv => kv.Key, kv => kv.Value.ToList(), StringComparer.OrdinalIgnoreCase);
+        entries.Clear();
+        TakeWinners(own, side.Name);
+
+        // The plugins that have it as a master: a patch that attaches the script, or overrides a record that does
+        var deps = Dependents(side);
+        info.Dependents = deps.Count;
+        foreach (var dep in deps)
+        {
+            var depSide = _s.Side(dep.Name);
+            var found = new Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>>(StringComparer.OrdinalIgnoreCase);
+            info.DependentRecords += Carriers(depSide, scope, answer, WorldFor(depSide, null, info), names, found, baseOf, CarrierTypes(names, parents)).Select(x => x.FormKey).Distinct().Count();
+            TakeWinners(found, dep.Name);
+        }
+
+        // A copy of a master's script that nothing above attaches: the masters' records attach it
+        var copies = names.Where(n => !(entries.TryGetValue(n, out var l) && l.Count > 0)
+            && finder.FindNonTexture(PathOfScript(n), loose: false, only: FileOrigin.Master).Origin == FileOrigin.Master).ToList();
+        if (copies.Count > 0)
+            foreach (var m in side.Masters)
+            {
+                if (_s.Index.Plugin(m) is not { Segment: not null } mp || mp.LeftOut != null) continue;
+                var mSide = _s.Side(m);
+                // A master's world data only up to the list's limit: Starfield.esm and the official plugins are read without it
+                bool mWorld = mSide.Segment.Count <= WorldLimit;
+                if (!mWorld) info.WorldLeftOut.Add(m);
+                info.MastersLooked.Add(m);
+                var found = new Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>>(StringComparer.OrdinalIgnoreCase);
+                info.MasterRecords += Carriers(mSide, scope, answer, mWorld, copies, found, baseOf, CarrierTypes(copies, parents)).Select(x => x.FormKey).Distinct().Count();
+                TakeWinners(found, m);
+            }
+    }
+
+    /// <summary>Whether a plugin's world data is read when its records are looked for by script names.</summary>
+    bool WorldFor(PluginSide side, bool? asked, Widened info)
+    {
+        if (asked is bool b) return b;
+        bool world = side.Segment.Count <= NamedWorldLimit;
+        if (!world) info.WorldLeftOut.Add(side.Name);
+        return world;
+    }
+
+    RecordView? ViewOf(Hit hit, Dictionary<string, RecordView?> views)
+    {
+        string key = hit.Plugin.Name + "|" + hit.Ref.Entry;
+        if (views.TryGetValue(key, out var v)) return v;
+        // A partial form (a quest override that holds only some fields) is merged over the version before it, as the game does
+        try { v = _s.Compare.Effective(hit.Engine, hit.Ref); } catch (CompareException) { v = null; }
+        return views[key] = v;
+    }
+
+    /// <summary>
+    /// The values of a property of the script on the record a property holds (two steps: <c>workerContainer of
+    /// property core</c>), as the load order's winner of that record sets it: the record's own scripts, or with an
+    /// alias, that alias's scripts. A placed reference that doesn't set it takes its base object's; one set nowhere
+    /// takes the script's default (when the script is one of the plugin's). The script whose property is read is the
+    /// property's declared type when the record attaches it (or a script extending it), else any of its scripts with
+    /// a property of that name.
+    /// </summary>
+    List<Choice> ChainValues(string formKey, int alias, string chain, string? type, Dictionary<string, string> parents, Dictionary<string, PexValue> defaults, Dictionary<string, RecordView?> views, int depth = 0)
+    {
+        var none = new List<Choice>();
+        if (_s.Winner(formKey) is not { } hit) return new List<Choice> { new($"{formKey} isn't in Data", null, null, -1, Unset: true) };
+        var view = ViewOf(hit, views);
+        if (view == null) return new List<Choice> { new("its record can't be read", null, null, -1, Unset: true) };
+        string? aliasPath = null;
+        if (alias >= 0 && view.Json["VirtualMachineAdapter"]?["Aliases"] is JsonArray aliases)
+            for (int i = 0; i < aliases.Count; i++)
+                if (aliases[i]?["Property"]?["Alias"] is JsonValue av && av.TryGetValue<int>(out int id) && id == alias) { aliasPath = $"VirtualMachineAdapter.Aliases[{i}]."; break; }
+        var found = new List<(string Script, JsonObject Entry)>();
+        WalkObject(view.Type, view.Json, "", (script, where, entry) =>
+        {
+            bool onAlias = where.StartsWith("VirtualMachineAdapter.Aliases[", StringComparison.Ordinal);
+            if (alias >= 0 ? aliasPath != null && where.StartsWith(aliasPath, StringComparison.Ordinal) : !onAlias) found.Add((script, entry));
+        });
+        var typed = type == null ? new List<(string Script, JsonObject Entry)>() : found.Where(f => SameOrChild(type, parents).Contains(f.Script, StringComparer.OrdinalIgnoreCase)).ToList();
+        var holders = typed.Count > 0 ? typed : found.Where(f => PropertyOf(f.Entry, chain) != null).ToList();
+        foreach (var (script, entry) in holders)
+            if (PropertyOf(entry, chain) is { } p) return PropertyValues(p, null).ToList();
+        // A placed reference that doesn't set it: its base object's
+        if (depth == 0 && alias < 0 && view.Json["Base"] is JsonValue bv && bv.TryGetValue<string>(out var baseKey) && RecordSplit.IsFormKey(baseKey))
+        {
+            var fromBase = ChainValues(ReportSession.Canon(baseKey), -1, chain, type, parents, defaults, views, depth + 1);
+            if (fromBase.Any(c => !c.Unset)) return fromBase.Select(c => c with { Text = $" (from its base {Find(uint.Parse(ReportSession.Canon(baseKey)[..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture), ReportSession.Canon(baseKey)[7..]).Record ?? baseKey})" }).ToList();
+        }
+        string? script0 = typed.Count > 0 ? typed[0].Script : type;
+        if (holders.Count == 0 && typed.Count == 0)
+            return new List<Choice> { new(type != null ? $"it attaches no {type}" : "no script on it has that property", null, null, -1, Unset: true) };
+        var d = script0 != null && defaults.TryGetValue(script0 + "|" + chain, out var dv) ? dv : new PexValue(PexValue.None, null, 0, 0, false);
+        return new List<Choice> { new(d.Kind == PexValue.None ? "not set (None)" : $"not set (the script's default {d})", d.Kind == PexValue.None ? null : d, null, -1, Unset: true) };
+    }
+
     // ------------------------------------------------------------------ The code
     /// <summary>Reads the plugin's compiled scripts for the calls that reach records without a link and the records
     /// they hand out, and for the script each extends. A parameter is followed to the calls of its function in the
     /// plugin's scripts. The calls are located later, once the values of script properties are known.</summary>
-    ScriptCodeResult ReadCode(PluginSide side, Collected c, ScriptsAnswer answer, Dictionary<string, string> parents, Dictionary<string, PexValue> propertyDefaults)
+    ScriptCodeResult ReadCode(PluginSide side, Collected c, ScriptsAnswer answer, Dictionary<string, string> parents, Dictionary<string, PexValue> propertyDefaults, FileFinder finder)
     {
         var result = new ScriptCodeResult();
         foreach (var p in c.Pex)
@@ -983,7 +1284,19 @@ public sealed class ScriptsReport
             }
             ScriptCode.Read(file, side.Name, result);
         }
-        ScriptCode.ResolveParameters(result, script => SameOrChild(script, parents));
+        // Parameters to their callers (in the plugin's scripts, else in the scripts of the plugins that have it as a
+        // master), what a call of the plugin's own function returns, and two-step property chains
+        var deps = Dependents(side);
+        var others = new OtherScripts(this, side, deps, finder);
+        ScriptCode.Resolve(result, new ScriptCode.ResolveScope
+        {
+            SameOrChild = script => SameOrChild(script, parents),
+            ParentOf = script => parents.TryGetValue(script, out var parent) && parent.Length > 0 ? parent : null,
+            Others = deps.Count > 0 || side.Masters.Count > 0 ? others.Calls : null,
+            OthersText = others.TextFor,
+        });
+        if (others.LookedAt > 0)
+            answer.Read.Add($"{Plural(others.LookedAt, "compiled script")} of {others.Text} for calls of functions no script of {side.Name} calls ({N(others.Read)} of them read for their code)");
         answer.PropertyGives += result.PropertyGives;
         answer.NothingGives += result.NothingGives;
         answer.Calls.AddRange(result.Calls);
@@ -1010,7 +1323,8 @@ public sealed class ScriptsReport
     /// that extends it): one target for each record, with the property's value there, or its default when the record
     /// doesn't set it.
     /// </summary>
-    void JoinProperties(ScriptCall call, string pluginName, Dictionary<string, string> parents, Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>> entries, Dictionary<string, PexValue> defaults, Dictionary<string, string> baseOf)
+    void JoinProperties(ScriptCall call, string pluginName, Dictionary<string, string> parents, Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>> entries, Dictionary<string, PexValue> defaults, Dictionary<string, string> baseOf,
+        Dictionary<string, RecordView?> views, Widened info)
     {
         var used = call.Values.Take(call.Kind == "get" ? 2 : 1).ToList();
         var scripts = call.PropertyScripts.ToList();
@@ -1027,14 +1341,19 @@ public sealed class ScriptsReport
                     }
         if (carriers.Count == 0)
         {
-            string none = $"no record of {pluginName} attaches {string.Join(" or ", scripts)}{(scripts.Any(x => SameOrChild(x, parents).Skip(1).Any()) ? " or a script that extends it" : "")}: the value is on another plugin's records";
+            string where = pluginName + (info.Dependents > 1 ? $" or of the {N(info.Dependents)} plugins that have it as a master" : info.Dependents == 1 ? " or of the plugin that has it as a master" : "")
+                + (info.MastersLooked.Count > 0 ? $" or of its masters ({string.Join(", ", info.MastersLooked)})" : "");
+            string left = info.WorldLeftOut.Count > 0 ? $"; the world data of {string.Join(", ", info.WorldLeftOut)} wasn't looked in (too many records: ask with world)" : "";
+            string none = $"no record of {where} attaches {string.Join(" or ", scripts)}{(scripts.Any(x => SameOrChild(x, parents).Skip(1).Any()) ? " or a script that extends it" : "")}"
+                + (info.Dependents == 0 ? " (no plugin the game loads has it as a master)" : "") + $"{left}: the code runs only where a plugin outside these attaches it";
             call.Via = call.Via is { Length: > 0 } v0 ? v0 + "; " + none : none;
             return;
         }
         call.Targets.RemoveAll(t => t.Carrier != null);
         foreach (var (carrier, byScript) in carriers.Values.OrderBy(x => x.Carrier.Record, StringComparer.OrdinalIgnoreCase))
         {
-            string carrierText = $"{carrier.Record} {carrier.Signature}" + (carrier.Where.StartsWith("VirtualMachineAdapter.Scripts[", StringComparison.Ordinal) ? "" : $" ({ShortWhere(carrier.Where)})");
+            string carrierText = $"{carrier.Record} {carrier.Signature}" + (carrier.Where.StartsWith("VirtualMachineAdapter.Scripts[", StringComparison.Ordinal) ? "" : $" ({ShortWhere(carrier.Where)})")
+                + (carrier.By != null ? $" (as {carrier.By} sets it, the version the game uses)" : "");
             // Each used argument's values on this record
             var perArg = new List<List<Choice>>();
             foreach (var values in used)
@@ -1049,10 +1368,19 @@ public sealed class ScriptsReport
                         var prop = PropertyOf(entry, v.Property);
                         string from = "";
                         // A placed object that doesn't set the property has its base object's value
-                        if (prop == null && baseOf.TryGetValue(carrier.FormKey, out var baseKey) && entries.TryGetValue(v.Script, out var baseEntries)
-                            && baseEntries.FirstOrDefault(x => x.Carrier.FormKey.Equals(baseKey, StringComparison.OrdinalIgnoreCase)) is { Entry: not null } be && PropertyOf(be.Entry, v.Property) is { } bp)
+                        // (the base may attach the script or one that extends it)
+                        if (prop == null && baseOf.TryGetValue(carrier.FormKey, out var baseKey)
+                            && SameOrChild(v.Script, parents).SelectMany(x => entries.TryGetValue(x, out var l) ? l : new()).FirstOrDefault(x => x.Carrier.FormKey.Equals(baseKey, StringComparison.OrdinalIgnoreCase) && PropertyOf(x.Entry, v.Property!) != null) is { Entry: not null } be
+                            && PropertyOf(be.Entry, v.Property) is { } bp)
                         { prop = bp; from = $" (from its base {be.Carrier.Record})"; }
                         string name = (v.Member != null ? $"{v.Member} of {(v.Element ? "an element of " : "")}" : "") + v.Property + from;
+                        // FormList.GetAt on it: the record handed out is an entry of the form list it holds
+                        if (v.Entries) name = "an entry of " + name;
+                        if (prop == null && v.Chain != null)
+                        {
+                            choices.Add(new Choice(call.Kind == "give" ? $"{name} (not set on the record) → {v.Chain}" : $"{name} isn't set on the record → {v.Chain}", null, null, -1, Unset: true));
+                            continue;
+                        }
                         if (prop == null)
                         {
                             var d = v.Member == null && defaults.TryGetValue(v.Script + "|" + v.Property, out var dv) ? dv : new PexValue(PexValue.None, null, 0, 0, false);
@@ -1060,11 +1388,30 @@ public sealed class ScriptsReport
                                 d.Kind == PexValue.None ? null : d, null, -1, Unset: true));
                             continue;
                         }
+                        if (v.Chain != null)
+                        {
+                            // Two steps: the record the property holds, then the property of its script there
+                            foreach (var x in PropertyValues(prop, null))
+                            {
+                                string holder = x.FormKey == null ? "None" : (LabelOf(x.FormKey) + (x.Alias >= 0 ? $" alias {x.Alias}" : ""));
+                                if (x.FormKey == null) { choices.Add(new Choice($"{name} = None → {v.Chain}", null, null, -1, Unset: true, Property: v.Property)); continue; }
+                                foreach (var y in ChainValues(x.FormKey, x.Alias, v.Chain, v.ChainType, parents, defaults, views))
+                                {
+                                    string step = $"{name} = {holder} → {v.Chain}" + (y.Unset ? $" ({y.Text})" : y.Text);
+                                    choices.Add(y with { Text = call.Kind == "give" ? step : $"{step} = {(y.Value is { } yv ? yv.ToString() : y.FormKey ?? "None")}", Property = v.Property });
+                                }
+                            }
+                            continue;
+                        }
+                        int had = choices.Count;
                         foreach (var x in PropertyValues(prop, v.Member))
                             choices.Add(x with { Text = call.Kind == "give" ? name : $"{name}{(x.Element >= 0 && v.Member != null ? $" [{x.Element}]" : "")} = {(x.Value is { } xv ? xv.ToString() : x.FormKey ?? "None")}", Property = v.Property });
+                        // A struct that doesn't set the member (or an empty array): the member's default, None
+                        if (choices.Count == had)
+                            choices.Add(new Choice(call.Kind == "give" ? $"{name} (not set in {(v.Element ? "any element" : "the struct")})" : $"{name} isn't set in {(v.Element ? "any element" : "the struct")} (None)", null, null, -1, Unset: true, Property: v.Property));
                     }
                     else if (v.Constant is { } k) choices.Add(new Choice(v.Text, k, null, -1));
-                    else if (v.Kind != ValueOrigin.None) choices.Add(new Choice(v.Text, null, null, -1));
+                    else if (v.Kind != ValueOrigin.None && !choices.Any(x => x.Text == v.Text && x.FormKey == null && x.Value == null)) choices.Add(new Choice(v.Text, null, null, -1));
                 }
                 if (choices.Count == 0) choices.Add(new Choice("", null, null, -1));
                 perArg.Add(choices);
@@ -1095,7 +1442,8 @@ public sealed class ScriptsReport
                         t.NamedPlugin = pl.Value is { Kind: PexValue.String } ps2 ? ps2.Text : null;
                     }
                     else t.EditorId = id.Value is { Kind: PexValue.String } pe ? pe.Text : null;
-                    if (t.FormId == null && t.NamedPlugin == null && t.EditorId == null) t.NotFound = "decided at run time";
+                    if (t.FormId == null && t.NamedPlugin == null && t.EditorId == null)
+                        t.NotFound = id.Unset || pl.Unset ? (call.Kind == "plugin" ? "no plugin named (the check is false)" : "nothing named (the call gets None)") : "decided at run time";
                     call.Targets.Add(t);
                 }
         }
@@ -1110,7 +1458,7 @@ public sealed class ScriptsReport
 
     /// <summary>"Aliases[2].Scripts[0]" → "alias 2"; "ScriptFragments.Script" → "its fragments".</summary>
     static string ShortWhere(string where) =>
-        where.StartsWith("VirtualMachineAdapter.ScriptFragments", StringComparison.Ordinal) ? "its fragments' script"
+        where.StartsWith("VirtualMachineAdapter.ScriptFragments", StringComparison.Ordinal) || where == "VirtualMachineAdapter.Script" ? "its fragments' script"
         : Regex.Match(where, @"Aliases\[(\d+)\]") is { Success: true } m ? $"its alias {m.Groups[1].Value}'s script" : where;
 
     /// <summary>The values a script property holds on a record: a record (with its alias), several (an array), a number,
@@ -1213,6 +1561,15 @@ public sealed class ScriptsReport
         (t.FormKey, t.Record, t.Signature, t.NotFound) = Find(id & 0xFFFFFF, plugin, id);
     }
 
+    /// <summary>"Foo (001234:x.esm) MISC" for a FormKey, as the game finds the record; the FormKey when it isn't in Data.</summary>
+    string LabelOf(string formKey)
+    {
+        int colon = formKey.IndexOf(':');
+        if (colon != 6 || !uint.TryParse(formKey[..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var local)) return formKey;
+        var (_, record, signature, _) = Find(local, formKey[(colon + 1)..]);
+        return record != null ? $"{record} {signature}" : formKey;
+    }
+
     /// <summary>The record a plugin's FormID names as the game finds it in this Data folder (label, signature), or why there is none.</summary>
     (string FormKey, string? Record, string? Signature, string? NotFound) Find(uint local, string plugin, uint? full = null)
     {
@@ -1269,19 +1626,20 @@ public sealed class ScriptsReport
     public ScriptsAnswer Scripts(string plugins, ScriptsOptions? options = null)
     {
         options ??= new ScriptsOptions();
-        var names = plugins.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (names.Length == 0) throw new ReportException("no plugin was named", "give a plugin's file name in Data, or the path of a plugin file");
+        // Names, patterns and sets (@official) through the one resolver (GAPS S117); a path or a name not in Data stays for Side
+        var (names, named) = string.IsNullOrWhiteSpace(plugins) ? (new List<string>(), (string?)null) : PluginSet.Names(_s.Index, plugins);
+        if (names.Count == 0) throw new ReportException("no plugin was named", "give a plugin's file name in Data, or the path of a plugin file");
         string mode = options.Show != null ? "show" : options.Find != null ? "find" : options.Calls ? "calls" : "list";
         if (mode == "find" && options.Find!.Length == 0) throw new ReportException("the text to find is empty", "give a text to look for");
         return _s.Run(scope =>
         {
             var sides = names.Select(n => _s.Side(n)).ToList();
-            var answer = new ScriptsAnswer { Plugins = sides.Select(s => s.Shown).ToList(), Mode = mode, Find = options.Find };
+            var answer = new ScriptsAnswer { Plugins = sides.Select(s => s.Shown).ToList(), Named = named, Mode = mode, Find = options.Find };
             var all = new List<(PluginSide Side, Sources Sources, FileFinder Finder)>();
             var usesOf = new List<(PluginSide Side, Dictionary<string, List<(string Script, string How)>> Uses, HashSet<string> Own, FileFinder Finder)>();
             var parents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var propertyDefaults = new Dictionary<string, PexValue>(StringComparer.OrdinalIgnoreCase);
-            var code = new List<(PluginSide Side, ScriptCodeResult Result)>();
+            var code = new List<(PluginSide Side, ScriptCodeResult Result, FileFinder Finder)>();
             var uses = new Dictionary<string, List<(string Script, string How)>>(StringComparer.OrdinalIgnoreCase);
             var taken = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             int recordsLookedAt = 0, looseLookedFor = 0;
@@ -1319,7 +1677,7 @@ public sealed class ScriptsReport
                     answer.Notes.Add($"{side.Name}: its scripts use {Plural(c.LooseOfMastersByCode.Count, "loose script")} that a master holds ({string.Join(", ", c.LooseOfMastersByCode.Select(x => $"{ScriptOfPath(x.Rel)} ({x.Why})"))}): the master's scripts, not taken as its own.");
                 if (c.Pex.Count == 0)
                     answer.Notes.Add($"{side.Name} has no compiled scripts: none in {(own.Archives.Count == 0 ? "archives (it has none)" : string.Join(", ", own.Archives.Select(a => a.Name)))}, no loose file under Data\\Scripts with \"{Path.GetFileNameWithoutExtension(side.Name)}\" in its path, and no other loose script that its records attach.");
-                if (mode is "list" or "calls") code.Add((side, ReadCode(side, c, answer, parents, propertyDefaults)));
+                if (mode is "list" or "calls") code.Add((side, ReadCode(side, c, answer, parents, propertyDefaults, finder), finder));
             }
             if (looseLookedFor > 0) answer.Read.Add($"the script blocks of {Plural(recordsLookedAt, "record")}, raw, for {Plural(looseLookedFor, "loose script")} without the plugin's name in {(looseLookedFor == 1 ? "its path" : "their paths")}");
 
@@ -1431,7 +1789,7 @@ public sealed class ScriptsReport
                             if (elsewhere.Count > 0) answer.Sources.Add($"{side.Name}: " + finder.SourceLine().Replace("files looked for", "scripts of the game and other plugins looked for") + " (texture archives passed over)");
                         }
                         if (answer.WorldLeftOut > 0)
-                            answer.Notes.Add(SFSearch.Records.WorldData.LeftOut("was left out when the records were read for scripts", answer.WorldLeftOut) + $" A placed object can carry a script. A plugin of more than {N(WorldLimit)} records is read without them unless world is asked for.");
+                            answer.Notes.Add(SFSearch.Records.WorldData.LeftOut("was left out when the records were read for scripts", answer.WorldLeftOut, noIndex: "scripts are read from each record") + $" A placed object can carry a script. A plugin of more than {N(WorldLimit)} records is read without them unless world is asked for.");
                         answer.Read.Add($"{Plural(answer.RecordsWithScripts, "record")} with a script block ({string.Join(", ", _scriptSubrecords.OrderBy(x => x, StringComparer.Ordinal))}), found among the {N(answer.RecordsScanned)} looked at");
                     }
                     if (answer.Scripts.Count == 0 && answer.CarriedFromElsewhere.Count == 0)
@@ -1442,29 +1800,48 @@ public sealed class ScriptsReport
             // The values the code takes from script properties, on the records that attach the script (S9a). The list
             // has read every record's scripts; the calls read only the records whose script block names those scripts.
             int carrierRecords = 0;
-            foreach (var (side, result) in code)
+            var views = new Dictionary<string, RecordView?>(StringComparer.OrdinalIgnoreCase);
+            var widened = new Widened();
+            foreach (var (side, result, finder) in code)
             {
                 var needs = result.Calls.Where(x => x.PropertyScripts.Any()).ToList();
                 if (needs.Count > 0 && (mode == "calls" || options.Carriers))
                 {
-                    if (!entriesOf.TryGetValue(side.Name, out var entries))
+                    var names = needs.SelectMany(x => x.PropertyScripts).SelectMany(x => SameOrChild(x, parents)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    var entries = new Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>>(StringComparer.OrdinalIgnoreCase);
+                    if (entriesOf.TryGetValue(side.Name, out var listed))
                     {
-                        entries = new Dictionary<string, List<(ScriptCarrier, JsonObject)>>(StringComparer.OrdinalIgnoreCase);
-                        var names = needs.SelectMany(x => x.PropertyScripts).SelectMany(x => SameOrChild(x, parents)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                        carrierRecords += Carriers(side, scope, answer, options.World, names, entries, baseOf).Select(x => x.FormKey).Distinct().Count();
+                        foreach (var n in names) if (listed.TryGetValue(n, out var l)) entries[n] = l.Select(x => ((ScriptCarrier)x.Item1, (JsonObject)x.Item2)).ToList();
+                        // The list leaves a large plugin's world data out: its placed references are looked in for the
+                        // scripts no other record of it attaches
+                        var unattached = names.Where(n => !entries.ContainsKey(n)).ToList();
+                        if (answer.WorldLeftOut > 0 && unattached.Count > 0 && options.World == null && WorldFor(side, null, widened))
+                        {
+                            var more = new Dictionary<string, List<(ScriptCarrier Carrier, JsonObject Entry)>>(StringComparer.OrdinalIgnoreCase);
+                            widened.WorldRecords += Carriers(side, scope, answer, true, unattached, more, baseOf, CarrierTypes(unattached, parents)).Select(x => x.FormKey).Distinct().Count();
+                            foreach (var (n, l) in more) entries[n] = l;
+                        }
                     }
-                    foreach (var call in needs) JoinProperties(call, side.Name, parents, entries, propertyDefaults, baseOf);
+                    else carrierRecords += Carriers(side, scope, answer, WorldFor(side, options.World, widened), names, entries, baseOf, CarrierTypes(names, parents)).Select(x => x.FormKey).Distinct().Count();
+                    Widen(side, scope, answer, names, entries, baseOf, finder, views, widened, parents);
+                    foreach (var call in needs) JoinProperties(call, side.Name, parents, entries, propertyDefaults, baseOf, views, widened);
                 }
                 else foreach (var call in needs) call.Via = (call.Via is { Length: > 0 } v0 ? v0 + "; " : "") + "a script property: the records that attach the script weren't read";
                 foreach (var call in result.Calls) LocateAll(call);
             }
-            if (carrierRecords > 0) answer.Read.Add($"{Plural(carrierRecords, "record")} that attach the scripts whose properties the code uses, for the properties' values");
+            if (carrierRecords > 0) answer.Read.Add($"{Plural(carrierRecords, "record")} that {(carrierRecords == 1 ? "attaches" : "attach")} the scripts whose properties the code uses, for the properties' values");
+            if (widened.WorldRecords > 0) answer.Read.Add($"{Plural(widened.WorldRecords, "placed reference")} (world data, looked in for the scripts no other record attaches) that attach the scripts whose properties the code uses");
+            if (widened.Dependents > 0) answer.Read.Add($"the script blocks of the {(widened.Dependents == 1 ? "plugin that has" : N(widened.Dependents) + " plugins that have")} {string.Join(", ", answer.Plugins)} as a master, raw, for the scripts whose properties the code uses: {Plural(widened.DependentRecords, "record")} {(widened.DependentRecords == 1 ? "attaches" : "attach")} them");
+            if (widened.Overridden + widened.Removed > 0) answer.Read.Add($"{Plural(widened.Overridden + widened.Removed, "winning override")} of the records that attach those scripts (the version the game uses)");
+            if (widened.MastersLooked.Count > 0) answer.Read.Add($"the script blocks of {string.Join(", ", widened.MastersLooked)}, raw, for the copies of its scripts: {Plural(widened.MasterRecords, "record")} {(widened.MasterRecords == 1 ? "attaches" : "attach")} them");
+            if (widened.Removed > 0) answer.Notes.Add($"{Plural(widened.Removed, "record")} that {(widened.Removed == 1 ? "attaches" : "attach")} a script whose properties the code uses {(widened.Removed == 1 ? "is" : "are")} overridden by a later plugin that doesn't attach it: the game doesn't run it there, so {(widened.Removed == 1 ? "its values are" : "their values are")} left out: {string.Join("; ", widened.RemovedBy.Distinct().Take(5))}{(widened.RemovedBy.Distinct().Count() > 5 ? "; …" : "")}.");
             if (answer.CompiledUnread.Count > 0)
                 answer.Notes.Add($"{Plural(answer.CompiledUnread.Count, "compiled script")} couldn't be read for {(answer.CompiledUnread.Count == 1 ? "its" : "their")} code: " + string.Join("; ", answer.CompiledUnread.Take(5).Select(u => $"{u.Pex} ({u.Why})")) + (answer.CompiledUnread.Count > 5 ? "; …" : "") + ".");
             if (answer.CodeRead && answer.Calls.Count > 0)
                 answer.Notes.Add("The code is read from the compiled scripts, function by function along its branches: a record the code gets with GetFormFromFile is followed through variables to the AddItem, AddForm, PlaceAtMe … that hands it out, also through a script variable set in another function, and an if whose paths set different constants gives each. " +
-                    "A parameter is followed to the calls of its function in the plugin's scripts (up to 3 callers deep), and a value held in a script property to the plugin's records that attach the script. " +
-                    "What another plugin's script passes in, a property set by another plugin's records, and what a function returns stay decided at run time.");
+                    "A parameter is followed to the calls of its function in the plugin's scripts, and when none calls it, in the scripts of the plugins that have it as a master (and its masters', for a copy of a master's script); what a call of the plugin's own function returns is followed into that function; each up to 3 calls deep. " +
+                    "A value held in a script property is read on the records that attach the script, as the load order's winner of each sets it: the plugin's records, those of the plugins that have it as a master, and for a copy of a master's script, the masters'. A property of the record a property holds (workerContainer of property core) is read on that record. " +
+                    "What the game's own functions return (GetValue, GetAt …) and what scripts outside those plugins pass in stay decided at run time.");
             if (answer.Decompiled > 0) answer.Read.Add($"{Plural(answer.Decompiled, "script")} decompiled with Champollion");
             if (mode != "calls") answer.Sources.Add($"script sources kept in {_s.Kept("scripts")}");
             foreach (var (side, _, _) in all) ReportSession.AddProblemNotes(answer, side.Plugin);

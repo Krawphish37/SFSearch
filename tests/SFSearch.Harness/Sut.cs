@@ -97,6 +97,9 @@ public static class Paths
     /// <summary>The game's Data folder. Read only.</summary>
     public static string Data = "";
     public static string Exe = "", McpExe = "", ServiceTestExe = "";
+    /// <summary>The test add-on (tests\SFSearch.TestHooks): the `__test` commands the MCP part drives the service with. J37: no
+    /// test code in the program; the add-on is put into the test home only for that part.</summary>
+    public static string TestHooksDll = "";
     public static int Workers = 4;
 
     public static string SfsCmd

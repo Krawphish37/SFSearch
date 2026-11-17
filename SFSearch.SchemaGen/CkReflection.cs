@@ -15,9 +15,9 @@
 // "attributes" ({"type": the address of a BSReflection::Metadata::* class, plus its values}). The metadata classes
 // are found by name, never by address.
 //
-// Mutagen's own fields that are a reflected class's field get the CK's name too: from Mutagen's XML (its ckName
-// attribute, C220, from fixes.17 on) or, until then, from the engine names below (MutagenToEngine), whose CK names come
-// from the data file. Only engine names are written in this code, never the CK's names.
+// Mutagen's own objects, fields and enums that are the engine's reflected ones get the CK's names too: from Mutagen's
+// XML (its ckName attribute, C220, from fixes.17 on), else through the engine names the XML carries (engineClass,
+// engineField, engineEnum, C57 W15, fixes.20 on), whose CK names come from the data file. No name is written in this code.
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -212,44 +212,11 @@ public static class CkReflection
 
     // ---- Mutagen's objects and fields that are the engine's reflected ones ----
 
-    /// <summary>Mutagen objects that hold one reflected class (a record or component whose REFL is that class's
-    /// value). The same objects Mutagen's C220 gives a ckName in fixes.17. Engine names only. Mutagen's names are
-    /// fixes.17's (C218 renamed ParticleSystemDefineCollision to ParticleSystemDefineCollection; until fixes.17 both
-    /// were listed).</summary>
-    public static readonly (string Object, string Class)[] ObjectClasses =
-    {
-        ("Atmosphere", "BGSAtmosphere"), ("Challenge", "BGSChallengeForm"), ("Clouds", "BGSCloudForm"), ("FogVolume", "BGSFogVolumeForm"),
-        ("ForceData", "BGSForceData"), ("FormFolderKeywordList", "BGSFormFolderKeywordList"), ("ImageSpace", "TESImageSpace"),
-        ("ImageSpaceAdapter", "TESImageSpaceModifier"), ("LayeredMaterialSwap", "BGSLayeredMaterialSwap"), ("MaterialPath", "BGSMaterialPathForm"),
-        ("ParticleSystemDefineCollection", "BGSParticleSystemDefineCollection"), ("SunPreset", "BSGalaxy::BGSSunPresetForm"),
-        ("WeatherSetting", "BGSWeatherSettingsForm"), ("VolumetricLighting", "BGSVolumetricLightingSettings"),
-        ("EffectSequenceComponent", "BGSEffectSequenceFormComponent"), ("LodOwnerComponent", "BGSLodOwnerComponent"),
-        ("MaterialPropertyComponent", "BGSMaterialPropertyComponent"),
-    };
-
-    /// <summary>Mutagen fields that are a reflected class's field, which Mutagen reads as plain bytes. Engine names only.
-    /// Mutagen's names are fixes.17's: SoundReference's Start, Stop, Condition and EventMapping became StartEvent,
-    /// StopEvent, ConditionForm and EventForm (C218), PlacedObjectSpline.Thickness became SplineRadius (C220); until
-    /// fixes.17 both names were listed.</summary>
-    public static readonly (string Object, string Field, string Class, string ClassField)[] FieldsOf =
-    {
-        ("SoundReference", "StartEvent", "BGSAudio::WwiseSoundHook", "StartEvent"),
-        ("SoundReference", "StopEvent", "BGSAudio::WwiseSoundHook", "StopEvent"),
-        ("SoundReference", "ConditionForm", "BGSAudio::WwiseSoundHook", "pConditionForm"),
-        ("SoundReference", "EventForm", "BGSAudio::WwiseSoundHook", "pEventForm"),
-        ("PlacedObjectSpline", "SplineRadius", "ExtraBendableSplineParams::ParamData", "fThickness"),
-    };
-
-    /// <summary>Mutagen enums whose values are a reflected enum's, member for member by value. Engine names only.</summary>
-    public static readonly (string Enum, string CkEnum)[] EnumsOf =
-    {
-        ("DamageCauseType", "DamageCauseType"),
-        ("BodyPart.PartType", "BGSBodyPartDefs::LIMB_ENUM"),
-    };
-
     /// <summary>Gives Mutagen's objects, fields and enum members their CK names: kept where Mutagen's XML already
-    /// gives one (ckName), else from the dump through the engine names above. Every engine name above must be in the
-    /// dump, and every Mutagen name in the schema: the build fails otherwise.</summary>
+    /// gives one (ckName), else from the CK's names through the engine names Mutagen's XML carries since fixes.20 (C57
+    /// W15): <c>engineClass</c> on an object, <c>engineField</c> on a field of such an object (the field's name in that
+    /// class), <c>engineEnum</c> on an enum field. Every engine name the XML gives must be in the CK's names: the build
+    /// fails otherwise.</summary>
     public static CkStats Apply(SchemaModel model, CkData ck)
     {
         var s = new CkStats();
@@ -264,34 +231,41 @@ public static class CkReflection
             s.ToolTips += t.Fields.Count(f => f.ToolTip != null) + t.Members.Count(m => m.ToolTip != null) + (t.ToolTip != null ? 1 : 0);
             s.Ranges += t.Fields.Count(f => f.RangeMin != null || f.RangeMax != null);
         }
-        foreach (var (obj, cls) in ObjectClasses)
+        var enums = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var o in model.Objects.Values.OrderBy(o => o.Name, StringComparer.Ordinal))
         {
-            var ct = ck.Type(cls);
-            if (ct == null) { s.MappingMissing.Add($"class {cls}"); continue; }
-            // An object under either of its names: one of them is in this Mutagen version
-            if (!model.Objects.TryGetValue(obj, out var o))
+            if (o.EngineClass is { } cls)
             {
-                if (!ObjectClasses.Any(x => x.Class == cls && model.Objects.ContainsKey(x.Object))) s.MappingMissing.Add($"Mutagen object {string.Join(" or ", ObjectClasses.Where(x => x.Class == cls).Select(x => x.Object))}");
-                continue;
+                if (ck.Type(cls) is { } ct)
+                {
+                    o.CkClass = ct.Name;
+                    o.CkName ??= ct.DisplayName;
+                    s.MutagenObjects++;
+                }
+                else s.MappingMissing.Add($"class {cls} (engineClass of {o.Name})");
             }
-            o.CkClass = ct.Name;
-            o.CkName ??= ct.DisplayName;
-            s.MutagenObjects++;
+            foreach (var def in o.Fields.Where(x => x.Path == x.Name))
+            {
+                if (def.EngineField is { } ef)
+                {
+                    if (o.EngineClass == null) { s.MappingMissing.Add($"{o.Name}.{def.Name}: engineField {ef} on an object with no engineClass"); continue; }
+                    var f = ck.Field(o.EngineClass, ef);
+                    if (f == null) { s.MappingMissing.Add($"field {o.EngineClass}.{ef} (engineField of {o.Name}.{def.Name})"); continue; }
+                    def.CkField = $"{f.Type}.{f.Name}";
+                    def.CkName ??= f.DisplayName;
+                    s.MutagenFields++;
+                }
+                if (def.EngineEnum is { } ee && def.Enum is { } en)
+                {
+                    if (enums.TryGetValue(en, out var had) && had != ee) s.MappingMissing.Add($"enum {en}: engineEnum {had} and {ee}");
+                    enums[en] = ee;
+                }
+            }
         }
-        foreach (var (obj, field, cls, cf) in FieldsOf)
-        {
-            var f = ck.Field(cls, cf);
-            if (f == null) { s.MappingMissing.Add($"field {cls}.{cf}"); continue; }
-            // A Mutagen field under either of its names: one of them is in this Mutagen version
-            if (!model.Objects.TryGetValue(obj, out var o) || o.Fields.FirstOrDefault(x => x.Name == field && x.Path == field) is not { } def) continue;
-            def.CkField = $"{f.Type}.{f.Name}";
-            def.CkName ??= f.DisplayName;
-            s.MutagenFields++;
-        }
-        foreach (var (en, cken) in EnumsOf)
+        foreach (var (en, cken) in enums.OrderBy(x => x.Key, StringComparer.Ordinal))
         {
             var ct = ck.Type(cken);
-            if (ct == null) { s.MappingMissing.Add($"enum {cken}"); continue; }
+            if (ct == null) { s.MappingMissing.Add($"enum {cken} (engineEnum of {en})"); continue; }
             if (!model.Enums.TryGetValue(en, out var members)) { s.MappingMissing.Add($"Mutagen enum {en}"); continue; }
             foreach (var m in members)
             {
@@ -302,10 +276,6 @@ public static class CkReflection
                 s.MutagenEnumMembers++;
             }
         }
-        // Mapped fields named in a Mutagen version must exist under one of their two names
-        foreach (var g in FieldsOf.GroupBy(x => (x.Object, x.Class, x.ClassField)))
-            if (!g.Any(x => model.Objects.TryGetValue(x.Object, out var o) && o.Fields.Any(f => f.Name == x.Field)))
-                s.MappingMissing.Add($"Mutagen field {g.Key.Object}.{string.Join(" or ", g.Select(x => x.Field))}");
         return s;
     }
 }

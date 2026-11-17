@@ -14,6 +14,8 @@
 //          --lang <language> (text columns: English, de, …)   --again <n> (run the query n more times, to time it warm)
 //          --data <Data folder> (or SFSEARCH_DATA)   --scratch <folder> (or SFSQUERY_SCRATCH; default %TEMP%\sfsquery-scratch)
 //          --fresh (empty the scratch tables first, as a service start does)   --time (print what each step took)
+//          --memory-mb <n> (the memory one command may hold, as the service's workerMaxMB gives it: a statement past it
+//          is stopped, and big sorts keep a share of it in memory; default none)
 // Read only: nothing is ever written to the Data folder. The scratch folder holds the header index's segments and
 // the scratch tables; it can be deleted at any time.
 using System.Diagnostics;
@@ -30,6 +32,7 @@ string scratch = Opt("--scratch") ?? Environment.GetEnvironmentVariable("SFSQUER
 string? plugins = Opt("--plugins"), file = Opt("--file"), cursor = Opt("--cursor"), lang = Opt("--lang"), calibrate = Opt("--calibrate"), typesOpt = Opt("--types"), stats = Opt("--stats");
 string? saved = Opt("--saved"), queriesFolder = Opt("--queries"), home = Opt("--home") ?? Environment.GetEnvironmentVariable("SFSEARCH_HOME");
 bool overwrite = Flag("--overwrite");
+long memoryMB = long.Parse(Opt("--memory-mb") ?? "0");
 int rows = int.Parse(Opt("--rows") ?? "40"), again = int.Parse(Opt("--again") ?? "0"), threads = int.Parse(Opt("--threads") ?? "0");
 bool winners = Flag("--winners"), versions = Flag("--versions"), allowHeavy = Flag("--allow-heavy"), asJson = Flag("--json"), fresh = Flag("--fresh"),
     time = Flag("--time"), views = Flag("--views"), world = Flag("--world");
@@ -56,7 +59,8 @@ try
     MutagenStart.Run();
     Step("Mutagen start");
     using var records = new RecordEngine(index, schema, Path.Combine(scratch, "verify"), data);
-    using var engine = new QueryEngine(records, new QueryOptions { ScratchFolder = sqlScratch, Language = lang ?? "English", Threads = threads > 0 ? threads : Math.Min(Environment.ProcessorCount, 8) });
+    using var engine = new QueryEngine(records, new QueryOptions { ScratchFolder = sqlScratch, Language = lang ?? "English", Threads = threads > 0 ? threads : Math.Min(Environment.ProcessorCount, 8),
+    MemoryLimitMB = memoryMB > 0 ? () => memoryMB : null, MemoryLimitSetting = memoryMB > 0 ? "--memory-mb" : null });
     Step("engine");
 
     if (calibrate != null) return Runner.Calibrate(engine, index, schema, calibrate, typesOpt, world);
@@ -163,7 +167,6 @@ try
         var a = engine.Run(request);
         Console.WriteLine($"[again {i + 1}] {a.TotalRows:N0} rows; {a.Cost.Text}{(time ? " (" + string.Join(", ", a.Cost.Steps) + ")" : "")}");
     }
-    if (time) Console.Error.WriteLine($"[time] reading threads: Mutagen {SFSearch.Query.RecordReader.TicksLoad / (double)Stopwatch.Frequency:F2} s, to JSON {SFSearch.Query.RecordReader.TicksJson / (double)Stopwatch.Frequency:F2} s, SQLite {SFSearch.Query.RecordReader.TicksSql / (double)Stopwatch.Frequency:F2} s (summed over the threads); the inserting thread waited {SFSearch.Query.RecordReader.TicksWait / (double)Stopwatch.Frequency:F2} s for them");
     if (time) { using var me = Process.GetCurrentProcess(); Console.Error.WriteLine($"[time] processor time of the whole run: {me.UserProcessorTime.TotalSeconds:F2} s in the program, {me.PrivilegedProcessorTime.TotalSeconds:F2} s in Windows"); }
     if (time) Console.Error.WriteLine($"[time] garbage collection: {GC.GetTotalPauseDuration().TotalSeconds:F2} s of pauses in {GC.CollectionCount(0):N0} collections ({GC.CollectionCount(1):N0} of generation 1, {GC.CollectionCount(2):N0} of generation 2), {GC.GetTotalAllocatedBytes() / 1048576.0:N0} MB allocated");
     if (time) Console.Error.WriteLine("[time] query steps: " + string.Join(", ", answer.Cost.Steps));

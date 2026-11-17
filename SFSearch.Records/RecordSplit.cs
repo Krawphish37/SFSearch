@@ -14,7 +14,11 @@ public static partial class RecordSplit
     public const string ChildKey = "$Child";
     public const string TypeKey = "MutagenObjectType";
 
-    [GeneratedRegex(@"^[0-9A-Fa-f]{6}:[^:\s]+\.(esm|esp|esl)$", RegexOptions.IgnoreCase)]
+    // A FormKey as Mutagen writes one: six hex digits, a colon, the plugin's file name. A file name may hold spaces
+    // ("000808:astra-19 sidearm.esm", "Non-Lethal Framework.esm"), so only what Windows refuses in a file name is
+    // refused (: < > " / \ | ? * and control characters), and the name neither starts nor ends with a space (GAPS S56).
+    // A text in a record that only looks like a FormKey isn't a link: the link walkers check the schema's field kinds.
+    [GeneratedRegex(@"^[0-9A-Fa-f]{6}:(?! )[^:<>""/\\|?*\x00-\x1F]+(?<! )\.(esm|esp|esl)$", RegexOptions.IgnoreCase)]
     private static partial Regex FormKeyRx();
 
     public static bool IsFormKey(string s) => s.Length >= 11 && s[6] == ':' && FormKeyRx().IsMatch(s);

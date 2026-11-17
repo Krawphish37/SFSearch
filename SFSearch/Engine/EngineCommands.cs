@@ -35,12 +35,13 @@ namespace SFSearch.Engine
             new("leveled2", null, "what a leveled list can give, with the lists under it", ReportTools.LeveledVerb),
             new("dialogue2", null, "what a quest's (or one topic's) characters say", ReportTools.DialogueVerb),
             new("sources2", null, "how the player gets each item a plugin adds", ReportTools.SourcesVerb),
-            new("archive2", null, "what is inside BA2 archives: summary, list, find, show, extract", ReportTools.ArchiveVerb),
+            new("archive2", null, "what is inside BA2 archives: summary, list, find, show, extract; grep: which files hold a text; encoding: how text files are written", ReportTools.ArchiveVerb),
             new("assets2", null, "every file path on a plugin's records: what is missing", ReportTools.AssetsVerb),
             new("materials2", null, "a plugin's meshes, materials and textures: what is missing", ReportTools.MaterialsVerb),
             new("scripts2", null, "a plugin's Papyrus scripts as source, and the records that carry them", ReportTools.ScriptsVerb),
             new("changes2", null, "what changed in Data since last time; patches at risk (also loadorder2 changes)", ReportTools.ChangesVerb),
-            new("profile", null, "what a field holds across plugins: counts, values, zeros, FormID/strings/float reads, samples; or the GRUP headers", ReportTools.ProfileVerb),
+            new("profile", null, "what a field holds across plugins: counts, values, zeros, FormID/strings/float reads, samples; or the GRUP headers; --conditions: condition functions; --subrecords: which types hold a subrecord, their orders, a type's layout", ReportTools.ProfileVerb),
+            new("indexes", null, "the indexes SFSearch keeps on disk: what each speeds up, its size and age; build or drop them", IndexesTool.Verb),
             new("status", "sfs_status", "the service's health, the indexes, what is open, the scratch folder, memory", StatusTool.Verb),
             new("job", "sfs_job", "collect or cancel a command the service is still running", JobTool.Verb),
         };
@@ -57,8 +58,11 @@ namespace SFSearch.Engine
             EngineLibs.TuneSqlite();
             // --json, taken off the command line with the other global options: the answer's parts as one JSON object
             if (CommandLine.Format == OutputFormat.Json) EngineAnswer.JsonMode = true;
-            // Mutagen's one-time start-up, for a verb that reads records (in a worker it ran when the worker started)
-            if (verb.Verb is not ("describe" or "status" or "job")) SFSearch.Records.MutagenStart.Run();
+            // Mutagen's one-time start-up, for a verb that reads records (in a worker it ran when the worker started).
+            // assets2 reads most records from their bytes: the start-up runs beside its work (GAPS S30). refs2 reads the
+            // link index and searches bytes before its first Mutagen read (J29)
+            if (verb.Verb is "assets2" or "refs2") SFSearch.Records.MutagenStart.Begin();
+            else if (verb.Verb is not ("describe" or "status" or "job" or "indexes")) SFSearch.Records.MutagenStart.Run(); // indexes starts Mutagen itself when it walks
             verb.Run(args);
             return true;
         }
@@ -82,18 +86,20 @@ namespace SFSearch.Engine
         }
 
         /// <summary>
-        /// __index build | check | sweep | status: brings the header index up to date and says what it did in one line.
+        /// __index build | check | sweep: brings the header index up to date and says what it did in one line.
         /// "build" is what the service queues in its indexer lane at start. "check" is the same thing asked again while
         /// the service is idle (every plugin's quick stamp: about 30 ms when nothing changed). "sweep" also hashes every
         /// file again, which is what notices a change in the middle of a file that kept its size and date; it then
-        /// removes segment files no plugin uses any more. "status" is "check" asked by hand. With --history (the service
+        /// removes segment files no plugin uses any more. (How far the indexes are, by hand: the indexes verb.) The service runs one sweep
+        /// right after its start's build when the indexes are kept (J31), with --unused-before (its start time, in UTC
+        /// ticks): the segments and link files no plugin uses that were written before then are deleted whatever their age. With --history (the service
         /// adds it unless historyLook is off), build, check and sweep then take a look for changes2's history log
         /// (fix S11) and say so on a second line that begins "history:".
         /// </summary>
         public static void IndexJob(List<string> args)
         {
             string sub = args.Count > 0 ? args[0].ToLowerInvariant() : "build";
-            if (sub is not ("build" or "check" or "sweep" or "status")) { Console.WriteLine("Usage: SFSearch __index build | check | sweep | status   (the header index of the tools; the service runs it by itself)"); return; }
+            if (sub is not ("build" or "check" or "sweep")) { Console.WriteLine("Usage: SFSearch __index build | check | sweep   (the header index's jobs; the service runs them by itself. What is kept and how far it is: indexes)"); return; }
             try
             {
                 var eng = EngineIndex.Get();
@@ -105,14 +111,34 @@ namespace SFSearch.Engine
                     var full = eng.Check(verifyContent: true);
                     full.Ms += v.Ms;
                     v = full;
-                    int gone = eng.RemoveUnusedSegments();
-                    if (gone > 0) removed = $" {gone} segment file(s) that no plugin uses any more were removed.";
+                    DateTime? before = null;
+                    int at = args.FindIndex(a => a.Equals("--unused-before", StringComparison.OrdinalIgnoreCase));
+                    if (at >= 0 && at + 1 < args.Count && long.TryParse(args[at + 1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long ticks)) before = new DateTime(ticks, DateTimeKind.Utc);
+                    // A plugin found changed: this program lets go of its old link file at once (the next link job makes the new one)
+                    if (v.Report.AnythingChanged) { EngineLinks.Trim(eng.Index); WorldLinks.Trim(eng.Index); }
+                    // keepRemovedPluginIndexMB (J43): the parts of plugins no longer in Data are kept up to that size; over it a
+                    // plugin's parts go together, the plugin out of Data longest first (J60: the check notes when it saw each)
+                    var cfg = Service.ServiceConfig.Load(Home.Dir, makeFile: false);
+                    if (cfg.KeepsRemovedParts)
+                    {
+                        KeptParts.Record(eng, DateTime.UtcNow);
+                        removed = KeptParts.Trim(eng, before, cfg.KeepRemovedPluginIndexMB);
+                    }
+                    else
+                    {
+                        KeptParts.Forget(eng);
+                        var (segs, segBytes) = eng.RemoveUnusedSegments(before);
+                        var (links, linkBytes) = before != null ? EngineLinks.RemoveOldFiles(eng.Index, before) : (0, 0L);
+                        // World link files (J32) of plugins that changed or left
+                        var (worlds, worldBytes) = before != null ? WorldLinks.RemoveOldFiles(eng.Index, before) : (0, 0L);
+                        if (segs + links + worlds > 0) removed = $" Removed as no plugin uses them any more: {segs} segment file(s), {links} link file(s), {(worlds > 0 ? $"{worlds} world link file(s), " : "")}{EngineIndex.Mb(segBytes + linkBytes + worldBytes)}.";
+                    }
                 }
                 var ix = eng.Index;
                 long mem;
                 using (var me = Process.GetCurrentProcess()) mem = me.PrivateMemorySize64 / 1048576;
                 var r = v.Report;
-                Console.WriteLine($"header index: {ix.Plugins.Count} plugins, {ix.TotalRecords:N0} records, {EngineIndex.Mb(ix.TotalSegmentBytes)} of segments in {eng.ScratchFolder}. "
+                Console.WriteLine($"header index: {ix.Plugins.Count} plugins, {ix.TotalRecords:N0} records, {EngineIndex.Mb(ix.TotalSegmentBytes)} of segments in {eng.Folder}. "
                     + $"This {sub}: {v.Ms:N0} ms, {r.PassesRun.Count} header pass(es), {r.Hashed.Count} file(s) hashed, {r.SegmentsReused.Count} segment(s) already there, "
                     + $"{r.ContentChanged.Count} changed, {r.Added.Count} added, {r.Removed.Count} removed, {r.Rekeyed.Count} re-keyed{(r.LoadOrderChanged ? ", load order changed" : "")}. "
                     + $"{ix.LoadOrderEntries.Count(e => e.Enabled)} loaded; {ix.Plugins.Count(p => p.Problems.Any)} plugin(s) with problems.{removed} This program holds {mem} MB.");
@@ -130,7 +156,7 @@ namespace SFSearch.Engine
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
             {
-                Console.WriteLine($"Error: the header index couldn't be brought up to date ({e.Message.TrimEnd('.')}). Fix: check the Data folder and the scratch folder, then run it again.");
+                Console.WriteLine($"Error: the header index couldn't be brought up to date ({e.Message.TrimEnd('.')}). Fix: check the Data folder and the indexes folder, then run it again.");
                 Environment.ExitCode = 1;
             }
         }

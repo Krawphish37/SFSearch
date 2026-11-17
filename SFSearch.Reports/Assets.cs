@@ -259,17 +259,140 @@ public sealed class AssetsReport
     readonly ReportSession _s;
     readonly PathWalker _walker;
     readonly LinkWalker _links;
+    readonly AssetFields _fields;
     readonly Dictionary<string, int> _places;
 
     public AssetsReport(ReportSession session)
     {
         _s = session;
+        Interlocked.Exchange(ref _prepared, null)?.Wait();
         _walker = new PathWalker(session.Schema, ByValueExtensions);
         _links = new LinkWalker(session.Schema);
-        _places = _walker.TypedPlaces();
+        _fields = new AssetFields(session.Schema, ByValueExtensions);
+        _places = PlacesOf(session.Schema, _walker);
     }
 
     public PathWalker Walker => _walker;
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SFSearch.Records.RecordSchema, Dictionary<string, int>> _placesBySchema = new();
+
+    /// <summary>The record types where a field typed as a file path can be reached, with how many places each has:
+    /// from the schema alone, so made once per schema in the process.</summary>
+    static Dictionary<string, int> PlacesOf(SFSearch.Records.RecordSchema schema, PathWalker walker)
+    {
+        return _placesBySchema.GetValue(schema, _ => walker.TypedPlaces());
+    }
+
+    static Task? _prepared;
+
+    /// <summary><see cref="Prepare"/> on another thread; the first report made after it waits for it to end (it
+    /// makes the plans the report needs).</summary>
+    public static void PrepareInBackground(Func<SFSearch.Records.RecordSchema> schema, string dataFolder, string plugin) =>
+        _prepared = Task.Run(() =>
+        {
+            try { Prepare(schema(), dataFolder, plugin); }
+            catch (Exception e) when (e is not OutOfMemoryException) { } // the report does it itself
+        });
+
+    /// <summary>
+    /// For a command run in a new process (assets2 with no service): while Mutagen starts and the header index is
+    /// checked, makes on other cores what the report needs first and can make from the files alone (GAPS S30): the
+    /// count of path fields, the plans for the plugin's record types (the signatures of its top groups, read from the
+    /// group headers), and the names of the plugin's own archives and of its masters' first archives (the masters
+    /// read from the plugin's header). Nothing outlives the process. A plugin that isn't a file name in Data gets the
+    /// schema's part only; anything that fails is left to the report.
+    /// </summary>
+    public static void Prepare(SFSearch.Records.RecordSchema schema, string dataFolder, string plugin)
+    {
+        _ = PlacesOf(schema, new PathWalker(schema, ByValueExtensions));
+        string path = Path.Combine(dataFolder, plugin);
+        if (Path.GetFileName(plugin) != plugin || !File.Exists(path)) return;
+        List<string> masters, signatures;
+        try { (masters, signatures) = PluginShape(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException) { return; }
+        // The archives the report looks in first: the plugin's own, then as many of its masters' as there are cores
+        var store = new ArchiveStore(dataFolder);
+        var own = ArchiveStore.OfPlugin(dataFolder, plugin);
+        var ownSet = new HashSet<string>(own, StringComparer.OrdinalIgnoreCase);
+        var stems = new HashSet<string>(masters.Select(Path.GetFileNameWithoutExtension).OfType<string>(), StringComparer.OrdinalIgnoreCase);
+        var first = store.AllInData().Where(a =>
+        {
+            string name = Path.GetFileName(a);
+            int at = name.IndexOf(" - ", StringComparison.Ordinal);
+            return !ownSet.Contains(a) && at > 0 && stems.Contains(name[..at]);
+        }).Take(2 * Math.Max(2, Environment.ProcessorCount));
+        store.ReadAhead(own.Concat(first).ToList(), CancellationToken.None, before: true);
+        new AssetFields(schema, ByValueExtensions).Prepare(signatures);
+    }
+
+    /// <summary>A plugin's masters (its header's MAST subrecords) and the signatures of its top groups, from the
+    /// plugin header and the group headers alone.</summary>
+    static (List<string> Masters, List<string> Signatures) PluginShape(string path)
+    {
+        using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        long length = RandomAccess.GetLength(file);
+        var head = new byte[24];
+        if (RandomAccess.Read(file, head, 0) != 24 || System.Text.Encoding.ASCII.GetString(head, 0, 4) != "TES4") throw new InvalidDataException("not a plugin");
+        uint size = BitConverter.ToUInt32(head, 4);
+        var data = new byte[size];
+        if (RandomAccess.Read(file, data, 24) != size) throw new InvalidDataException("cut short");
+        var masters = new List<string>();
+        for (int at = 0; at + 6 <= data.Length;)
+        {
+            string sig = System.Text.Encoding.ASCII.GetString(data, at, 4);
+            int len = BitConverter.ToUInt16(data, at + 4);
+            if (at + 6 + len > data.Length) break;
+            if (sig == "MAST") masters.Add(System.Text.Encoding.ASCII.GetString(data, at + 6, Math.Max(0, Array.IndexOf(data, (byte)0, at + 6, len) is int z and >= 0 ? z - at - 6 : len)));
+            at += 6 + len;
+        }
+        var signatures = new List<string>();
+        for (long at = 24 + size; at + 24 <= length;)
+        {
+            if (RandomAccess.Read(file, head, at) != 24 || System.Text.Encoding.ASCII.GetString(head, 0, 4) != "GRUP") break;
+            signatures.Add(System.Text.Encoding.ASCII.GetString(head, 8, 4));
+            uint groupSize = BitConverter.ToUInt32(head, 4);
+            if (groupSize < 24) break;
+            at += groupSize;
+        }
+        return (masters, signatures);
+    }
+
+    /// <summary>False for a path that isn't a file name as written: a variable in it, or no file extension.</summary>
+    static bool Checked(string value) => !value.Contains("$(", StringComparison.Ordinal) && PathWalker.ExtensionOf(value).Length > 0;
+
+    /// <summary>The file paths and armor addon links of a record, from its bytes (<see cref="AssetFields"/>) where every
+    /// subrecord can be placed, else from Mutagen's read of the record. Null when Mutagen can't read it either
+    /// (<paramref name="error"/> says why).</summary>
+    public (List<PathFound> Paths, List<AddonLink> Links, bool FromBytes)? Fields(ReadScope scope, Hit hit, out string? error, bool bytesFirst = true)
+    {
+        error = null;
+        try { scope.Touch(hit.Engine, hit.Plugin.Name); }
+        catch (ReportException e) { error = e.Message; return null; }
+        if (bytesFirst && FromBytes(hit) is { } raw) return (raw.Paths, raw.AddonLinks, true);
+        RecordView view;
+        try { view = _s.Compare.View(hit.Engine, hit.Ref); }
+        catch (CompareException e) { error = e.Message; return null; }
+        var paths = new List<PathFound>();
+        _walker.Walk(view.Type, view.Json, paths.Add);
+        var links = new List<AddonLink>();
+        _links.Walk(view.Type, view.Json, link => { if (link.LinkTo == "ArmorAddon") links.Add(new AddonLink(link.Path, link.FormKey)); });
+        return (paths, links, false);
+    }
+
+    /// <summary>The record's fields from its bytes, or null when Mutagen must read it: a subrecord the schema can't
+    /// place, or a record Mutagen's read would refuse (a FormID that can't be resolved, a heavy record, a FormKey the
+    /// plugin holds twice), which the Mutagen route says in its own words.</summary>
+    public RecordAssets? FromBytes(Hit hit)
+    {
+        var plugin = hit.Plugin;
+        if (plugin.Problems.Duplicates > 0) return null; // the plugin repeats a FormKey
+        var entry = hit.Entry;
+        if (entry.IsUnresolved || hit.Engine.HeavyNote(hit.Ref) != null) return null;
+        SFSearch.Records.RawRecord raw;
+        try { raw = SFSearch.Records.RawRecord.Read(hit.Engine.Sessions.Get(plugin.Name).File, entry.Offset); }
+        catch (SFSearch.Records.RecordException) { return null; }
+        return _fields.Read(raw, plugin.FormIds);
+    }
 
     /// <summary>The spellings a path on a record is looked for under: as written (a leading "Data\" taken off), then under each asset folder.</summary>
     public static List<string> Candidates(string value)
@@ -332,16 +455,16 @@ public sealed class AssetsReport
             (AssetStatus Status, FileOrigin Origin, string? Where, string? As) Locate(PathFound found)
             {
                 string value = found.Value;
-                if (value.Contains("$(", StringComparison.Ordinal) || PathWalker.ExtensionOf(value).Length == 0) return (AssetStatus.NotChecked, FileOrigin.None, null, null);
-                var hit = finder.Find(Candidates(value));
+                if (!Checked(value)) return (AssetStatus.NotChecked, FileOrigin.None, null, null);
+                var hit = finder.FindAhead(Candidates(value));
                 if (hit.Origin == FileOrigin.None) return (PathWalker.ExtensionOf(value) == ".mat" ? AssetStatus.NoFile : AssetStatus.Missing, FileOrigin.None, null, null);
                 return (hit.Origin == FileOrigin.NotLoaded ? AssetStatus.NotLoaded : AssetStatus.Found, hit.Origin, hit.Where, hit.FoundAs);
             }
 
-            List<AssetRow> Paths(RecordView view, string record, string formKey, string signature, string? via = null, string? viaKey = null, string? viaPlugin = null, IReadOnlyList<string>? usedBy = null)
+            List<AssetRow> Paths(List<PathFound> paths, string record, string formKey, string signature, string? via = null, string? viaKey = null, string? viaPlugin = null, IReadOnlyList<string>? usedBy = null)
             {
                 var rows = new List<AssetRow>();
-                _walker.Walk(view.Type, view.Json, found =>
+                foreach (var found in paths)
                 {
                     var (status, origin, where, foundAs) = Locate(found);
                     rows.Add(new AssetRow
@@ -350,89 +473,104 @@ public sealed class AssetsReport
                         Via = via, ViaFormKey = viaKey, ViaPlugin = viaPlugin, UsedBy = usedBy ?? Array.Empty<string>(),
                         Status = status, Origin = origin, Where = where, FoundAs = foundAs,
                     });
-                });
+                }
                 answer.Rows.AddRange(rows);
                 return rows;
             }
 
             // A master's armor addon: the records of the plugin that use it, in file order. Its paths are listed once.
             var masterAddons = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            int fromBytes = 0;
             var wrongSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             scope.Touch(side.Engine, side.Name);
+            // The records to read: world data only when asked; the navmesh info map names no files and is very large
+            var wanted = new List<int>();
             for (int i = 0; i < seg.FirstUnresolved; i++)
             {
                 var e = seg[i];
                 string sig = seg.SignatureOf(e);
                 if (!options.World && ReportSession.IsWorld(seg, e)) { answer.WorldLeftOut[sig] = answer.WorldLeftOut.GetValueOrDefault(sig) + 1; continue; }
-                // The navmesh info map names no files and is very large
                 if (sig == "NAVI") continue;
-                var hit = new Hit(side.Engine, new RecordRef(p.Id, i));
-                RecordView view;
-                try { view = _s.Compare.View(side.Engine, hit.Ref); }
-                catch (CompareException) { answer.Unreadable++; continue; }
-                answer.RecordsRead++;
-                string key = ReportSession.Canon(view.Info.FormKey);
+                wanted.Add(i);
+            }
+            // Their path fields from their bytes, on all cores; a record the bytes can't place goes through Mutagen, one at a time
+            var raw = new RecordAssets?[wanted.Count];
+            _ = side.Engine.Sessions.Get(side.Name); _ = p.FormIds;
+            Parallel.For(0, wanted.Count, k => raw[k] = FromBytes(new Hit(side.Engine, new RecordRef(p.Id, wanted[k]))));
+            var read = new List<(Hit Hit, string Sig, List<PathFound> Paths, List<AddonLink> Links)>();
+            for (int k = 0; k < wanted.Count; k++)
+            {
+                var hit = new Hit(side.Engine, new RecordRef(p.Id, wanted[k]));
+                if (raw[k] is { } r) { read.Add((hit, hit.Signature, r.Paths, r.AddonLinks)); fromBytes++; continue; }
+                if (Fields(scope, hit, out _, bytesFirst: false) is not { } f) { answer.Unreadable++; continue; }
+                read.Add((hit, hit.Signature, f.Paths, f.Links));
+            }
+            answer.RecordsRead = read.Count;
+            // Every path looked for at once: the archives' names are read on all cores, a few archives at a time in the
+            // order the files are looked for in them
+            finder.FindAll(read.SelectMany(x => x.Paths).Where(f => Checked(f.Value)).Select(f => Candidates(f.Value)));
+
+            foreach (var (hit, sig, paths, links) in read)
+            {
+                var fields = (Paths: paths, Links: links);
+                string key = ReportSession.Canon(hit.Info.FormKey);
                 string name = label(key);
-                var rows = Paths(view, name, key, sig);
+                var rows = Paths(fields.Paths, name, key, sig);
                 if (rows.Count > 0) answer.RecordsWithPaths++;
 
                 // A path that isn't found on an override: does the master's version of the record name it too?
                 if (rows.Any(r => r.IsProblem) && HeaderIndex.TryParseFormKey(key, out var ownerName, out var localId)
                     && !ownerName.Equals(side.Name, StringComparison.OrdinalIgnoreCase) && _s.Seen(side, ownerName, localId, mastersOnly: true) is { } before)
                 {
-                    try
+                    if (Fields(scope, before, out _) is { } theirs)
                     {
-                        var theirs = _s.View(scope, before);
-                        var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        _walker.Walk(theirs.Type, theirs.Json, f => named.Add(ArchiveStore.DataRelative(f.Value)));
+                        var named = new HashSet<string>(theirs.Paths.Select(f => ArchiveStore.DataRelative(f.Value)), StringComparer.OrdinalIgnoreCase);
                         foreach (var r in rows.Where(r => r.IsProblem))
                             if (named.Contains(ArchiveStore.DataRelative(r.Path))) r.InheritedFrom = before.Plugin.Name;
                     }
-                    catch (ReportException) { }
                 }
 
                 // An armor's addons. The schema says which links name an armor addon; the header index says what the
                 // named record really is. One of another type is the plugin's problem (most often a FormID aimed at
                 // the wrong master). One in a master is what the armor shows: read once, its paths listed once.
-                _links.Walk(view.Type, view.Json, link =>
+                foreach (var link in fields.Links)
                 {
-                    if (link.LinkTo != "ArmorAddon" || !HeaderIndex.TryParseFormKey(link.FormKey, out var owner, out var id)) return;
+                    if (!HeaderIndex.TryParseFormKey(link.FormKey, out var owner, out var id)) continue;
                     var mine = ReportSession.In(side.Engine, side.Name, owner, id);
                     // A link to a record that neither the plugin nor a master holds: check's broken links say so
-                    if ((mine ?? _s.Seen(side, owner, id, mastersOnly: true)) is not { } target) return;
+                    if ((mine ?? _s.Seen(side, owner, id, mastersOnly: true)) is not { } target) continue;
                     string addonKey = ReportSession.Canon(link.FormKey);
                     if (target.Signature != "ARMA")
                     {
-                        if (!wrongSeen.Add(key + ">" + link.Path)) return;
+                        if (!wrongSeen.Add(key + ">" + link.Path)) continue;
                         answer.WrongLinks.Add(new AssetLinkProblem
                         {
                             Record = name, FormKey = key, Signature = sig, Field = link.Path,
                             Target = label(addonKey), TargetFormKey = addonKey, TargetSignature = target.Signature, TargetReadFrom = target.Plugin.Name,
                             InMaster = mine == null, SameIdAddons = SameIdAddons(side, owner, id, label),
                         });
-                        return;
+                        continue;
                     }
                     // The plugin's own addon: its paths are listed as its own record's
-                    if (mine != null) return;
+                    if (mine != null) continue;
                     if (masterAddons.TryGetValue(addonKey, out var users))
                     {
                         if (!users.Contains(name)) users.Add(name);
-                        return;
+                        continue;
                     }
                     users = new List<string> { name };
                     masterAddons[addonKey] = users;
-                    RecordView av;
-                    try { av = _s.View(scope, target); } catch (ReportException) { return; }
+                    if (Fields(scope, target, out _) is not { } addon) continue;
                     // The addon is the master's record: what it names is the master's to bring
-                    foreach (var r in Paths(av, name, key, sig, $"{label(addonKey)} ARMA, read from {target.Plugin.Name}", addonKey, target.Plugin.Name, users))
+                    foreach (var r in Paths(addon.Paths, name, key, sig, $"{label(addonKey)} ARMA, read from {target.Plugin.Name}", addonKey, target.Plugin.Name, users))
                         if (r.IsProblem) r.InheritedFrom = target.Plugin.Name;
-                });
+                }
             }
 
             int left = answer.WorldLeftOut.Values.Sum();
             if (left > 0)
                 answer.Notes.Add(SFSearch.Records.WorldData.LeftOut("was left out", left, -1, 0, null,
-                    string.Join(", ", answer.WorldLeftOut.OrderByDescending(k => k.Value).Take(6).Select(k => $"{k.Key} {N(k.Value)}")) + (answer.WorldLeftOut.Count > 6 ? ", …" : "")) +
+                    string.Join(", ", answer.WorldLeftOut.OrderByDescending(k => k.Value).Take(6).Select(k => $"{k.Key} {N(k.Value)}")) + (answer.WorldLeftOut.Count > 6 ? ", …" : ""), "file paths are read from each record") +
                     " Placed references name no files; cells and worldspaces can name a material.");
             if (answer.Unreadable > 0) answer.Notes.Add($"{Plural(answer.Unreadable, "record")} couldn't be read and {(answer.Unreadable == 1 ? "was" : "were")} left out. check says which.");
             int byValueMissing = answer.Rows.Count(r => r.Status == AssetStatus.Missing && !r.Typed);
@@ -456,8 +594,13 @@ public sealed class AssetsReport
             if (answer.Rows.Count == 0)
                 answer.EmptyReason = $"No record of {side.Shown} names a file: {N(answer.RecordsRead)} records read, none with a path in a field the schema types as a file path or a text ending in {string.Join(", ", ByValueExtensions)}.";
             ReportSession.AddProblemNotes(answer, p);
-            answer.Read.Add($"{N(answer.RecordsRead)} of {N(answer.Records)} records of {p.Name}");
-            answer.Read.Add($"the file names of {Plural(store.NamesUsed, "archive")}{(store.ListsRead < store.NamesUsed ? $" ({N(store.NamesUsed - store.ListsRead)} from memory)" : "")}");
+            answer.Read.Add($"{N(answer.RecordsRead)} of {N(answer.Records)} records of {p.Name} ({(fromBytes == answer.RecordsRead ? "all" : N(fromBytes))} from their path fields' bytes{(fromBytes == answer.RecordsRead ? "" : ", the rest through Mutagen")})");
+            int usedNow = store.NamesUsedReadNow;
+            // One list after "read" (polish 11): what else is said about the archives goes in the parentheses
+            var aside = new List<string>();
+            if (usedNow < store.NamesUsed) aside.Add($"{N(store.NamesUsed - usedNow)} from memory");
+            if (store.ReadAheadUnused > 0) aside.Add($"and of {N(store.ReadAheadUnused)} more, read ahead and not needed");
+            answer.Read.Add($"the file names of {Plural(store.NamesUsed, "archive")}{(aside.Count > 0 ? $" ({string.Join(", ", aside)})" : "")}");
             return answer;
         });
     }

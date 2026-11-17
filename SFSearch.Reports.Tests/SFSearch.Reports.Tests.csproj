@@ -19,4 +19,9 @@
     <ProjectReference Include="..\SFSearch.Reports\SFSearch.Reports.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- C65's census of zero-length subrecords (Python, 2026-11-15), held against profile, subrecord lengths (ProfileLengthsTests) -->
+    <EmbeddedResource Include="data\c65-empty.tsv" LogicalName="c65-empty.tsv" />
+  </ItemGroup>
+
 </Project>

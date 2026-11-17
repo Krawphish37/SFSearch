@@ -26,11 +26,14 @@ namespace SFSearch.Engine
 
         public const string Help = """
             record <record> [--plugin <plugin>] [--view card|fields|json|raw|versions|evidence|verify] [--fields <name,...>]
-                   [--max-chars N] [--cursor C] [--language <language>] [--allow-heavy]
+                   [--max-chars N] [--cursor C] [--language <language>] [--allow-heavy | --allow-heavy=save-index]
               One record, read live from the plugin file through Mutagen. No database is read or built.
 
               record      a FormKey (0476C4:Starfield.esm), an EditorID (Eon), or a FormID with --plugin (0003C2).
                           A name that fits more than one record lists them all and picks none.
+                          A plugin's name (darkstar.esm), or a plugin file's path, is its plugin header (TES4): its flags,
+                          HEDR (version, record count, next object ID), masters, author and the rest. The card, fields,
+                          json, raw and evidence views take it (evidence: Flags, Stats.NumRecords, MasterReferences[0].Master).
               --plugin    which plugin's version to read: a name in Data, or the path of a plugin file elsewhere.
                           Left out: the version the game uses (the last loaded plugin that holds the record). The answer says which.
               --view      card      (default) the fields that are set, with readable names; links as EditorID (FormID:plugin)
@@ -43,14 +46,19 @@ namespace SFSearch.Engine
                           verify    the JSON turned back into a record, written by Mutagen, compared with the file's bytes
               --max-chars the answer is cut to about this many characters (default 24,000). The [more] line gives the cursor for the rest.
               --language  the language of translated text (default English)
-              --allow-heavy  read a record of over 16 MB whole (its full card, json or verify). Without it such a record is
-                          read in part: the card view gives its subrecords and its small fields, the fields and evidence
-                          views read only the fields named (a big list a page at a time: the cursor counts its items).
+              --allow-heavy  read a record of over 16 MB whole (its full card, json or verify), at once. Without it such a
+                          record is read in parts: the card and json views give the whole card or JSON a part at a time
+                          (each item of a big list is a part; the cursor goes on), verify checks it part by part, and the
+                          fields and evidence views read only the fields named (a big list a page at a time).
+              --allow-heavy=save-index  the same as --allow-heavy here: no saved index would make a big record faster,
+                          and the answer says so. (MCP: allow_heavy "save_index")
               Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...); 7 not run: a heavy record that wasn't allowed;
               8 not enough memory free for a heavy record that was allowed.
             """;
 
         static readonly string[] Known = { "record", "plugin", "view", "fields", "max_chars", "cursor", "language", "allow_heavy" };
+        /// <summary>Why no saved index makes one huge record's whole view faster (J33): its own data is the answer.</summary>
+        const string RecordNoIndex = "it is one record's own data, which is never kept";
 
         sealed class Ask
         {
@@ -168,7 +176,10 @@ namespace SFSearch.Engine
             }
             int maxChars = ask.MaxChars <= 0 ? DefaultChars : Math.Clamp(ask.MaxChars, LeastChars, MostChars);
             string question = $"{ask.Record.Trim()}|{ask.Plugin?.Trim()}|{view}|{string.Join(",", fields)}|{language}".ToLowerInvariant();
-            if (!Cursors.TryRead(ask.Cursor, question, out int offset))
+            // A heavy record's json and card go a part at a time, and a part longer than a page goes on at a line of it:
+            // that cursor is "part-line.mark" (HeavyRecordView)
+            int line = 0;
+            if (!HeavyRecordView.TryCursor(ask.Cursor, question, out int offset, out line) && !Cursors.TryRead(ask.Cursor, question, out offset))
             {
                 answer.Fail($"the cursor \"{ask.Cursor}\" doesn't belong to this question", "ask again with the same record, plugin, view and fields as the answer that gave the cursor, or leave the cursor out to start over", 2);
                 return;
@@ -177,6 +188,19 @@ namespace SFSearch.Engine
             var eng = EngineIndex.Get();
             var validity = eng.Check();
             answer.Checked(validity);
+
+            // A plugin's name (or a plugin file's path) names its header, TES4 (GAPS S88)
+            if (RecordHeaderView.Names(ask.Record))
+            {
+                RecordHeaderView.Run(eng, ask.Record, ask.Plugin, view, fields, language, offset, maxChars, question, answer);
+                return;
+            }
+            if (ask.Record.Trim().Trim('"', '\'').Equals("TES4", StringComparison.OrdinalIgnoreCase) && eng.Index.FindEditorId("TES4").Count == 0)
+            {
+                string example = string.IsNullOrWhiteSpace(ask.Plugin) ? "darkstar.esm" : ask.Plugin.Trim();
+                answer.Fail("no record has the EditorID \"TES4\": the plugin header (TES4) has no EditorID or FormID", $"name the header by its plugin's name: record {example}", 2);
+                return;
+            }
 
             for (int attempt = 0; ; attempt++)
             {
@@ -209,11 +233,12 @@ namespace SFSearch.Engine
                 // ---- A heavy record says its cost first, and runs only when the caller allows it, through the heavy lane
                 long bytes = engine.DataBytes(pick.Ref);
                 bool heavy = bytes > engine.HeavyRecordBytes && view != "raw";
-                // A heavy record read in part (GAPS S7): the fields and evidence views always, the card view unless the
-                // caller allowed the full card. Only the subrecords asked for go through Mutagen.
-                if (heavy && (view is "fields" or "evidence" || view == "card" && !JobContext.HeavyAllowed))
+                // A heavy record read in part (GAPS S7): the fields and evidence views always; the card, json and verify
+                // views a part at a time unless the caller allowed the whole record at once. Only the subrecords of a
+                // part go through Mutagen.
+                if (heavy && (view is "fields" or "evidence" || view is "card" or "json" or "verify" && !JobContext.HeavyAllowed))
                 {
-                    HeavyRecordView.Run(engine, eng, pick, view, fields, offset, maxChars, question, answer, justOpened);
+                    HeavyRecordView.Run(engine, eng, pick, view, fields, offset, line, maxChars, question, answer, justOpened);
                     if (answer.Failed) return;
                     // A plugin that changed while it was read makes the answer untrustworthy: the command fails
                     engine.Sessions.Confirm(use);
@@ -228,15 +253,16 @@ namespace SFSearch.Engine
                     int perMB = view switch { "json" => 95, "verify" => 90, _ => 250 };
                     int estimateMB = (int)Math.Min(int.MaxValue / 2, Math.Max(ServiceConfig.Load(Home.Dir).HeavyMinMB, bytes / 1048576.0 * perMB));
                     string what = $"{ProblemNotes.Label(info)} is a {info.Signature} of {EngineIndex.Mb(bytes)}. Read through Mutagen, its {view} view";
-                    if (!JobContext.RequireHeavy(estimateMB, what))
+                    if (!JobContext.RequireHeavy(estimateMB, what, RecordNoIndex))
                     {
                         answer.Refused();
-                        answer.Note($"{ProblemNotes.Label(info)} can be shown at once without that cost: the card view (the default) gives its subrecords and its small fields, the fields and evidence views read only the fields named (a big list a page at a time, with the cursor), and the raw view gives its bytes.");
+                        answer.Note($"{ProblemNotes.Label(info)} can be read without that cost, a part at a time: leave allow_heavy out and the card, json and verify views go through the record a part at a time (with the cursor), the fields and evidence views read only the fields named, and the raw view gives its bytes.");
                         Sources(eng, pick, answer, withLoadOrder: ask.Plugin == null);
                         return;
                     }
                 }
 
+                if (heavy) IndexOffers.NothingToSave(answer, RecordNoIndex);
                 var lines = new List<string>();
                 int head;
                 bool wasHeavy = engine.AllowHeavy;
@@ -359,7 +385,7 @@ namespace SFSearch.Engine
             if (v.Winner >= 0) order.Add(v.Winner);
             for (int i = v.Holders.Count - 1; i >= 0; i--) if (i != v.Winner && main.Plugins[v.Holders[i].Plugin].Order.Enabled) order.Add(i);
             for (int i = 0; i < v.Holders.Count; i++) if (!main.Plugins[v.Holders[i].Plugin].Order.Enabled) order.Add(i);
-            var names = order.Take(most).Select(i => main.Plugins[v.Holders[i].Plugin] is var p && !p.Order.Enabled ? p.Name + " (not loaded)" : p.LeftOut != null ? p.Name + " (refused by Mutagen, left out)" : p.Name).ToList();
+            var names = order.Take(most).Select(i => main.Plugins[v.Holders[i].Plugin] is var p && !p.Order.Enabled ? p.Name + " (not loaded)" : p.LeftOutShort != null ? p.Name + $" ({p.LeftOutShort}, left out)" : p.Name).ToList();
             if (order.Count > most) names.Add($"+{order.Count - most} more");
             return (v.Winner < 0 ? FindTool.NoWinner(main, v) : "") + string.Join(" > ", names);
         }
@@ -391,7 +417,7 @@ namespace SFSearch.Engine
                 var notes = new List<string>();
                 if (byPath) notes.Add("the file you named, outside Data: not part of the load order");
                 else if (!p.Order.Enabled) notes.Add("not loaded");
-                else if (p.LeftOut != null) notes.Add("refused by Mutagen: left out of queries and of the winners");
+                else if (p.LeftOutShort != null) notes.Add($"{p.LeftOutShort}: left out of queries and of the winners");
                 notes.Add(d.IsOverride ? "an override" : "its own record");
                 if (baseSig != null && d.Signature != baseSig) notes.Add($"a different type than its base ({baseSig}): built for an older version of a master");
                 if (!d.IsOverride) baseSig ??= d.Signature;

@@ -6,12 +6,15 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SFSearch.Index</RootNamespace>
-    <!-- The header index of design\agent-first\ARCHITECTURE.md sections 5 and 6. No Mutagen: it reads record headers only. -->
+    <!-- The header index of design\agent-first\ARCHITECTURE.md sections 5 and 6. It reads record headers only. Mutagen's Core
+         package gives it the FormID rule of Starfield's separated master numbering (SeparatedMasterPackage, C58 W8,
+         fixes.20), which FormIdResolver adapts for the header pass. -->
     <Version>0.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.IO.Hashing" Version="10.0.0" />
+    <PackageReference Include="Mutagen.Bethesda.Core" Version="[0.55.0-fixes.25]" />
   </ItemGroup>
 
 </Project>

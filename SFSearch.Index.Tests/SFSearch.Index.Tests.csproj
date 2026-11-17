@@ -13,8 +13,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SFSearch.Index\SFSearch.Index.csproj" />
-    <!-- Mutagen is here only to check the index against: the index itself never uses it. fixes.17 comes from the local feed (nuget.config beside this file). -->
-    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="[0.55.0-fixes.17]" />
+    <!-- Mutagen is here only to check the index against: the index itself never uses it. fixes.24.1 comes from the local feed (nuget.config beside this file). -->
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="[0.55.0-fixes.25]" />
     <!-- Reads today's load-order index read only, when there is one, to compare with -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
   </ItemGroup>

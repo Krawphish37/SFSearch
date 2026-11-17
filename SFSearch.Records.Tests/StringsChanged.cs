@@ -31,15 +31,15 @@ static class StringsChanged
     {
         var data = ctx.DataIndex;
         Check(data.StampsStrings, "the tests' index doesn't look for string files");
-        // What the stamps cost: the first look (archives' name tables read, unless the scratch folder's list had them)
-        // and a look with everything known, over every localized plugin in Data
-        int archives = StringFiles.ArchivesRead; double archiveSeconds = StringFiles.ArchiveSeconds;
+        // What the stamps cost: a look with everything known, over every localized plugin in Data. (The first look's
+        // count and time of archives' name tables read came from counters in StringFiles until J81: no test code in the
+        // library. The archives the string files come from are counted here from the stamps.)
         var localized = data.Plugins.Where(p => p.Header is { Localized: true }).ToList();
         var lookClock = System.Diagnostics.Stopwatch.StartNew();
         var again = data.StringsNow(localized);
         double lookMs = lookClock.Elapsed.TotalMilliseconds;
         Check(again.Zip(localized).All(x => x.First.SameAs(x.Second.Strings)), "a second look at Data's string files gave other stamps with nothing changed");
-        string cost = $"Stamps of Data's {localized.Count} localized plugins ({localized.Sum(p => p.Strings.Files.Count):N0} string files, {localized.Count(p => p.Strings.Files.Count == 0)} with none): the first look read the name tables of {archives} archives in {archiveSeconds:F2} s; a look with them known takes {lookMs:F1} ms.";
+        string cost = $"Stamps of Data's {localized.Count} localized plugins ({localized.Sum(p => p.Strings.Files.Count):N0} string files, {localized.Count(p => p.Strings.Files.Count == 0)} with none): {localized.SelectMany(p => p.Strings.Files.Where(f => f.InArchive).Select(f => f.From)).Distinct(StringComparer.OrdinalIgnoreCase).Count()} archives hold them; a look with them known takes {lookMs:F1} ms.";
         // The smallest localized plugin whose English texts come from an archive, whose masters are all there, and one
         // of whose own records has a name from its string files
         var source = data.Plugins
@@ -181,8 +181,8 @@ static class StringsChanged
         string plugin = Path.Combine(folder, source.Name), archive = Path.Combine(folder, Path.GetFileName(archived.From));
         File.Copy(source.Path, plugin, true); File.Copy(archived.From, archive, true);
         MustBeACopy(ctx, archive);
-        var files = new StringFiles(folder, null);
-        StringsStamp Look() { using var look = files.Look(); return look.Stamp(plugin, source.Name); }
+        var files = new StringFiles(folder);
+        StringsStamp Look() => files.Stamps(new[] { (plugin, source.Name) })[0];
         var first = Look();
         Check(first.Files.Count == source.Strings.Files.Count && first.Files.All(f => f.InArchive && f.From.Equals(archive, StringComparison.OrdinalIgnoreCase) && f.Stamp.Length == size),
             $"the copy's string files should come from the archive copy: {string.Join(", ", first.Files.Take(3).Select(f => f.Where))}");

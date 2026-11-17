@@ -1,0 +1,206 @@
+# xEdit's record type names: SF1Edit source dev-4.1.6 70eb89d (4.1.5r), Core/wbDefinitionsSF1.pas; the exports were made by SF1Edit64.exe 4.1.5q; every name checked as a string in SF1Edit64.exe
+Sig	Name
+AACT	Action
+AAMD	Aim Assist Model Data
+AAPD	Aim Assist Pose Data
+ACHR	Placed NPC
+ACTI	Activator
+ADDN	Addon Node
+AFFE	Affinity Event
+ALCH	Ingestible
+AMBS	Ambience Set
+AMDL	Aim Model
+AMMO	Ammunition
+ANIO	Animated Object
+AOPF	Audio Occlusion Primitive
+AOPS	Aim Optical Sight Marker
+AORU	Attraction Rule
+ARMA	Armor Addon
+ARMO	Armor
+ARTO	Art Object
+ASPC	Acoustic Space
+ASTP	Association Type
+ATMO	Atmosphere
+AVIF	Actor Value Information
+AVMD	AVMS Data
+BIOM	Biome
+BMMO	Biome Marker
+BMOD	Bone Modifier
+BNDS	Bendable Spline
+BOOK	Book
+BPTD	Body Part Data
+CAMS	Camera Shot
+CELL	Cell
+CHAL	Challenge
+CLAS	Class
+CLDF	Clouds
+CLFM	Color
+CLMT	Climate
+CNDF	Condition Form
+COBJ	Constructible Object
+COLL	Collision Layer
+CONT	Container
+CPTH	Camera Path
+CSTY	Combat Style
+CUR3	Curve 3D
+CURV	Curve Table
+DEBR	Debris
+DFOB	Default Object
+DIAL	Dialog Topic
+DLBR	Dialog Branch
+DLVW	Dialog View
+DMGT	Damage Type
+DOBJ	Default Object Manager
+DOOR	Door
+DUAL	Dual Cast Data
+EFSH	Effect Shader
+EFSQ	Effect Sequence
+ENCH	Enchantment
+EQUP	Equip Type
+EXPL	Explosion
+EYES	Eyes
+FACT	Faction
+FFKW	Form Folder Keyword List
+FLOR	Flora
+FLST	FormID List
+FOGV	Fog Volume
+FORC	Force Data
+FSTP	Footstep
+FSTS	Footstep Set
+FURN	Furniture
+FXPD	Facial Expression
+GBFM	Generic Base Form
+GBFT	Generic Base Form Template
+GCVR	Ground Cover
+GLOB	Global
+GMST	Game Setting
+GPOF	Gameplay Option
+GPOG	Gameplay Options Group
+GRAS	Grass
+GWED	Gravity Wielder Effect Data
+HAZD	Hazard
+HDPT	Head Part
+IDLE	Animation
+IDLM	Idle Marker
+IMAD	Image Space Adapter
+IMGS	Image Space
+INFO	Dialog response
+INGR	Ingredient
+INNR	Instance Naming Rules
+IPCT	Impact
+IPDS	Impact Data Set
+IRES	Resource
+KEYM	Key
+KSSM	Sound Keyword Mapping
+KYWD	Keyword
+LAYR	Layer
+LCRT	Location Reference Type
+LCTN	Location
+LENS	Lens Flare
+LGDI	Legendary Item
+LGTM	Lighting Template
+LIGH	Light
+LMSW	Layered Material Swap
+LSCR	Load Screen
+LTEX	Landscape Texture
+LVLB	Leveled Base Form
+LVLI	Leveled Item
+LVLN	Leveled NPC
+LVLP	Leveled Pack In
+LVSC	Leveled Space Cell
+LVSP	Leveled Spell
+MAAM	Melee Aim Assist Model
+MATT	Material Type
+MESG	Message
+MGEF	Magic Effect
+MISC	Misc. Item
+MOVT	Movement Type
+MRPH	Morphable Object
+MSTT	Moveable Static
+MTPT	Material Path
+MUSC	Music Type
+MUST	Music Track
+NAVI	Navmesh Info Map
+NAVM	Navmesh
+NOCM	Navmesh Obstacle Manager
+NOTE	Note
+NPC_	Non-Player Character
+OMOD	Object Modification
+OSWP	Object Swap
+OTFT	Outfit
+OVIS	Object Visibility Manager
+PACK	Package
+PARW	Placed Arrow
+PBAR	Placed Barrier
+PBEA	Placed Beam
+PCBN	Planet Content Manager Branch Node
+PCCN	Planet Content Manager Content Node
+PCMT	Planet Content Manager Tree
+PCON	Placed Cone/Voice
+PDCL	Projected Decal
+PERK	Perk
+PERS	Unknown - PERS
+PFLA	Placed Flame
+PGRE	Placed Projectile
+PHZD	Placed Hazard
+PKIN	Pack-In
+PLYR	Player Reference
+PMFT	Photo Mode Feature
+PMIS	Placed Missile
+PNDT	Planet
+PROJ	Projectile
+PSDC	Particle System Define Collection
+PTST	Surface Pattern Style
+QUST	Quest
+RACE	Race
+REFR	Placed Object
+REGN	Region
+RELA	Relationship
+REVB	Reverb Parameters
+RFGP	Reference Group
+RSGD	Resource Generation Data
+RSPJ	Research Project
+SCCO	Scene Collection
+SCEN	Scene
+SCOL	Static Collection
+SCRL	Scroll
+SDLT	Secondary Damage List
+SECH	Sound Echo Marker
+SFBK	Surface Block
+SFPC	Surface Pattern Config
+SFPT	Surface Pattern
+SFTR	Surface Tree
+SMBN	Story Manager Branch Node
+SMEN	Story Manager Event Node
+SMQN	Story Manager Quest Node
+SOUN	Sound Marker
+SPCH	Speech Challenge
+SPEL	Spell
+SPGD	Shader Particle Geometry
+STAG	Animation Sound Tag Set
+STAT	Static
+STBH	Snap Template Behavior
+STDT	Star
+STMP	Snap Template
+STND	Snap Template Node
+SUNP	Sun Preset
+TACT	Talking Activator
+TDED	Track Damage Effect Data
+TERM	Terminal
+TES4	Main File Header
+TMLM	Terminal Menu
+TODD	Time Of Day Data
+TRAV	Traversal
+TRNS	Transform
+TXST	Texture Set
+VOLI	Volumetric Lighting
+VTYP	Voice Type
+WATR	Water
+WBAR	Weapon Barrel Model
+WEAP	Weapon
+WKMF	Wwise Keyword Mapping
+WRLD	Worldspace
+WTHR	Weather
+WTHS	Weather Settings
+WWED	Wwise Event Data
+ZOOM	Zoom

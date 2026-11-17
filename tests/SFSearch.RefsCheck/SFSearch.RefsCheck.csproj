@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A dev tool (J29, 2026-11-15), not shipped: checks behind refs' faster confirmation of byte hits.
+       sfsrefs-check subrecords <SIG...>             which subrecords the schema says hold no link (SFSearch.Records\LinkSubrecords.cs)
+       sfsrefs-check walk <plugin> [SIG,...]         every world record: Mutagen's EnumerateFormLinks holds every link the walk finds;
+                                                     a record that holds others gives the same links read alone as with its children's stubs
+       sfsrefs-check drop <localIdHex> <owner>       every byte hit the schema rules out is really no link (the walk says so)
+       sfsrefs-check cells <plugin> [threads N]    every cell read through Mutagen on the pipeline: one thread against all
+       Reads the Data folder only (SFSEARCH_DATA, or the Steam default); scratch under %TEMP%\sfsrefs-check. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>sfsrefs-check</AssemblyName>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.Runtime.TieredCompilation.CallCountingDelayMs" Value="0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\SFSearch\SFSearch.csproj" />
+  </ItemGroup>
+</Project>

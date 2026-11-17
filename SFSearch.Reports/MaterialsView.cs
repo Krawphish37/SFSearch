@@ -304,7 +304,7 @@ public sealed class TextureUsersAnswer : ReportAnswer
 
 public sealed class MaterialsView
 {
-    readonly ReportSession _s;
+    internal readonly ReportSession _s;
     public MaterialsView(ReportSession session) { _s = session; }
 
     // ---------------------------------------------------------------- Names of the format
@@ -401,7 +401,7 @@ public sealed class MaterialsView
     });
 
     /// <summary>A material's path from its name and hashes, when its name is its file's and its folder is known.</summary>
-    static string? PathOf(MaterialContents.Node n, MaterialContents? game, Dictionary<uint, string>? extra)
+    internal static string? PathOf(MaterialContents.Node n, MaterialContents? game, Dictionary<uint, string>? extra)
     {
         if (!n.HasMaterialId || n.OwnName is not { Length: > 0 } name) return null;
         var (dir, file, _) = n.Id;
@@ -427,39 +427,6 @@ public sealed class MaterialsView
     /// <summary>Materials whose path the gather might tell, asked about while it isn't kept (and --all-paths is off).</summary>
     readonly HashSet<(MaterialContents, int)> _untold = new();
     string Scratch => _s.Compare.ScratchFolder;
-
-    /// <summary>For the test (S33a): how many of the game's materials get a path from the cheap tries, and how many
-    /// with what Data names; and the path told for each material.</summary>
-    internal (int Materials, int Cheap, int Told, List<(MaterialContents.Node Node, string? Path)> Paths) GamePathCoverage()
-    {
-        var probe = new MaterialPartsAnswer { Material = "" };
-        var finder = Finder(null, false, probe, out _);
-        var dbs = Databases(finder, probe);
-        AllPaths = true;
-        var gameDb = dbs.First(d => d.Db.IsGame && d.Db.Error == null).Db;
-        var game = _s.Archives.Contents(gameDb) ?? throw new InvalidDataException("the game's database couldn't be read whole");
-        int materials = 0, cheap = 0, told = 0;
-        var paths = new List<(MaterialContents.Node, string?)>();
-        for (int i = 0; i < game.Objects; i++)
-        {
-            var n = new MaterialContents.Node(game, i);
-            if (!n.IsMaterial) continue;
-            materials++;
-            string? p = PathOf(n, game, null);
-            if (p != null) cheap++;
-            p ??= More(n, finder, dbs);
-            if (p != null) told++;
-            paths.Add((n, p));
-        }
-        return (materials, cheap, told, paths);
-    }
-
-    /// <summary>For the test: every compiled material database in Data, in the order they are looked in.</summary>
-    internal List<MaterialDatabase> AllDatabases()
-    {
-        var probe = new MaterialPartsAnswer { Material = "" };
-        return Databases(Finder(null, false, probe, out _), probe).Select(d => d.Db).ToList();
-    }
 
     /// <summary>For the service's indexer lane, after each look of the header index (fix-s33h, S33g): the material paths
     /// Data names, gathered and kept in the scratch folder for every worker, unless they are kept there already for the
@@ -506,6 +473,7 @@ public sealed class MaterialsView
         bool save = archives.All(a => System.IO.Path.GetFullPath(a).StartsWith(data, StringComparison.OrdinalIgnoreCase));
         var e = MaterialPaths.Get(key, Scratch, save, store, archives, dbs.Select(d => d.Db).ToList(),
             () => dbs.Select(d => store.Contents(d.Db)).OfType<MaterialContents>().SelectMany(c => c.TextureNames()),
+            () => dbs.Select(d => store.Contents(d.Db)).OfType<MaterialContents>().SelectMany(c => c.MatNames()),
             () => MatFiles(finder, out _, out _, out _).Select(f => (f.Path, f.Mats)).ToList(), plugins, out _evidenceFrom);
         _evidenceSaved = save && _evidenceFrom == EvidenceFrom.Now && File.Exists(System.IO.Path.Combine(Scratch, MaterialPaths.FileName));
         return e;
@@ -513,7 +481,7 @@ public sealed class MaterialsView
 
     /// <summary>A material's path from what Data names (S33a): gathered on the first material the cheap tries can't
     /// place, once per process.</summary>
-    string? More(MaterialContents.Node n, FileFinder finder, List<(MaterialDatabase Db, FileOrigin Origin, bool Counts)> dbs)
+    internal string? More(MaterialContents.Node n, FileFinder finder, List<(MaterialDatabase Db, FileOrigin Origin, bool Counts)> dbs)
     {
         if (!n.HasMaterialId) return null;
         if (_evidence == null && (!_evidenceLooked || AllPaths))
@@ -528,7 +496,7 @@ public sealed class MaterialsView
     /// <summary>The line that offers --all-paths, when the cheap tries left materials without a path and nothing was
     /// gathered.</summary>
     string? UntoldNote(string what) => _untold.Count == 0 ? null
-        : $"{what} isn't told by the quick tries (the folders of the database's own textures). --all-paths tells most of them: it gathers once the material paths Data names (every .mat file, the header of every mesh, the folders of every archive, the records of every plugin; {GatherCost} in a new process), keeps them in the scratch folder, and every later call uses them. The service gathers them by itself when it is idle.";
+        : $"{what} isn't told by the quick tries (the folders of the database's own textures). --all-paths tells most of them: it gathers once the material paths Data names (every .mat file, the header of every mesh, the folders of every archive, the records of every plugin, the particle files, the databases' own names; {GatherCost} in a new process), keeps them in the scratch folder, and every later call uses them. The service gathers them by itself when it is idle.";
 
     /// <summary>The cost line's part for the material paths, when they were needed.</summary>
     void EvidenceCost(ReportAnswer answer)
@@ -544,13 +512,13 @@ public sealed class MaterialsView
         {
             EvidenceFrom.Memory => $"the material paths Data names (taken from memory: {N(e.PathsFound)} paths and {N(e.FoldersFound)} folders{older})",
             EvidenceFrom.Scratch => $"the material paths Data names (taken from the scratch folder: {N(e.PathsFound)} paths and {N(e.FoldersFound)} folders, gathered {e.GatheredUtc.ToLocalTime():yyyy-MM-dd HH:mm} in {S(e.Seconds)} s{older})",
-            _ => $"the material paths Data names, gathered now to tell the paths of materials a database knows only by hash: {N(e.MatFiles)} .mat files ({S(e.MatSeconds)} s), the headers of {N(e.Meshes)} meshes ({(e.MeshDiskBytes > 0 ? $"{ArchiveStore.SizeText(e.MeshDiskBytes)} read, " : "")}{ArchiveStore.SizeText(e.MeshBytes)} inflated{(e.MeshesReadWhole > 0 ? $", {N(e.MeshesReadWhole)} read whole" : "")}; {S(e.MeshSeconds)} s), the folders of {Plural(e.ArchivesNamed, "archive")}, {N(e.Records)} records of {Plural(e.RecordPlugins, "plugin")} ({ArchiveStore.SizeText(e.RecordBytes)}, {N(e.RecordTexts)} .mat texts; {S(e.RecordSeconds)} s) ({N(e.PathsFound)} paths and {N(e.FoldersFound)} folders kept) in {S(e.Seconds)} s{(_evidenceSaved ? "; kept in the scratch folder for later calls" : "")}",
+            _ => $"the material paths Data names, gathered now to tell the paths of materials a database knows only by hash: {N(e.MatFiles)} .mat files ({S(e.MatSeconds)} s), the headers of {N(e.Meshes)} meshes ({(e.MeshDiskBytes > 0 ? $"{ArchiveStore.SizeText(e.MeshDiskBytes)} read, " : "")}{ArchiveStore.SizeText(e.MeshBytes)} inflated{(e.MeshesReadWhole > 0 ? $", {N(e.MeshesReadWhole)} read whole" : "")}; {S(e.MeshSeconds)} s), the folders of {Plural(e.ArchivesNamed, "archive")}, {N(e.Records)} records of {Plural(e.RecordPlugins, "plugin")} ({ArchiveStore.SizeText(e.RecordBytes)}, {N(e.RecordTexts)} .mat texts; {S(e.RecordSeconds)} s), {Plural(e.Blobs, "particle file")} ({ArchiveStore.SizeText(e.BlobBytes)}), {Plural(e.DatabaseNames, "database name")} that hold a path ({N(e.PathsFound)} paths and {N(e.FoldersFound)} folders kept) in {S(e.Seconds)} s{(_evidenceSaved ? "; kept in the scratch folder for later calls" : "")}",
         });
     }
 
     // ---------------------------------------------------------------- Where to look
     /// <summary>The finder of files: a plugin's (its archives first, as the materials report), or Data's as a whole.</summary>
-    FileFinder Finder(string? plugin, bool beside, ReportAnswer answer, out string? shown)
+    internal FileFinder Finder(string? plugin, bool beside, ReportAnswer answer, out string? shown)
     {
         shown = null;
         if (plugin == null)
@@ -573,7 +541,7 @@ public sealed class MaterialsView
     }
 
     /// <summary>Every compiled material database, its material list read (once per process).</summary>
-    List<(MaterialDatabase Db, FileOrigin Origin, bool Counts)> Databases(FileFinder finder, ReportAnswer answer)
+    internal List<(MaterialDatabase Db, FileOrigin Origin, bool Counts)> Databases(FileFinder finder, ReportAnswer answer)
     {
         var store = _s.Archives;
         var list = new List<(MaterialDatabase, FileOrigin, bool)>();
@@ -693,7 +661,7 @@ public sealed class MaterialsView
         if (answer.Missing)
             answer.Notes.Add("A database knows a material by a hash of its path: check the path as a mesh or a record writes it (materials2 <plugin> lists those).");
         if (UntoldNote($"The path of {Plural(_untold.Count, "parent material")}") is { } untold) answer.Notes.Add(untold + " Until then it is shown by name and ID.");
-        answer.Sources.Add("the databases the game reads: its own materials\\materialsbeta.cdb and every .cdb in a plugin's \" - Main\" archives, as the game's executable names them (a .cdb loose in Data or in another archive isn't read)");
+        answer.Sources.Add("the databases the game reads: its own materials\\materialsbeta.cdb and every .cdb in a plugin's \" - Main\" archives, as the game's code reads them (a .cdb loose in Data or in another archive isn't read)");
         Cost(answer, dbs.Select(d => d.Db).ToList(), whole);
         EvidenceCost(answer);
         return answer;
@@ -1011,7 +979,7 @@ public sealed class MaterialsView
         if (answer.Users.Any(u => u.AlsoFile != null) || answer.FileUsers.Any(u => u.AlsoCompiled.Count > 0))
             answer.Notes.Add(BothNote);
         answer.Notes.Add("A .mat file is listed when it names the texture itself; one that only inherits it from its parent isn't (a compiled material is listed either way).");
-        answer.Sources.Add("the databases the game reads: its own materials\\materialsbeta.cdb and every .cdb in a plugin's \" - Main\" archives, as the game's executable names them (a .cdb loose in Data or in another archive isn't read)");
+        answer.Sources.Add("the databases the game reads: its own materials\\materialsbeta.cdb and every .cdb in a plugin's \" - Main\" archives, as the game's code reads them (a .cdb loose in Data or in another archive isn't read)");
         Cost(answer, dbs.Select(d => d.Db).ToList(), contents.Select(c => c.Db).ToList());
         EvidenceCost(answer);
         answer.Read.Add($"the .mat files of {Plural(matArchivesKept + matArchivesRead, "archive")} that hold any ({N(matArchivesRead)} read now: {ArchiveStore.SizeText(matBytesRead)}{(matArchivesRead > 0 ? $" in {matSeconds.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)} s" : "")}; {N(matArchivesKept)} taken from memory) and {N(matFiles.Count(f => f.Where == "loose"))} loose; {N(parsed)} read as JSON because they name the texture");

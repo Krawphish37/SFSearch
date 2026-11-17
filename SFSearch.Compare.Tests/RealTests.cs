@@ -240,6 +240,14 @@ static class RealTests
             Check((string?)r.ToJson()["headerDiffers"] == r.HeaderDiffers, $"{r.Label}: the JSON's headerDiffers isn't the row's");
             string shape = Regex.Replace(r.HeaderDiffers!, "0x[0-9A-F]{8}", "0x…");
             shapes[shape] = shapes.GetValueOrDefault(shape) + 1;
+            // Every ITM held against the files (fix A4, 2026-11-12; carried over from the retired known-itms, whose 1.x side
+            // went with 2.0): the subrecords, decompressed, are the same signatures in the same order with the same bytes,
+            // the EDID included, and the record flags are the same but for the compressed bit
+            var subsBase = rawBase.Subrecords.Select(x => x.Signature + " " + RawRecord.Hex(rawBase.Content(x))).ToList();
+            var subsMine = rawMine.Subrecords.Select(x => x.Signature + " " + RawRecord.Hex(rawMine.Content(x))).ToList();
+            Check(subsBase.SequenceEqual(subsMine), $"{r.Label}: an ITM, but its subrecords aren't the same bytes in {r.Base} and {plugin}: " +
+                string.Join(", ", subsBase.Except(subsMine).Concat(subsMine.Except(subsBase)).Select(x => x.Split(' ')[0]).Distinct()));
+            Check((rawBase.Flags & ~0x40000u) == (rawMine.Flags & ~0x40000u), $"{r.Label}: an ITM, but the record flags differ: {rawBase.Flags:X8} and {rawMine.Flags:X8}");
         }
         string text = answer.ToText(new TextOptions { MaxChars = 200000 });
         ctx.WriteReport("itm-headers.txt", text);
@@ -247,7 +255,7 @@ static class RealTests
         Check(explained == 1, $"the explanation is in the answer {explained} times; once was expected\n{text}");
         foreach (var r in itms)
             Check(text.Contains($"{r.Label} {r.Signature}: identical to {r.Base} in data; header differs: {r.HeaderDiffers}", StringComparison.Ordinal), $"{r.Label}: its row doesn't name its header difference\n{text}");
-        return $"{plugin}: {itms.Count} ITMs, each names its header difference, as the raw reader reads both headers ({string.Join("; ", shapes.OrderByDescending(k => k.Value).Select(k => $"{k.Value}× {k.Key}"))}); the explanation once; equal headers add nothing";
+        return $"{plugin}: {itms.Count} ITMs, each the same subrecord bytes and flags as its master's version, each names its header difference, as the raw reader reads both headers ({string.Join("; ", shapes.OrderByDescending(k => k.Value).Select(k => $"{k.Value}× {k.Key}"))}); the explanation once; equal headers add nothing";
     }
 
     /// <summary>

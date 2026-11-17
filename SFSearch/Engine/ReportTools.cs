@@ -32,7 +32,15 @@ namespace SFSearch.Engine
         /// Runs one report and puts its answer into the engine's: the text in pages with one cursor, or the structured
         /// object when json was asked for; the notes with a plugin's problems first; the sources; what was read.
         /// </summary>
-        static void Report(EngineAnswer answer, ToolArgs a, string verb, IEnumerable<string> known, Func<ReportSession, ReportAnswer?> work, Action<ReportAnswer>? after = null)
+        static void Report(EngineAnswer answer, ToolArgs a, string verb, IEnumerable<string> known, Func<ReportSession, ReportAnswer?> work, Action<ReportAnswer>? after = null) =>
+            Report(answer, a, verb, known, (s, _, _) => work(s), after);
+
+        /// <summary>
+        /// The same, for a report that pages by what it searched (<see cref="ISearchPage"/>: archive2 grep): the work
+        /// gets the cursor's start and the page's characters, and stops once its page is full; its answer is printed
+        /// whole, and the [more] line counts what was searched.
+        /// </summary>
+        static void Report(EngineAnswer answer, ToolArgs a, string verb, IEnumerable<string> known, Func<ReportSession, int, int, ReportAnswer?> work, Action<ReportAnswer>? after = null)
         {
             try
             {
@@ -44,9 +52,16 @@ namespace SFSearch.Engine
                 var eng = EngineIndex.Get();
                 answer.Checked(eng.Check());
                 using var session = Session(eng, language);
-                var result = work(session);
+                var result = work(session, start, maxChars);
                 if (result == null) return; // the answer is already said (an error, or "not run")
                 EngineLibs.Parts(answer, result.Notes, result.Sources, result.Read);
+                var page = result as ISearchPage;
+                if (page != null && (page.NextItem != null || page.FirstItem > 0))
+                    answer.More = new MoreInfo
+                    {
+                        From = (int)page.FirstItem + 1, Shown = (int)page.ItemsSearched, Total = (int)page.ItemsTotal, Unit = page.ItemNoun,
+                        Cursor = page.NextItem is { } next ? Cursors.Make((int)next, question) : null,
+                    };
                 if (EngineAnswer.JsonMode)
                 {
                     var o = result.ToJson();
@@ -59,8 +74,16 @@ namespace SFSearch.Engine
                 }
                 else
                 {
-                    string text = result.ToText(new ReportTextOptions { Detail = a.Flag("detail"), MaxChars = maxChars, Cursor = start }, out int next);
-                    EngineLibs.Paged(answer, text, start, next, question);
+                    if (page != null)
+                    {
+                        // The page is what was searched: printed whole
+                        foreach (var l in EngineLibs.BodyLines(result.ToText(new ReportTextOptions { Detail = a.Flag("detail"), MaxChars = int.MaxValue }))) answer.Line(l);
+                    }
+                    else
+                    {
+                        string text = result.ToText(new ReportTextOptions { Detail = a.Flag("detail"), MaxChars = maxChars, Cursor = start }, out int next);
+                        EngineLibs.Paged(answer, text, start, next, question);
+                    }
                 }
                 after?.Invoke(result);
             }
@@ -230,7 +253,7 @@ namespace SFSearch.Engine
                         lines.Add($"Overrides of {c.Plugin} that change nothing (ITMs{(xedit ? ", as SF1Edit counts them" : "")}): {itm?.Rows.Count ?? 0:N0} of the {c.OverridesCompared:N0} overrides compared with their master ({c.Overrides:N0} overrides in all).");
                         // World data left out is said right under the count, the same way every tool says it (WorldData.LeftOut)
                         if (c.WorldLeftOut.Values.Sum() is int leftOut and > 0)
-                            lines.Add(WorldData.LeftOut("was left out of the ITM check", leftOut, c.WorldBytesLeftOut, 0, $"about {2 + leftOut * CheckReport.WorldSecondsPerRecord:F0} s more", ByType(c.WorldLeftOut)));
+                            lines.Add(WorldData.LeftOut("was left out of the ITM check", leftOut, c.WorldBytesLeftOut, 0, $"about {2 + leftOut * CheckReport.WorldSecondsPerRecord:F0} s more", ByType(c.WorldLeftOut), "the checks read each record"));
                         if (itm?.NotRun != null) lines.Add($"Not run: {itm.NotRun}");
                         else if (itm == null || itm.Rows.Count == 0) lines.Add("None: every override compared changes something.");
                         else { if (itm.Note != null) lines.Add("  " + itm.Note); itmRows = (lines.Count, itm.Rows.Count); lines.AddRange(itm.Rows.Select(r => r.Line())); }
@@ -312,7 +335,7 @@ namespace SFSearch.Engine
                         long read = seg.Count - worldRecords + (world ? worldRecords : 0);
                         double seconds = read * CheckReport.WorldSecondsPerRecord;
                         long memory = 400 + (long)((seg.Count - worldRecords) * 0.003) + (world ? (long)(worldRecords * 0.0003) : 0);
-                        if (!EngineLibs.Heavy(answer, allow, seconds, memory, $"The checks of {side.Name} read {read:N0} of its {seg.Count:N0} records{(world ? ", world data included" : "")}")) return null;
+                        if (!EngineLibs.Heavy(answer, allow, seconds, memory, $"The checks of {side.Name} read {read:N0} of its {seg.Count:N0} records{(world ? ", world data included" : "")}", noIndex: "the checks read every record they check")) return null;
                     }
                     return new CheckReport(session).Check(plugin, new CheckOptions { World = world, LikeXEdit = likeXEdit });
                 }
@@ -330,7 +353,7 @@ namespace SFSearch.Engine
             var p = side.Plugin;
             double mb = p.Stamp.Length / 1048576.0;
             // Measured (notes M12): 26 MB took 2 s and 362 MB; 1,390 MB took 68 s and 13,650 MB
-            if (!EngineLibs.Heavy(answer, allow, 2 + mb * 0.05, 200 + (long)(mb * 10), $"The round trip of {side.Name} ({EngineIndex.Mb(p.Stamp.Length)}) reads the whole plugin into memory and writes it again")) return null;
+            if (!EngineLibs.Heavy(answer, allow, 2 + mb * 0.05, 200 + (long)(mb * 10), $"The round trip of {side.Name} ({EngineIndex.Mb(p.Stamp.Length)}) reads the whole plugin into memory and writes it again", noIndex: "a round trip reads and writes the whole plugin")) return null;
             // A folder of this program's own: two workers may make the round trip of one plugin at the same time
             string folder = Path.Combine(EngineLibs.ScratchRoot, "roundtrip", $"{Path.GetFileNameWithoutExtension(side.Name)}-{p.ContentKey.Short}-{Environment.ProcessId}");
             string written = Path.Combine(folder, side.Name);
@@ -344,7 +367,12 @@ namespace SFSearch.Engine
             {
                 // Masters from the plugin's own header, their sizes from the Data folder: how a patcher opens it
                 using var mod = StarfieldMod.Create(StarfieldRelease.Starfield).FromPath(side.ReadPath).WithLoadOrderFromHeaderMasters().WithDataFolder(eng.DataFolder).Construct();
-                mod.BeginWrite.ToPath(written).WithLoadOrderFromHeaderMasters().WithDataFolder(eng.DataFolder).WriteAsync().GetAwaiter().GetResult();
+                // Written as read: the header's counts (records, interior cells) and next FormID are the file's own, not
+                // recounted, so a plugin whose header count is stale still compares equal when Mutagen holds all of it
+                mod.BeginWrite.ToPath(written).WithLoadOrderFromHeaderMasters().WithDataFolder(eng.DataFolder)
+                    .WithRecordCount(Mutagen.Bethesda.Plugins.Binary.Parameters.RecordCountOption.NoCheck)
+                    .NoNextFormIDProcessing()
+                    .WriteAsync().GetAwaiter().GetResult();
             }
             catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
             {
@@ -461,7 +489,7 @@ namespace SFSearch.Engine
 
         public const string SourcesHelp = """
             sources2 <plugin> [--types WEAP,ARMO] [--item <record>] [--with <plugin,...>] [--only] [--depth N] [--scan]
-                     [--detail] [--max-chars N] [--cursor C] [--json]
+                     [--allow-heavy | --allow-heavy=save-index] [--detail] [--max-chars N] [--cursor C] [--json]
               How the player gets each item a plugin adds: a recipe, a quest, a vendor, a container, a placed copy, an NPC,
               through leveled lists, form lists and outfits. Each item says whether any path ends at something the player
               can reach.
@@ -470,6 +498,12 @@ namespace SFSearch.Engine
               --depth   how many lists deep (default 6)
               --scan    find "what points at this" by reading every record of the searched plugins, not from the link index.
                         The answer is the same; it is how the two are held against each other.
+              Placed copies come from a plugin's world link index when it has one (indexes build world), and from a
+              search of its placed references' bytes when it hasn't: seconds for Starfield.esm's 3.29 million. The answer
+              names a plugin with more than 300,000 placed references searched so, and --allow-heavy=save-index searches
+              the same way and then saves the world link index of those plugins (made after the answer), so later answers
+              take their placed copies from it. Only when that search would take over 10 s (deeper lists, more plugins)
+              does the answer leave them out and say so; --allow-heavy then searches them.
               Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...).
             """;
         static readonly string[] SourcesKnown = { "plugin", "types", "item", "with", "only", "depth", "scan" };
@@ -479,19 +513,28 @@ namespace SFSearch.Engine
         {
             if (a.Text("plugin") is not { } plugin) { answer.Fail("sources2 needs a plugin", "give a plugin's file name in Data, or the path of a plugin file", 2); return; }
             bool scan = a.Flag("scan");
+            LinkIndexBackLinks? links = null;
             Report(answer, a, "sources", SourcesKnown.Concat(Common), s => new SourcesReport(s).Sources(plugin, new SourcesOptions
             {
                 Signatures = a.Text("types") == null ? null : List(a.Text("types")), Item = a.Text("item"), With = List(a.Text("with")),
                 Dependents = !a.Flag("only"), Depth = a.Int("depth") is > 0 and var d ? d : 6,
                 // "What points at this" from the link index (the same one refs answers from), unless --scan asks for the walk
-                BackLinks = scan ? null : (scope, searched) => new LinkIndexBackLinks(s, scope, searched),
-            }));
+                BackLinks = scan ? (scope, searched) => new ScanBackLinks(s, scope, searched) : (scope, searched) => links = new LinkIndexBackLinks(s, scope, searched) { Passes = (a.Int("depth") is > 0 and var dp ? dp : 6) + 3 },
+            }), after: _ =>
+            {
+                // allow_heavy="save_index" (J33, GAPS S96): the world link index of the big plugins whose placed references were searched by their bytes
+                if (!JobContext.SaveIndexAsked) return;
+                if (links?.SaveOffer() is { } offer) IndexOffers.Take(answer, offer);
+                else IndexOffers.NothingToSave(answer, scan ? "--scan reads every record" : "every plugin searched has its world link index already, or none has more than 300,000 placed references");
+            });
         });
 
         // ---------------------------------------------------------------- archive, assets, materials, scripts, changes
         public const string ArchiveHelp = """
-            archive2 <plugin | file.ba2 | all> [list [<pattern>] | find <text> | show <path> | extract <pattern> --to <folder>]
-                     [--beside] [--detail] [--max-chars N] [--cursor C] [--json]
+            archive2 <plugin | file.ba2 | all> [list [<pattern>] | find <text> | show <path> | extract <pattern> --to <folder>
+                     | grep <text> [--regex] [--ext mat,nif] [--folder materials] [--count] [--allow-heavy]
+                     | encoding [--ext strings,txt] [--folder strings] [--count] [--allow-heavy]]
+                     [--beside] [--detail] [--all] [--max-chars N] [--cursor C] [--json]
               What is inside BA2 archives. With a plugin: its own archives (<plugin name> - <part>.ba2). "all": every archive in Data.
               (nothing)  a summary per archive: files, size, kinds of file, files that also exist loose in Data
               list       the files whose path fits a pattern. A pattern with * or ? must fit the whole path (*.mat, meshes\*);
@@ -499,11 +542,35 @@ namespace SFSearch.Engine
               find       the same over every archive in Data: archive2 all find <text>
               show       one file's content as text (.mat, .psc, .json, ...)
               extract    copies the files that fit into a folder (--to), never into the game's folders
+              grep       which files hold a text: the contents of the archives' files, and of the loose files in Data
+                         the game reads in their place (all: every loose file in Data's folders), searched for the
+                         text (letter case doesn't count) or, with --regex, a .NET regular expression (^ and $: a
+                         line's start and end; \A: the file's first byte). Each hit with its archive, file, byte
+                         offset (and line, in a text file) and the text around it. Use it to find which mod's file
+                         names a material, texture, mesh, sound or script string. A text file that starts with a
+                         UTF-16 byte-order mark (the interface's translate_*.txt) is searched as UTF-16 text. A text
+                         or regex with a character outside ASCII reads the other files as UTF-8 text (a byte that
+                         isn't UTF-8 as Windows-1252, as some string tables hold), so GRÖSSE also finds grösse.
+                         An ASCII regex matches the bytes. A character written as a code matches only itself:
+                         \xE9 is the byte E9, not C9 (its capital in Latin-1); the letters around it ignore case.
+                         Textures, sounds and video are passed over unless --ext names them (--ext * searches all).
+                         --ext     only these kinds        --folder  only files under these folders (both take commas)
+                         --count   no hits listed: the hits and the files that hold them per kind of file, over the
+                                   whole scope (with --detail, per archive too): "how many meshes name this?"
+                         The files and inflated bytes it covers, and the time that takes, are worked out before
+                         anything is read; over 10 s it says so ("Not run") and runs with --allow-heavy. It stops
+                         once the page is full: the cursor goes on from the next file. Nothing is kept between calls.
+              encoding   how each file's text is written: ASCII only, UTF-8, Windows-1252, mixed UTF-8 and
+                         Windows-1252, UTF-16 (by its byte-order mark) or binary (a control byte); a string table
+                         (.strings, .dlstrings, .ilstrings) string by string, with the strings that aren't UTF-8.
+                         Use it before editing a string table or a text file. Lists the files with text outside
+                         ASCII (--detail: every file and string); --ext, --folder, --count and the cost as for grep.
               --beside   for a plugin file outside Data: the archives that sit beside it, not the ones in Data
-              Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...).
+              --all      every row on one page, no cursor (for scripts); grep then searches the whole scope at once
+              Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...); 7 not run (heavy, not allowed).
             """;
-        static readonly string[] ArchiveKnown = { "target", "action", "pattern", "to", "beside", "list", "find", "show", "extract" };
-        static readonly VerbSpec ArchiveSpec = Spec("archive2", new[] { "target", "action", "pattern" }, new[] { "to", "list", "find", "show", "extract" }, new[] { "beside" });
+        static readonly string[] ArchiveKnown = { "target", "action", "pattern", "to", "beside", "list", "find", "show", "extract", "grep", "regex", "ext", "folder", "allow_heavy", "count", "all" };
+        static readonly VerbSpec ArchiveSpec = Spec("archive2", new[] { "target", "action", "pattern" }, new[] { "to", "list", "find", "show", "extract", "grep", "ext", "folder" }, new[] { "beside", "regex", "allow_heavy", "count", "all" });
 
         public static void ArchiveVerb(List<string> args) => RunVerb(args, ArchiveHelp, ArchiveSpec, (a, answer) =>
         {
@@ -511,13 +578,49 @@ namespace SFSearch.Engine
             string action = (a.Text("action") ?? "").ToLowerInvariant();
             string? pattern = a.Text("pattern");
             // The runner's spelling works too: --list <pattern>, --find <text>, --show <path>, --extract <pattern>
-            foreach (string opt in new[] { "list", "find", "show", "extract" })
+            foreach (string opt in new[] { "list", "find", "show", "extract", "grep" })
                 if (a.Text(opt) is { } v) { action = opt; pattern = v; }
             bool beside = a.Flag("beside");
-            if (action.Length > 0 && action is not ("list" or "find" or "show" or "extract" or "summary"))
-            { answer.Fail($"archive2 has no action '{action}'", "after the target comes nothing (a summary), list [<pattern>], find <text>, show <path>, or extract <pattern> --to <folder>", 2); return; }
-            if (action is "find" or "show" or "extract" && pattern == null) { answer.Fail($"archive2 {action} needs {(action == "show" ? "a file's path" : "a text or a pattern")}", $"archive2 {target} {action} <{(action == "show" ? "path" : "pattern")}>", 2); return; }
+            if (action.Length > 0 && action is not ("list" or "find" or "show" or "extract" or "grep" or "encoding" or "summary"))
+            { answer.Fail($"archive2 has no action '{action}'", "after the target comes nothing (a summary), list [<pattern>], find <text>, show <path>, extract <pattern> --to <folder>, grep <text>, or encoding", 2); return; }
+            if (action is "find" or "show" or "extract" or "grep" && string.IsNullOrEmpty(pattern)) { answer.Fail($"archive2 {action} needs {(action == "show" ? "a file's path" : action == "grep" ? "a text to look for in the files" : "a text or a pattern")}", $"archive2 {target} {action} <{(action == "show" ? "path" : action == "grep" ? "text" : "pattern")}>", 2); return; }
+            if (action == "encoding" && !string.IsNullOrEmpty(pattern)) { answer.Fail("archive2 encoding takes no text", $"name the files with --ext and --folder: archive2 {target} encoding --ext strings", 2); return; }
             if (action == "extract" && a.Text("to") == null) { answer.Fail("archive2 extract needs a folder to copy into", "add --to <folder>: any folder outside the game's folders", 2); return; }
+            if (action != "grep" && a.Flag("regex")) { answer.Fail("--regex belongs to archive2 grep", $"archive2 {target} grep <text> --regex; or leave it out", 2); return; }
+            if (action is not ("grep" or "encoding") && (a.Text("ext") != null || a.Text("folder") != null || a.Flag("count")))
+            { answer.Fail("--ext, --folder and --count belong to archive2 grep and encoding", $"archive2 {target} grep <text> --ext mat; or leave them out", 2); return; }
+            if (action == "encoding")
+            {
+                Report(answer, a, "archive", ArchiveKnown.Concat(Common), (s, start, maxChars) =>
+                {
+                    var report = new ArchiveReport(s);
+                    bool count = a.Flag("count");
+                    using var plan = report.PlanEncodings(target, new GrepOptions
+                    {
+                        Text = "", Extensions = List(a.Text("ext")), Folders = List(a.Text("folder")), Beside = beside, Start = count ? 0 : start, Count = count,
+                    });
+                    if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), plan.Seconds, plan.MemoryMB, plan.What)) return null;
+                    return count ? report.EncodingsCount(plan) : report.Encodings(plan, maxChars, a.Flag("detail"));
+                });
+                return;
+            }
+            if (action == "grep")
+            {
+                Report(answer, a, "archive", ArchiveKnown.Concat(Common), (s, start, maxChars) =>
+                {
+                    var report = new ArchiveReport(s);
+                    // A count reads the whole scope and pages its rows (the cursor is a row); a list pages by the files searched
+                    bool count = a.Flag("count");
+                    using var plan = report.PlanGrep(target, new GrepOptions
+                    {
+                        Text = pattern!, Regex = a.Flag("regex"), Extensions = List(a.Text("ext")), Folders = List(a.Text("folder")), Beside = beside, Start = count ? 0 : start, Count = count,
+                    });
+                    // The cost first: over the heavy limits the answer is the estimate, and nothing is read
+                    if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), plan.Seconds, plan.MemoryMB, plan.What, noIndex: "it reads the archives' files, and SFSearch indexes plugins, not archives")) return null;
+                    return count ? report.GrepCount(plan) : report.Grep(plan, maxChars, a.Flag("detail"));
+                });
+                return;
+            }
             Report(answer, a, "archive", ArchiveKnown.Concat(Common), s =>
             {
                 var report = new ArchiveReport(s);
@@ -544,6 +647,13 @@ namespace SFSearch.Engine
         public static void AssetsVerb(List<string> args) => RunVerb(args, AssetsHelp, AssetsSpec, (a, answer) =>
         {
             if (a.Text("plugin") is not { } plugin) { answer.Fail("assets2 needs a plugin", "give a plugin's file name in Data, or the path of a plugin file", 2); return; }
+            // In a new process: what the report needs first is made on other cores while Mutagen starts (GAPS S30)
+            if (!SessionServer.Active)
+            {
+                string? data = null;
+                try { data = Home.DataFolder(); } catch (FileNotFoundException) { }
+                if (data != null) AssetsReport.PrepareInBackground(() => EngineRecords.Schema, data, plugin);
+            }
             Report(answer, a, "assets", new[] { "plugin", "world", "beside" }.Concat(Common), s => new AssetsReport(s).Assets(plugin, new AssetsOptions { World = a.Flag("world"), Beside = a.Flag("beside") }));
         });
 
@@ -598,7 +708,10 @@ namespace SFSearch.Engine
               (GetFormFromFile, GetForm, IsPluginInstalled, and AddItem, AddForm, PlaceAtMe ... on what they return).
               Its scripts are those in its archives, loose ones with its name in their path, and loose ones its records
               attach. The compiled scripts are decompiled once with Champollion; the sources are kept under kept\scripts
-              in the SFSearch home.
+              in the SFSearch home. Champollion.exe is found by SFSEARCH_CHAMPOLLION, else "champollion" in sfsearch.json,
+              else SFSearch's tools\champollion folder ('sfs.cmd Service config' shows which is set).
+              <plugin>  names parted by commas, a name with * (sfta*.esm), a set (@official, @loaded, @all), or the path
+                        of a plugin file
               --find    every line that contains a text      --show   one script's source
               --calls   only the code that reaches records, every call (needs no decompiler)
               --no-records  don't look for the records that carry each script
@@ -608,7 +721,7 @@ namespace SFSearch.Engine
 
         public static void ScriptsVerb(List<string> args) => RunVerb(args, ScriptsHelp, ScriptsSpec, (a, answer) =>
         {
-            if (a.Text("plugins") is not { } plugins) { answer.Fail("scripts2 needs a plugin", "give one or more plugin names, with commas between them", 2); return; }
+            if (a.Text("plugins") is not { } plugins) { answer.Fail("scripts2 needs a plugin", "give one or more plugin names, with commas between them, or a set such as @official", 2); return; }
             Report(answer, a, "scripts", new[] { "plugins", "find", "show", "calls", "no_records", "world", "no_world", "beside" }.Concat(Common), s => new ScriptsReport(s).Scripts(plugins, new ScriptsOptions
             {
                 Find = a.Text("find"), Show = a.Text("show"), Calls = a.Flag("calls"), Carriers = !a.Flag("no_records"), World = a.Flag("world") ? true : a.Flag("no_world") ? false : null, Beside = a.Flag("beside"),
@@ -620,12 +733,22 @@ namespace SFSearch.Engine
             profile <Type.Path ...> [--in <plugins>] [--samples N] [--allow-heavy] [--detail] [--max-chars N] [--cursor C] [--json]
             profile --unknown [--type <type>] [--in <plugins>] ...
             profile --groups [--in <plugins>] [--type CELL] [--group 0x2A3F0] [--list] ...
+            profile --conditions [--in <plugins>] [--type <type>] [--function <index or name>] ...
+            profile --subrecords STRD[,XTV2] [--in <plugins>] [--type <type>] ...
+            profile --subrecords UNAM,BNAM,PNAM|* --order [--type PACK] [--in <plugins>] ...
+            profile --subrecords * [--type CELL] [--in <plugins>] ...
+            profile --subrecords BFCB --values [--type <type>] [--in <plugins>] ...
+            profile --subrecords X,Y|* --lengths [--type <type>] [--in <plugins>] ...
+            profile --formids [--type <type>] [--in <plugins>] ...
               What a field holds across many plugins, in one call: for each field, the records and values each plugin has;
               the distinct values, the most common ones and the share of zeros; for 4-byte values (and each 4 bytes of a run
               of bytes) how many read as a float (1e-4 to 1e6), as the FormID of a record in Data (read with the plugin's own
               masters; and which record types), and as a strings ID of the plugin's strings files; samples, each with its
               record (EditorID, FormKey), where in it, and the scalar values beside the field.
               Values are Mutagen's, read through the record layer along the schema's path. Nothing is stored.
+              Link fields are read from the files' bytes on all cores where the bytes give them (the answer is the
+              same; only the samples' records are read through Mutagen), and a world type's link field from the
+              world link index when every plugin read has one (indexes build world; null links aren't kept there).
 
               fields    Type.Path, parted by spaces or commas: the record type (Mutagen name or signature) and the schema
                         path (describe <type> lists them). Nested paths work: Weapon.Components[*]{AdaptiveTriggerDataComponent}.AdsEffect.Unknown;
@@ -643,10 +766,54 @@ namespace SFSearch.Engine
                         inside it. For a set of plugins: each group type's counts, the Unknown's values and the plugins that
                         set it (default --in @loaded); for one plugin (or --list) one row per group.
                         --type CELL: only that top group. --group 0x2A3F0: that group (its position) and the groups inside it.
+
+              --conditions  the condition census: every condition (CTDA) of every record that can hold one (or of --type),
+                        counted by its function (index and name): conditions, records, plugins, record types, samples.
+                        --function 961 (or a name) gives that function alone: its plugins, record types and samples.
+                        The rows themselves, one per condition, are SQL's Conditions view (query2).
+
+              --subrecords  which record types hold these subrecords, from the files' bytes (default --in @official): for
+                        each, the records that hold it (of the type's records), how many times, the plugins, a sample;
+                        beside the record types whose fields the schema puts in it.
+              --order   the orders these subrecords come in instead, per record type: each record's subrecords in file
+                        order, the ones named ("*" for all) with any others between as …, a unit repeated in a row as
+                        (A B)+; records grouped by their order, with plugins, a sample, and how many times each unit
+                        repeats (least-most in a row, in all). From the files' bytes, on all cores.
+              --subrecords * (no --order): what a type's records hold, from the files' bytes on all cores: records,
+                        bytes in the file and as read; every subrecord (records that hold it, times, bytes, largest);
+                        every link field (links, distinct per record, distinct targets, records with one), at its
+                        fixed place or walked as Mutagen lays it out (traversals, navmeshes, VMAD, components, …);
+                        a link field the walk can't reach is named, with the profile call that counts it.
+              --values  the distinct values of the subrecords named, from the files' bytes on all cores (which component
+                        kinds exist: --subrecords BFCB --values; which values a subrecord no field covers takes): per
+                        subrecord and where it stands (the record, or the component, BFCB ... BFCE, by its BFCB text),
+                        each value as text ("...") when it is one, else hex, with uses, records, record types, plugins,
+                        a sample record.
+              --lengths how long the subrecords named (or * for all) are, by record type and signature, from the files'
+                        bytes on all cores (inside components too): always empty (end markers, marker fields), one
+                        length, varying, or sometimes empty and sometimes with data; the empty ones with records,
+                        plugins, where they stand (the record or a component) and records with an empty one and with data.
+              --formids how the records' FormIDs are stored, from the files' bytes on all cores: each record header's
+                        FormID and every link, as a master's record (full index, FD, FE), the plugin's own record (full
+                        index, FD, FE), past the master list, or a form its size doesn't give (FE outside a Small plugin,
+                        FD outside a Medium one); by plugin and record type, and where the unusual ones are, with sample
+                        records. Finds the plugins that store FormIDs oddly before you patch or merge them.
+              A link field's values (fields) come with what they point at: the distinct records, their record types (by
+              distinct records and by uses), null links, links to records no plugin in Data holds, the most used targets;
+              several link fields asked together are counted together too.
               Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...); 7 not run (heavy, not allowed).
             """;
-        static readonly string[] ProfileKnown = { "fields", "in", "type", "unknown", "groups", "group", "list", "samples", "allow_heavy" };
-        static readonly VerbSpec ProfileSpec = Spec("profile", new[] { "fields" }, new[] { "in", "type", "group", "samples" }, new[] { "unknown", "groups", "list", "allow_heavy" }, new() { ["plugins"] = "in", ["plugin"] = "in" });
+        /// <summary>Why no saved index makes a profile faster (J33): it counts values read from the records themselves. A world
+        /// type's link field is the exception (GAPS S99): the world link index holds its links, and profile counts them from it.</summary>
+        const string ProfileNoIndex = "a profile counts the values it reads from the records themselves";
+
+        /// <summary>A world type's link field counted from the world link index (GAPS S99): Starfield.esm's placed objects'
+        /// Base, 3,291,860 records, in about half a second.</summary>
+        const double ProfileWorldLaterSeconds = 0.5;
+        const string ProfileWorldLater = "the census of a world type's link field then comes from the index, the records' postings, in about half a second";
+
+        static readonly string[] ProfileKnown = { "fields", "in", "type", "unknown", "groups", "group", "list", "samples", "allow_heavy", "conditions", "function", "subrecords", "order", "values", "lengths", "formids" };
+        static readonly VerbSpec ProfileSpec = Spec("profile", new[] { "fields" }, new[] { "in", "type", "group", "samples", "function", "subrecords" }, new[] { "unknown", "groups", "list", "allow_heavy", "conditions", "order", "values", "lengths", "formids" }, new() { ["plugins"] = "in", ["plugin"] = "in" });
 
         public static void ProfileVerb(List<string> args) => RunVerb(args, ProfileHelp, ProfileSpec, Profile);
 
@@ -663,18 +830,79 @@ namespace SFSearch.Engine
                 plugins = string.Join(",", named);
                 words.RemoveAll(named.Contains);
             }
-            bool groups = a.Flag("groups"), unknown = a.Flag("unknown");
+            bool groups = a.Flag("groups"), unknown = a.Flag("unknown"), conditions = a.Flag("conditions");
             int samples = a.Int("samples") ?? 3;
             if (groups && (words.Count > 0 || unknown)) { answer.Fail("--groups shows the GRUP headers, and fields were named too", "ask for the groups alone, or for fields alone", 2); return; }
             if (!groups && a.Text("group") != null) { answer.Fail("--group names a group of the GRUP-header view", "add --groups", 2); return; }
-            if (!groups && !unknown && words.Count == 0) { answer.Fail("profile got no field", "give fields as Type.Path (Weapon.AttackDamage), --unknown with --type, or --groups (profile --help)", 2); return; }
+            string? subrecords = a.Text("subrecords");
+            bool formids = a.Flag("formids");
+            if ((groups ? 1 : 0) + (conditions ? 1 : 0) + (subrecords != null ? 1 : 0) + (formids ? 1 : 0) > 1) { answer.Fail("more than one of --groups, --conditions, --subrecords and --formids was given", "ask for one of them", 2); return; }
+            if ((subrecords != null || formids) && (words.Count > 0 || unknown)) { answer.Fail($"{(formids ? "--formids" : "--subrecords")} was given with fields", $"ask for {(formids ? "the FormIDs" : "the subrecords")} alone, or for fields alone", 2); return; }
+            bool order = a.Flag("order"), values = a.Flag("values"), lengths = a.Flag("lengths");
+            if (order && subrecords == null) { answer.Fail("--order gives the order of subrecords, and no --subrecords was given", "name them: --subrecords UNAM,BNAM,PNAM --order --type PACK (or --subrecords * for every subrecord)", 2); return; }
+            if (values && subrecords == null) { answer.Fail("--values gives the values of subrecords, and no --subrecords was given", "name them: --subrecords BFCB --values", 2); return; }
+            if (values && order) { answer.Fail("--values and --order were both given", "ask for the values or for the order of the subrecords", 2); return; }
+            if (lengths && subrecords == null) { answer.Fail("--lengths gives the lengths of subrecords, and no --subrecords was given", "name them, or every one: --subrecords * --lengths", 2); return; }
+            if (lengths && (order || values)) { answer.Fail($"--lengths and {(order ? "--order" : "--values")} were both given", "ask for one of them", 2); return; }
+            if (!groups && !unknown && !conditions && !formids && subrecords == null && words.Count == 0) { answer.Fail("profile got no field", "give fields as Type.Path (Weapon.AttackDamage), --unknown with --type, or --groups (profile --help)", 2); return; }
+            IndexOffer? worldOffer = null;
             Report(answer, a, "profile", ProfileKnown.Concat(Common), s =>
             {
                 if (groups) return new GroupsReport(s).Groups(new GroupsOptions { In = plugins, Type = a.Text("type"), Group = a.Text("group"), List = a.Flag("list") });
+                if (formids)
+                {
+                    var fr = new FormIdsReport(s);
+                    var fo = new SubrecordsOptions { Signatures = "", In = plugins, Type = a.Text("type") };
+                    var (fsec, fmem, fwhat) = fr.Estimate(fo);
+                    if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), fsec, fmem, fwhat, noIndex: ProfileNoIndex)) return null;
+                    return fr.Census(fo);
+                }
+                if (subrecords != null)
+                {
+                    var sr = new SubrecordsReport(s);
+                    var so = new SubrecordsOptions { Signatures = subrecords, In = plugins, Type = a.Text("type") };
+                    if (lengths)
+                    {
+                        var lr = new SubrecordLengthsReport(s);
+                        var (lsec, lmem, lwhat) = lr.Estimate(so);
+                        if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), lsec, lmem, lwhat, noIndex: ProfileNoIndex)) return null;
+                        return lr.Lengths(so);
+                    }
+                    if (values)
+                    {
+                        var vr = new SubrecordValuesReport(s);
+                        var (vsec, vmem, vwhat) = vr.Estimate(so);
+                        if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), vsec, vmem, vwhat, noIndex: ProfileNoIndex)) return null;
+                        return vr.Values(so);
+                    }
+                    if (!order && (subrecords.Trim() == "*" || subrecords.Trim().Equals("all", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var stats = new TypeStatsReport(s);
+                        var (ssec, smem, swhat) = stats.Estimate(so);
+                        if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), ssec, smem, swhat, noIndex: ProfileNoIndex)) return null;
+                        return stats.Stats(so);
+                    }
+                    if (order)
+                    {
+                        var orders = new SubrecordOrderReport(s);
+                        var (osec, omem, owhat) = orders.Estimate(so);
+                        if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), osec, omem, owhat, noIndex: ProfileNoIndex)) return null;
+                        return orders.Orders(so);
+                    }
+                    var (sec, mem, what) = sr.Estimate(so);
+                    if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), sec, mem, what, noIndex: ProfileNoIndex)) return null;
+                    return sr.Census(so);
+                }
                 var report = new ProfileReport(s);
-                var plan = report.Plan(new ProfileOptions { Fields = words, Unknown = unknown, Type = a.Text("type"), In = plugins, Samples = samples });
-                if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), plan.Seconds, plan.MemoryMB, plan.What)) return null;
+                var plan = report.Plan(new ProfileOptions { Fields = words, Unknown = unknown, Type = a.Text("type"), In = plugins, Samples = samples, Conditions = conditions, Function = a.Text("function"), World = new WorldLinkCensus() });
+                // A world type's link field the world link index would answer (GAPS S99): the third answer offers to save it
+                worldOffer = plan.WorldPlugins is { } wp ? IndexOffers.World(wp, ProfileWorldLaterSeconds, ProfileWorldLater) : null;
+                if (!EngineLibs.Heavy(answer, a.Flag("allow_heavy"), plan.Seconds, plan.MemoryMB, plan.What, worldOffer, noIndex: worldOffer == null ? ProfileNoIndex : null)) return null;
                 return report.Run(plan, samples);
+            }, after: _ =>
+            {
+                // allow_heavy="save_index" (J33): the world link index of the plugins the fields were read from
+                if (JobContext.SaveIndexAsked && worldOffer != null) IndexOffers.Take(answer, worldOffer);
             });
         }
 
@@ -683,7 +911,8 @@ namespace SFSearch.Engine
               What changed in Data since last time: plugins added, removed, back and updated, and the patches that are at
               risk because a master of theirs changed. With a plugin: its history, and what its last update added and removed.
               The history is a small log under kept\history in the SFSearch home. It grows by looks: this call, and the
-              service by itself at its start and every 10 minutes while idle (historyLook in sfsearch.json). The answer
+              service by itself at its start and at each idle check (historyLook and pluginCheckSeconds in sfsearch.json:
+              on, every 10 minutes, by default). The answer
               says which look it compares with; a change is dated by the look that first saw it, "now" by this call.
               The first look begins the history and reports nothing.
               --since   changes from this day on (default: the last 30 days)     --all   every change in the log
@@ -714,32 +943,52 @@ namespace SFSearch.Engine
     /// "What points at this record" for the sources report, from the link index (milestone M8). The link index says
     /// which records of a plugin point at a target; each is then read and walked by the report library's own walker,
     /// so the places are exactly the ones a scan of every record gives. Placed references aren't in the link index
-    /// (it leaves world data out): they are read once per command, as the scan reads them. A searched plugin that has
-    /// no link file yet is answered by the library's scan.
+    /// (it leaves world data out): for each record asked about, the placed references whose bytes hold its FormID are
+    /// found by a byte search and only those are read (GAPS S70). A searched plugin that has no link file yet is
+    /// answered by the library's search of its bytes (<see cref="ByteBackLinks"/>).
+    /// A plugin with a world link index (J32) gives its placed copies from it: the placed references that link to the
+    /// record, whatever their number (GAPS S96). One without it has its placed references searched by their bytes, the
+    /// big ones (more than <see cref="PlacedLimit"/>) too, by the user's decision (GAPS S100, 2026-11-15: "Yes, include
+    /// them"): the note says how long that took and offers to save their world link index (allow_heavy="save_index").
+    /// Only when that search would itself be heavy (over 10 s by its estimate: a pass over their bytes for each level of
+    /// lists) are they left out unless the caller allowed it, with the three answers (J33).
     /// </summary>
     public sealed class LinkIndexBackLinks : IBackLinks
     {
-        readonly ReportSession _s;
         readonly ReadScope _scope;
         readonly List<(RecordEngine Engine, IndexedPlugin Plugin, LinkFile File)> _indexed = new();
-        readonly ScanBackLinks? _scan;
+        readonly ByteBackLinks? _bytes;
         readonly List<string> _plugins;
-        readonly SFSearch.Reports.LinkWalker _walker;
+        readonly HolderLinks _links;
         readonly List<string> _notes = new();
         readonly Dictionary<string, IReadOnlyList<BackLink>> _answers = new(StringComparer.OrdinalIgnoreCase);
-        // target FormKey to the placed references that name it, each as (place in _indexed) << 32 | entry
-        Dictionary<string, List<long>>? _placed;
-        int _readForPlaces, _placedRead, _unread, _lookups;
-        long _placedLinks;
+        // The placed references of the indexed plugins that hold a record's FormID, by their bytes
+        ByteHolders? _placed;
+        int _placedHits, _unread, _lookups;
         double _seconds;
         static readonly HashSet<string> Placed = new(StringComparer.Ordinal) { "REFR", "ACHR" };
+        // The world link index of each indexed plugin that has one (J32): its placed copies come from it
+        readonly WorldLinkFile?[] _world;
+        int _worldPlugins, _worldHits;
+        // Plugins over the limit with no world link index: left out (not allowed), or searched by their bytes (allowed)
+        readonly List<(IndexedPlugin P, int Placed, long Bytes)> _bigLeft = new(), _bigSearched = new();
 
-        /// <summary>A plugin with more placed references than this isn't searched for placed copies (the note says so): the scan's own limit.</summary>
+        /// <summary>Placed copies with the world link index: the lookup, then the few placed copies read (J32 note: refs
+        /// from it in 0.1 to 0.2 s).</summary>
+        const double LaterSeconds = 0.2;
+        const string Later = "placed copies of an item then come from it in a fraction of a second, whatever the plugin's size";
+
+        /// <summary>A plugin with more placed references than this and no world link index is named in the note: its bytes
+        /// are searched for placed copies (seconds), and its world link index would answer in a fraction of a second.</summary>
         public int PlacedLimit { get; init; } = 300_000;
+        /// <summary>The passes over the big plugins' bytes the question needs at most: one for the items, one for each level
+        /// of lists and one for the containers of the last (the report asks about each level of every item together). The
+        /// default is the report's: depth 6 (Eon: 9 passes).</summary>
+        public int Passes { get; init; } = 9;
 
         public LinkIndexBackLinks(ReportSession session, ReadScope scope, IReadOnlyList<(RecordEngine Engine, IndexedPlugin Plugin)> plugins)
         {
-            _s = session; _scope = scope; _walker = new SFSearch.Reports.LinkWalker(session.Schema);
+            _scope = scope; _links = new HolderLinks(session);
             _plugins = plugins.Select(p => p.Plugin.Name).ToList();
             var rest = new List<(RecordEngine Engine, IndexedPlugin Plugin)>();
             foreach (var (engine, p) in plugins)
@@ -747,64 +996,136 @@ namespace SFSearch.Engine
                 var file = p.Segment != null && p.Problems.MissingMasters.Count == 0 ? EngineLinks.For(p) : null;
                 if (file != null) _indexed.Add((engine, p, file)); else rest.Add((engine, p));
             }
+            _world = _indexed.Select(x => WorldLinks.For(x.Plugin)).ToArray();
             if (rest.Count > 0)
             {
-                _scan = new ScanBackLinks(session, scope, rest) { PlacedLimit = PlacedLimit };
-                _notes.Add($"{rest.Count:N0} of the {plugins.Count:N0} plugins searched have no link file yet ({string.Join(", ", rest.Take(4).Select(r => r.Plugin.Name))}{(rest.Count > 4 ? ", …" : "")}): their records were read one by one instead. The answer is the same.");
+                _bytes = new ByteBackLinks(session, scope, rest);
+                _notes.Add($"{rest.Count:N0} of the {plugins.Count:N0} plugins searched have no link file yet ({string.Join(", ", rest.Take(4).Select(r => r.Plugin.Name))}{(rest.Count > 4 ? ", …" : "")}): their bytes were searched for each record asked about instead, and the records that hold its FormID read. The answer is the same.");
             }
         }
 
         public IReadOnlyList<string> Plugins => _plugins;
-        public IReadOnlyList<string> Notes { get { BuildPlaced(); return _scan == null ? _notes : _notes.Concat(_scan.Notes).ToList(); } }
-        public string Cost =>
-            $"the link index of {_indexed.Count:N0} plugin{(_indexed.Count == 1 ? "" : "s")} ({_lookups:N0} lookup{(_lookups == 1 ? "" : "s")}), {_readForPlaces:N0} record{(_readForPlaces == 1 ? "" : "s")} to place the links, {_placedRead:N0} placed reference{(_placedRead == 1 ? "" : "s")} ({_placedLinks:N0} links, {_seconds:F1} s)"
-            + (_scan != null ? ", " + _scan.Cost : "");
-
-        /// <summary>The placed references of the indexed plugins, read once: the link index leaves world data out.</summary>
-        void BuildPlaced()
+        public IReadOnlyList<string> Notes
         {
-            if (_placed != null) return;
-            var clock = Stopwatch.StartNew();
-            _placed = new Dictionary<string, List<long>>(StringComparer.OrdinalIgnoreCase);
+            get
+            {
+                var placed = PreparePlaced();
+                var notes = new List<string>(_notes);
+                if (_worldPlugins > 0) notes.Add($"Placed copies came from the world link index of {_worldPlugins:N0} plugin{(_worldPlugins == 1 ? "" : "s")} ({_worldHits:N0} placed reference(s) found), not from a search of their bytes.");
+                if (_bigLeft.Count > 0) notes.Add(BigLeftNote());
+                if (_bigSearched.Count > 0) notes.Add(BigSearchedNote(placed));
+                if (_unread > 0) notes.Add($"{_unread:N0} placed reference(s) hold the FormID of a record asked about but couldn't be read: their links weren't taken.");
+                if (placed.NotInflated > 0) notes.Add($"{placed.NotInflated:N0} compressed placed reference(s) couldn't be inflated and weren't searched.");
+                return _bytes == null ? notes : notes.Concat(_bytes.Notes).ToList();
+            }
+        }
+        public string Cost =>
+            $"the link index of {_indexed.Count:N0} plugin{(_indexed.Count == 1 ? "" : "s")} ({_lookups:N0} lookup{(_lookups == 1 ? "" : "s")}), {_links.Read:N0} record{(_links.Read == 1 ? "" : "s")} to place the links, {_placed?.Records ?? 0:N0} placed reference{(_placed?.Records == 1 ? "" : "s")} (their bytes searched in {_placed?.Passes ?? 0:N0} pass{(_placed?.Passes == 1 ? "" : "es")}, {_placedHits:N0} hits, {_seconds + (_placed?.Seconds ?? 0):F1} s)"
+            + (_worldPlugins > 0 ? $", the world link index of {_worldPlugins:N0} plugin{(_worldPlugins == 1 ? "" : "s")} for placed copies ({_worldHits:N0} found)" : "")
+            + (_bytes != null ? ", " + _bytes.Cost : "");
+
+        /// <summary>The placed references of the indexed plugins, from the header index: the link index leaves world data out.</summary>
+        ByteHolders PreparePlaced()
+        {
+            if (_placed != null) return _placed;
+            var entries = new int[]?[_indexed.Count];
             for (int pi = 0; pi < _indexed.Count; pi++)
             {
-                var (engine, p, _) = _indexed[pi];
+                var (_, p, _) = _indexed[pi];
                 var seg = p.Segment!;
                 int placed = seg.Signatures.Where(x => Placed.Contains(x.Signature)).Sum(x => x.Count);
                 if (placed == 0) continue;
-                if (placed > PlacedLimit) { _notes.Add($"{p.Name} has {placed:N0} placed references: they weren't searched for placed copies."); continue; }
-                _scope.Touch(engine, p.Name);
+                if (_world[pi] is { } wf)
+                {
+                    // From the world link index (Into); only the placed references its build couldn't read are searched by their bytes
+                    _worldPlugins++;
+                    var unread = wf.Unread.ToArray().Where(i => i < seg.FirstUnresolved && Placed.Contains(seg.SignatureOf(seg[i]))).OrderBy(i => i).ToArray();
+                    if (unread.Length > 0) entries[pi] = unread;
+                    continue;
+                }
+                if (placed > PlacedLimit) _bigSearched.Add((p, placed, seg.Signatures.Where(x => Placed.Contains(x.Signature)).Sum(x => x.Bytes)));
+                var list = new List<int>(placed);
                 foreach (string sig in Placed)
                     foreach (int i in seg.EntriesOf(sig))
-                    {
-                        if (i >= seg.FirstUnresolved) continue;
-                        RecordView view;
-                        try { view = _s.Compare.View(engine, new RecordRef(p.Id, i)); }
-                        catch (CompareException) { _unread++; continue; }
-                        _placedRead++;
-                        long from = (long)pi << 32 | (uint)i;
-                        _walker.Walk(view.Type, view.Json, link =>
-                        {
-                            _placedLinks++;
-                            string key = ReportSession.Canon(link.FormKey);
-                            if (!_placed.TryGetValue(key, out var list)) _placed[key] = list = new List<long>(1);
-                            if (list.Count == 0 || list[^1] != from) list.Add(from);
-                        });
-                    }
+                        if (i < seg.FirstUnresolved) list.Add(i);
+                list.Sort();
+                entries[pi] = list.ToArray();
             }
-            if (_unread > 0) _notes.Add($"{_unread:N0} placed reference(s) couldn't be read and weren't searched.");
-            _seconds += clock.Elapsed.TotalSeconds;
+            // The big ones' search is heavy only when its estimate is (a pass over their bytes for each level of lists):
+            // then they are left out unless allowed, with the three answers
+            if (_bigSearched.Count > 0 && BigSeconds(_bigSearched) > EngineLibs.HeavySeconds && !JobContext.HeavyAllowed)
+            {
+                _bigLeft.AddRange(_bigSearched);
+                foreach (var (p, _, _) in _bigSearched) entries[_indexed.FindIndex(x => x.Plugin == p)] = null;
+                _bigSearched.Clear();
+            }
+            return _placed = new ByteHolders(_indexed.Select(x => x.Plugin).ToList(), entries, _scope);
+        }
+
+        /// <summary>Seconds a pass over these plugins' placed references takes by their bytes: about 1 GB a second on 8
+        /// threads (S100: 770 MB in 0.7 s a pass on a quiet PC).</summary>
+        static double PassSeconds(List<(IndexedPlugin P, int Placed, long Bytes)> big) => Math.Max(0.5, big.Sum(b => b.Bytes) / 1.0e9);
+        double BigSeconds(List<(IndexedPlugin P, int Placed, long Bytes)> big) => PassSeconds(big) * Passes;
+
+        /// <summary>The big plugins searched by their bytes (the default, S100): what that took, and the index that would
+        /// answer it in a fraction of a second next time (J33's save_index).</summary>
+        string BigSearchedNote(ByteHolders placed)
+        {
+            long n = _bigSearched.Sum(b => (long)b.Placed), bytes = _bigSearched.Sum(b => b.Bytes);
+            string head = $"{Names(_bigSearched)} {(_bigSearched.Count == 1 ? "has" : "have")} more than {PlacedLimit:N0} placed references ({n:N0}, {EngineIndex.Mb(bytes)}) and no world link index: "
+                + $"their bytes were searched for placed copies with the other plugins' ({placed.Passes:N0} pass{(placed.Passes == 1 ? "" : "es")} over {placed.Records:N0} placed references, {placed.Seconds:F1} s).";
+            if (JobContext.SaveIndexAsked) return head;
+            var offer = IndexOffers.World(_bigSearched.Select(b => b.P), LaterSeconds, Later);
+            return offer == null ? head : head + " " + HeavyAnswers.SaveLine(offer, "allow_heavy=\"save_index\"", "--allow-heavy=save-index", "search them the same way", "To make this faster next time, call again with");
+        }
+
+        static string Names(List<(IndexedPlugin P, int Placed, long Bytes)> big) =>
+            string.Join(", ", big.Take(6).Select(b => b.P.Name)) + (big.Count > 6 ? $" and {big.Count - 6} more" : "");
+
+        /// <summary>
+        /// The big plugins left out because searching them would be heavy, with the three answers (J33): search their
+        /// placed references now by their bytes (about a second a pass over them; a pass for each level of lists), save
+        /// the world link index of them too, or leave them out.
+        /// </summary>
+        string BigLeftNote()
+        {
+            long placed = _bigLeft.Sum(b => (long)b.Placed), bytes = _bigLeft.Sum(b => b.Bytes);
+            double pass = PassSeconds(_bigLeft);
+            string head = $"{Names(_bigLeft)} {(_bigLeft.Count == 1 ? "has" : "have")} more than {PlacedLimit:N0} placed references ({placed:N0}, {EngineIndex.Mb(bytes)}) and no world link index: "
+                + $"searching their bytes for placed copies would take about {Math.Ceiling(BigSeconds(_bigLeft)):0} s here (up to {Passes:N0} passes, one for each level of lists), over {EngineLibs.HeavySeconds:0} s, so they weren't searched, and an item placed in {(_bigLeft.Count == 1 ? "it" : "them")} isn't listed as one.";
+            var offer = IndexOffers.World(_bigLeft.Select(b => b.P), LaterSeconds, Later);
+            return head + HeavyAnswers.Options(offer, "placed copies are found by their bytes", "allow_heavy=true", "--allow-heavy",
+                "allow_heavy=\"save_index\"", "--allow-heavy=save-index", $"search them now by their bytes (about {pass:0.#} s a pass over them, a pass for each level of lists)", "search them now the same way");
+        }
+
+        /// <summary>The world link index of the big plugins whose placed references were searched by their bytes (null when
+        /// none was): what allow_heavy="save_index" saves after the answer.</summary>
+        public IndexOffer? SaveOffer()
+        {
+            PreparePlaced();
+            return IndexOffers.World(_bigSearched.Select(b => b.P), LaterSeconds, Later);
+        }
+
+        /// <summary>The records asked about next: their placed references, and the plugins with no link file, are searched for together.</summary>
+        public void Prefetch(IEnumerable<string> formKeys)
+        {
+            var keys = formKeys.Where(k => !_answers.ContainsKey(ReportSession.Canon(k))).ToList();
+            PreparePlaced().Prefetch(keys);
+            _bytes?.Prefetch(keys);
         }
 
         public IReadOnlyList<BackLink> Into(string formKey)
         {
             string key = ReportSession.Canon(formKey);
             if (_answers.TryGetValue(key, out var have)) return have;
-            BuildPlaced();
+            var placedHolders = PreparePlaced();
             var result = new List<BackLink>();
             if (HeaderIndex.TryParseFormKey(key, out var owner, out var localId))
             {
+                var clock = Stopwatch.StartNew();
                 _lookups++;
+                // The placed references that hold the target's FormID, by their bytes
+                var placedHits = placedHolders.Of(key);
                 for (int pi = 0; pi < _indexed.Count; pi++)
                 {
                     var (engine, p, file) = _indexed[pi];
@@ -815,32 +1136,31 @@ namespace SFSearch.Engine
                     var (first, end) = file.Range((ulong)o << 24 | localId);
                     var links = file.Links;
                     for (int i = first; i < end; i++) { int entry = (int)links[i].From; if (holders.Count == 0 || holders[^1] != entry) holders.Add(entry); }
+                    // Placed copies from the plugin's world link index (J32, GAPS S96): the placed references that link to the record
+                    if (_world[pi] is { } wf)
+                    {
+                        var (wfirst, wend) = wf.Range((ulong)o << 24 | localId);
+                        var postings = wf.Postings;
+                        int before = holders.Count;
+                        for (int i = wfirst; i < wend; i++)
+                        {
+                            int entry = (int)postings[i].From;
+                            if (Placed.Contains(seg.SignatureOf(seg[entry]))) holders.Add(entry);
+                        }
+                        _worldHits += holders.Count - before;
+                    }
                     // Records the link walk couldn't read through Mutagen can't be read here either: the scan counts them as not read
-                    if (_placed!.TryGetValue(key, out var placed))
-                        foreach (long h in placed) if ((int)(h >> 32) == pi) holders.Add((int)(uint)h);
+                    var placed = placedHits[pi];
+                    if (placed != null) { holders.AddRange(placed); _placedHits += placed.Count; }
                     if (holders.Count == 0) continue;
                     _scope.Touch(engine, p.Name);
+                    _links.ReadAll(engine, p, holders);
                     foreach (int entry in holders.Distinct().OrderBy(x => x))
-                    {
-                        var hit = new Hit(engine, new RecordRef(p.Id, entry));
-                        RecordView view;
-                        try { view = _s.Compare.View(engine, hit.Ref); }
-                        catch (CompareException) { continue; }
-                        _readForPlaces++;
-                        var info = view.Info;
-                        _walker.Walk(view.Type, view.Json, link =>
-                        {
-                            if (!ReportSession.Canon(link.FormKey).Equals(key, StringComparison.OrdinalIgnoreCase)) return;
-                            result.Add(new BackLink
-                            {
-                                From = hit, FromKey = ReportSession.Canon(info.FormKey), Signature = info.Signature, Type = view.Type, EditorId = info.EditorId,
-                                Plugin = p.Name, Path = link.Path, Parent = info.Parent == null ? null : ReportSession.Canon(info.Parent),
-                            });
-                        });
-                    }
+                        if (!_links.Into(engine, p, entry, key, result) && placed != null && placed.BinarySearch(entry) >= 0) _unread++;
                 }
+                _seconds += clock.Elapsed.TotalSeconds;
             }
-            if (_scan != null) result.AddRange(_scan.Into(formKey));
+            if (_bytes != null) result.AddRange(_bytes.Into(formKey));
             return _answers[key] = result;
         }
     }

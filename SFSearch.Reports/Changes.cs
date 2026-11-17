@@ -33,8 +33,9 @@ public sealed class ChangesOptions
     public DateTime? Since { get; init; }
     /// <summary>Every change since the history began.</summary>
     public bool All { get; init; }
-    /// <summary>The time to put on new snapshots (for tests). Default: now.</summary>
-    public DateTime? Now { get; init; }
+    /// <summary>The time to put on new snapshots. Default: now. Internal (J81): only the tests (sfsreport-tests,
+    /// through InternalsVisibleTo) set a clock of their own.</summary>
+    internal DateTime? Now { get; init; }
 }
 
 /// <summary>One copy of a plugin as the log remembers it.</summary>
@@ -589,7 +590,10 @@ public sealed class ChangesReport
     /// history (the service's and a call's) by a lock file.
     /// </summary>
     /// <param name="by">What looks: "call", or the service's "service-build" (its start), "service-check", "service-sweep" (while idle).</param>
-    public LookResult Look(DateTime? at = null, string by = "call")
+    public LookResult Look(string by = "call") => Look(null, by);
+
+    /// <summary>A look at the time given (<see cref="ChangesOptions.Now"/>, the tests' clock), or now when null.</summary>
+    internal LookResult Look(DateTime? at, string by)
     {
         _index.Refresh();
         DateTime now = at ?? DateTime.Now;
@@ -665,7 +669,7 @@ public sealed class ChangesReport
         var byPlugin = log.ByPlugin();
 
         // ---- plugins Mutagen refuses (C204): its error, or the master that is refused
-        static string Refusal(IndexedPlugin p) => p.Problems.Refused ?? $"its master {p.Problems.MasterRefused} is refused by Mutagen";
+        static string Refusal(IndexedPlugin p) => p.Problems.Refused ?? p.LeftOut!;
 
         // ---- patches at risk
         RiskRow? Risk(IndexedPlugin p)

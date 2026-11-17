@@ -18,14 +18,16 @@ namespace SFSearch.Query;
 public sealed record ScratchMember(string Plugin, string Path, long Size, Key128 ReadingKey, Key128 ContentKey, int? LoadOrder);
 
 /// <summary>What the Done table says about one signature of a scratch file.</summary>
-public sealed record DoneRow(string Sig, long Rows, long JsonBytes, double Seconds, int Skipped, bool LinksDone);
+public sealed record DoneRow(string Sig, long Rows, long JsonBytes, double Seconds, int Skipped, bool LinksDone, bool CondDone = false);
 
 public sealed class ScratchFile
 {
     /// <summary>Raised when the layout of the tables changes: a file of another format is never opened.
     /// The tables behind Links and Forms are LinkRows and FormRows: a table named like a view would be found
-    /// by the bare name before the view is made, and a query would read the wrong thing.</summary>
-    public const int Format = 1;
+    /// by the bare name before the view is made, and a query would read the wrong thing. 2: the Conditions view's
+    /// table (CondRows) and Done.CondDone (GAPS S44). 3: FormRows has each record's Size, DataSize and Compressed
+    /// (GAPS S81). 4: FormRows has each record header's Flags (GAPS S108).</summary>
+    public const int Format = 4;
 
     public required string Path { get; init; }
     /// <summary>True for a file that holds several plugins (its rows carry Plugin, LoadOrder and IsWinner).</summary>
@@ -67,12 +69,17 @@ CREATE TABLE Rec(Seq INTEGER PRIMARY KEY, Ord INT NOT NULL, Type TEXT NOT NULL, 
     IsOverride INT NOT NULL, Pos INT NOT NULL, Plugin TEXT COLLATE NOCASE, LoadOrder INT, IsWinner INT, Json BLOB NOT NULL, Lnk BLOB);
 CREATE INDEX Rec_Type ON Rec(Type, Ord, EditorID, FormKey, IsOverride, Plugin, LoadOrder, IsWinner);
 CREATE INDEX Rec_FormKey ON Rec(FormKey);
-CREATE TABLE Done(Sig TEXT PRIMARY KEY, Rows INT, JsonBytes INT, Seconds REAL, Skipped INT, LinksDone INT NOT NULL DEFAULT 0) WITHOUT ROWID;
+CREATE TABLE Done(Sig TEXT PRIMARY KEY, Rows INT, JsonBytes INT, Seconds REAL, Skipped INT, LinksDone INT NOT NULL DEFAULT 0, CondDone INT NOT NULL DEFAULT 0) WITHOUT ROWID;
 CREATE TABLE Skipped(Sig TEXT, Plugin TEXT, FormKey TEXT, Reason TEXT);
 CREATE TABLE LinkRows(FromKey TEXT COLLATE NOCASE, FromType TEXT, Field TEXT, Idx INT, ToKey TEXT COLLATE NOCASE, Path TEXT, Plugin TEXT COLLATE NOCASE, IsWinner INT);
 CREATE INDEX Links_To ON LinkRows(ToKey);
 CREATE INDEX Links_From ON LinkRows(FromKey);
-CREATE TABLE FormRows(FormKey TEXT COLLATE NOCASE, Sig TEXT, EditorID TEXT COLLATE NOCASE, Plugin TEXT COLLATE NOCASE, Parent TEXT COLLATE NOCASE, IsOverride INT, Pos INT, LoadOrder INT, IsWinner INT);
+CREATE TABLE CondRows(FormKey TEXT COLLATE NOCASE, Type TEXT, EditorID TEXT COLLATE NOCASE, Plugin TEXT COLLATE NOCASE, LoadOrder INT, IsWinner INT, Field TEXT, Idx INT, Path TEXT,
+    Function INT, FunctionName TEXT COLLATE NOCASE, RunOn TEXT COLLATE NOCASE, Reference TEXT COLLATE NOCASE, Comparison TEXT COLLATE NOCASE, Value REAL, Global TEXT COLLATE NOCASE, Flags TEXT,
+    Param1, Param2, Param3, Json TEXT);
+CREATE INDEX Cond_Function ON CondRows(Function);
+CREATE INDEX Cond_FormKey ON CondRows(FormKey);
+CREATE TABLE FormRows(FormKey TEXT COLLATE NOCASE, Sig TEXT, EditorID TEXT COLLATE NOCASE, Plugin TEXT COLLATE NOCASE, Parent TEXT COLLATE NOCASE, IsOverride INT, Pos INT, LoadOrder INT, IsWinner INT, Size INT, DataSize INT, Compressed INT, Flags INT);
 CREATE TABLE Proj(Type TEXT, TableName TEXT PRIMARY KEY, Cols TEXT, Rows INT) WITHOUT ROWID;
 ";
 
@@ -125,7 +132,9 @@ CREATE TABLE Proj(Type TEXT, TableName TEXT PRIMARY KEY, Cols TEXT, Rows INT) WI
     {
         var c = new SqliteConnection($"Data Source={Path};Pooling=False");
         c.Open();
-        Exec(c, "PRAGMA synchronous = OFF; PRAGMA temp_store = MEMORY; PRAGMA busy_timeout = 60000; PRAGMA cache_size = -65536;");
+        // temp_store FILE (GAPS S104): an index built over a big table sorts in 64 MB runs (cache_size) and writes the
+        // rest to temporary files (SqliteTuning.TempFolder) instead of holding the whole sort in memory
+        Exec(c, "PRAGMA synchronous = OFF; PRAGMA temp_store = FILE; PRAGMA busy_timeout = 60000; PRAGMA cache_size = -65536;");
         return c;
     }
 
@@ -155,9 +164,9 @@ CREATE TABLE Proj(Type TEXT, TableName TEXT PRIMARY KEY, Cols TEXT, Rows INT) WI
     {
         var d = new Dictionary<string, DoneRow>(StringComparer.Ordinal);
         using var cmd = c.CreateCommand();
-        cmd.CommandText = $"SELECT Sig, Rows, JsonBytes, Seconds, Skipped, LinksDone FROM {schema}.Done";
+        cmd.CommandText = $"SELECT Sig, Rows, JsonBytes, Seconds, Skipped, LinksDone, CondDone FROM {schema}.Done";
         using var r = cmd.ExecuteReader();
-        while (r.Read()) d[r.GetString(0)] = new DoneRow(r.GetString(0), r.GetInt64(1), r.GetInt64(2), r.GetDouble(3), r.GetInt32(4), r.GetInt64(5) != 0);
+        while (r.Read()) d[r.GetString(0)] = new DoneRow(r.GetString(0), r.GetInt64(1), r.GetInt64(2), r.GetDouble(3), r.GetInt32(4), r.GetInt64(5) != 0, r.GetInt64(6) != 0);
         return d;
     }
 

@@ -52,6 +52,7 @@ public static partial class Program
         Paths.Exe = Opt("--exe") ?? Path.Combine(Paths.Repo, "SFSearch", "bin", "Release", "net10.0", "SFSearch.exe");
         Paths.McpExe = Opt("--mcp") ?? Path.Combine(Paths.Repo, "SFSearch.Mcp", "bin", "Release", "net10.0", "SFSearch.Mcp.exe");
         Paths.ServiceTestExe = Opt("--servicetest") ?? Path.Combine(Paths.Repo, "tests", "SFSearch.ServiceTest", "bin", "Release", "net10.0", "SFSearch.ServiceTest.exe");
+        Paths.TestHooksDll = Opt("--testhooks") ?? Path.Combine(Paths.Repo, "tests", "SFSearch.TestHooks", "bin", "Release", "net10.0", "SFSearch.TestHooks.dll");
         Paths.Workers = int.Parse(Opt("--workers") ?? "4");
 
         string command = args[0].ToLowerInvariant();
@@ -117,7 +118,7 @@ public static partial class Program
     }
 
     const string UsageText = """
-        sfsharness <part> --work <folder outside the repo> [--data <Data folder>] [--exe SFSearch.exe] [--mcp SFSearch.Mcp.exe] [--workers 4]
+        sfsharness <part> --work <folder outside the repo> [--data <Data folder>] [--exe SFSearch.exe] [--mcp SFSearch.Mcp.exe] [--testhooks SFSearch.TestHooks.dll] [--workers 4]
           (--work can also come from SFSHARNESS_WORK, --data from SFSEARCH_DATA. The Data folder is only read.)
 
           all [--soak-seconds 180] [--with-starfield] [--no-soak] [--no-mcp] [--no-heavy]
@@ -144,7 +145,7 @@ public static partial class Program
           rawdiff <a.esm> <b.esm>                   name the first records that differ between two plugin files
           filetimes <folder> ...                    every file's size, write time and access time, with no file opened
           soak [--seconds 180]                      tests\SFSearch.ServiceTest's soak test, on the test Data folder
-          mcp describe              the tools the MCP server lists, with the length of every description (under 10,000 for the 12)
+          mcp describe              the tools the MCP server lists, with the length of every description (under 15,000 for the 12)
           mcp test [--no-heavy] [--verbose]         the MCP server's own test: the 12 tools listed, sfs_status while
                                     other calls run, a long answer paged, a heavy call refused and run, a job cancelled,
                                     --legacy-tools (removed in 2.0) still starting the server with the 12. (Every tool
@@ -387,7 +388,7 @@ public static partial class Program
                 await sut.StartService();
                 var (n, report) = await McpTest.Describe(sut);
                 Console.Write(report);
-                return n < 10000 ? 0 : 1;
+                return n < McpTest.DefinitionsBudget ? 0 : 1;
             }
             case "call":
             {

@@ -1,0 +1,219 @@
+Record	Subrecord	RecordsWithEmpty	EmptySubrecords	RecordsWithSubrecord	Plugins	Examples
+AAPD	AAAP	22	22	22	Starfield.esm 22	Starfield.esm 0004BA70; Starfield.esm 002EDFB1; Starfield.esm 002EDFB2
+ACHR	BFCE	1340	1340	1340	Starfield.esm 702, SFBGS00D.esm 32, SFBGS050.esm 2, ShatteredSpace.esm 554, sfbgs00b.esm 13, sfta03.esm 5, sfta05.esm 12, kgcdoom.esm 20	Starfield.esm 0022E8E7; Starfield.esm 0022E8E5; Starfield.esm 0022E8E6
+ACHR	XATP	1	1	1	sfta02.esm 1	sfta02.esm FD011162
+ACHR	XIS2	13	13	13	Starfield.esm 10, ShatteredSpace.esm 3	Starfield.esm 00003A0B; Starfield.esm 0017CF67; Starfield.esm 0017CF6A
+ACHR	XLKT	3780	3780	3780	Starfield.esm 1494, BlueprintShips-Starfield.esm 44, SFBGS003.esm 33, SFBGS00D.esm 205, SFBGS050.esm 454, ShatteredSpace.esm 1305, sfbgs00b.esm 16, sfta01.esm 21, sfta03.esm 65, sfta05.esm 74, sfta06.esm 27, kgcdoom.esm 42	Starfield.esm 00324CE7; Starfield.esm 00397A44; Starfield.esm 003B5D18
+ACTI	BFCE	816	1275	816	Starfield.esm 516, SFBGS003.esm 1, SFBGS00D.esm 29, SFBGS050.esm 45, ShatteredSpace.esm 153, sfbgs00b.esm 43, sfbgs021.esm 1, sfta02.esm 3, sfta03.esm 22, sfta05.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 000042A0; Starfield.esm 000056D4; Starfield.esm 00007F7B
+ACTI	DSTF	106	241	106	Starfield.esm 85, SFBGS050.esm 5, ShatteredSpace.esm 8, sfbgs00b.esm 7, sfta03.esm 1	Starfield.esm 00007F7B; Starfield.esm 00030238; Starfield.esm 0003023A
+ACTI	ENAM	1	1	1	SFBGS050.esm 1	SFBGS050.esm 020837F9
+ACTI	INAM	2	2	2	Starfield.esm 2	Starfield.esm 00047900; Starfield.esm 001A03C9
+ADDN	BFCE	1	1	1	Starfield.esm 1	Starfield.esm 0001CAB5
+ALCH	BFCE	8	8	8	Starfield.esm 6, ShatteredSpace.esm 1, sfbgs00b.esm 1	Starfield.esm 000304CC; Starfield.esm 000304CE; Starfield.esm 000304D0
+ANIO	BFCE	10	13	10	Starfield.esm 9, ShatteredSpace.esm 1	Starfield.esm 0000A4B1; Starfield.esm 000907EC; Starfield.esm 000C2F8D
+ARMA	BFCE	202	328	202	Starfield.esm 62, SFBGS003.esm 5, SFBGS00D.esm 6, SFBGS050.esm 76, ShatteredSpace.esm 21, sfbgs023.esm 2, sfta02.esm 6, sfta03.esm 7, sfta05.esm 4, sfta06.esm 4, kgcdoom.esm 9	Starfield.esm 00017271; Starfield.esm 00042470; Starfield.esm 00046048
+ARMO	BFCE	156	163	156	Starfield.esm 141, SFBGS050.esm 10, ShatteredSpace.esm 4, sfbgs023.esm 1	Starfield.esm 00003A77; Starfield.esm 00003E8F; Starfield.esm 00003E90
+ARMO	OBTF	630	1207	630	Starfield.esm 527, SFBGS003.esm 11, SFBGS00D.esm 2, SFBGS050.esm 27, ShatteredSpace.esm 38, sfbgs023.esm 1, sfta02.esm 3, sfta03.esm 9, sfta04.esm 6, sfta06.esm 1, kgcdoom.esm 5	Starfield.esm 00002FA4; Starfield.esm 00003A77; Starfield.esm 00003BF6
+ARMO	STOP	1206	1206	1206	Starfield.esm 1017, SFBGS003.esm 11, SFBGS00D.esm 10, SFBGS050.esm 43, ShatteredSpace.esm 87, sfbgs00b.esm 2, sfbgs023.esm 1, sfta01.esm 2, sfta02.esm 8, sfta03.esm 11, sfta04.esm 6, sfta05.esm 1, sfta06.esm 2, kgcdoom.esm 5	Starfield.esm 00000D64; Starfield.esm 000028A5; Starfield.esm 000028A6
+ARTO	BFCE	172	270	172	Starfield.esm 113, SFBGS003.esm 1, SFBGS004.esm 2, SFBGS00D.esm 9, SFBGS050.esm 19, ShatteredSpace.esm 24, sfbgs023.esm 1, sfta02.esm 2, sfta03.esm 1	Starfield.esm 0000143C; Starfield.esm 0000299A; Starfield.esm 00003369
+AVMD	BFCE	1	3	1	Starfield.esm 1	Starfield.esm 0001F91C
+BMMO	BFCE	1	1	1	Starfield.esm 1	Starfield.esm 00166DC6
+BMOD	BFCE	26	30	26	Starfield.esm 2, SFBGS004.esm 12, SFBGS047.esm 12	Starfield.esm 0005B3DD; Starfield.esm 0005B3DE; SFBGS004.esm FE000004
+BOOK	BFCE	866	867	866	Starfield.esm 686, SFBGS003.esm 1, SFBGS00D.esm 33, SFBGS050.esm 28, ShatteredSpace.esm 62, sfbgs00b.esm 9, sfta01.esm 6, sfta02.esm 4, sfta03.esm 17, sfta04.esm 6, sfta05.esm 4, sfta06.esm 5, kgcdoom.esm 5	Starfield.esm 00001CF1; Starfield.esm 00001D28; Starfield.esm 00001D29
+CELL	BFCE	426	426	426	Starfield.esm 233, SFBGS003.esm 22, SFBGS008.esm 16, SFBGS00D.esm 26, SFBGS050.esm 18, ShatteredSpace.esm 77, sfbgs00b.esm 1, sfta01.esm 10, sfta02.esm 8, sfta03.esm 4, sfta04.esm 1, sfta05.esm 8, sfta06.esm 2	Starfield.esm 00012531; Starfield.esm 00012543; Starfield.esm 0001255C
+CELL	XLKT	80	80	80	BlueprintShips-SFBGS050.esm 7, BlueprintShips-Starfield.esm 67, blueprintships-sfta03.esm 2, blueprintships-sfta06.esm 2, blueprintships-shatteredspace.esm 2	BlueprintShips-SFBGS050.esm 030DB6AA; BlueprintShips-SFBGS050.esm 030DB9DE; BlueprintShips-SFBGS050.esm 030DB72C
+CHAL	ATAF	10	18	10	Starfield.esm 8, ShatteredSpace.esm 2	Starfield.esm 0000C6E6; Starfield.esm 00137CD9; Starfield.esm 00246175
+CHAL	BFCE	10	10	10	Starfield.esm 8, ShatteredSpace.esm 2	Starfield.esm 0000C6E6; Starfield.esm 00137CD9; Starfield.esm 00246175
+COBJ	BFCE	83	83	83	Starfield.esm 77, kgcdoom.esm 6	Starfield.esm 000322E8; Starfield.esm 000322E9; Starfield.esm 0004B3C3
+CONT	BFCE	757	1063	757	Starfield.esm 609, SFBGS003.esm 4, SFBGS00D.esm 20, SFBGS050.esm 35, ShatteredSpace.esm 67, sfbgs00b.esm 9, sfta03.esm 2, sfta04.esm 1, sfta05.esm 2, sfta06.esm 7, kgcdoom.esm 1	Starfield.esm 00001559; Starfield.esm 00001E1D; Starfield.esm 00001E28
+CONT	DSTF	211	211	211	Starfield.esm 206, SFBGS050.esm 5	Starfield.esm 000083FC; Starfield.esm 000083FD; Starfield.esm 000083FE
+CONT	STOP	888	888	888	Starfield.esm 707, SFBGS003.esm 4, SFBGS00D.esm 49, SFBGS050.esm 37, ShatteredSpace.esm 69, sfbgs00b.esm 9, sfta03.esm 2, sfta04.esm 1, sfta05.esm 2, sfta06.esm 7, kgcdoom.esm 1	Starfield.esm 0000000E; Starfield.esm 00001559; Starfield.esm 00001E1D
+DIAL	BFCE	4	4	4	Starfield.esm 4	Starfield.esm 002F5779; Starfield.esm 000A7F34; Starfield.esm 000A7F36
+DIAL	TIFL	5952	5952	90404	Starfield.esm 4694, SFBGS003.esm 51, SFBGS00D.esm 245, SFBGS050.esm 218, ShatteredSpace.esm 536, sfbgs00b.esm 49, sfta02.esm 62, sfta03.esm 64, sfta04.esm 3, sfta05.esm 23, sfta06.esm 7	Starfield.esm 000056EE; Starfield.esm 000056EF; Starfield.esm 000056F1
+DOOR	BFCE	353	452	353	Starfield.esm 311, SFBGS00D.esm 3, SFBGS050.esm 4, ShatteredSpace.esm 29, sfbgs021.esm 1, sfta03.esm 3, sfta06.esm 2	Starfield.esm 00001B9E; Starfield.esm 00005491; Starfield.esm 00007D88
+DOOR	ENAM	1	1	1	Starfield.esm 1	Starfield.esm 001805BC
+EFSH	BFCE	20	20	20	Starfield.esm 5, SFBGS00D.esm 5, ShatteredSpace.esm 6, sfbgs00b.esm 3, sfta03.esm 1	Starfield.esm 0026319B; Starfield.esm 002636B6; Starfield.esm 0029591B
+EFSH	DATA	95	95	95	Starfield.esm 47, SFBGS00D.esm 10, SFBGS050.esm 4, ShatteredSpace.esm 16, sfbgs00b.esm 3, sfta03.esm 11, kgcdoom.esm 4	Starfield.esm 0001914F; Starfield.esm 0001C06E; Starfield.esm 00022851
+ENCH	BFCE	1	1	1	SFBGS050.esm 1	SFBGS050.esm 0209C65E
+EXPL	BFCE	326	466	326	Starfield.esm 229, SFBGS004.esm 1, SFBGS00D.esm 7, SFBGS047.esm 1, SFBGS050.esm 22, ShatteredSpace.esm 50, sfbgs00b.esm 8, sfbgs019.esm 1, sfta01.esm 1, sfta03.esm 5, sfta04.esm 1	Starfield.esm 000001F5; Starfield.esm 00000B74; Starfield.esm 00002FEC
+FACT	BFCE	1	1	1	Starfield.esm 1	Starfield.esm 003CAFBA
+FACT	CRGP	65	65	65	Starfield.esm 53, SFBGS003.esm 1, SFBGS050.esm 1, ShatteredSpace.esm 6, sfta03.esm 4	Starfield.esm 0004835E; Starfield.esm 0004CE24; Starfield.esm 0004CE25
+FACT	CRHR	34	34	34	Starfield.esm 31, SFBGS050.esm 1, ShatteredSpace.esm 2	Starfield.esm 0004CE24; Starfield.esm 0004CE25; Starfield.esm 0004CE26
+FLOR	BFCE	92	98	92	Starfield.esm 92	Starfield.esm 00027B61; Starfield.esm 0003DBDD; Starfield.esm 0005C72E
+FLOR	DSTF	1	1	1	Starfield.esm 1	Starfield.esm 001876F3
+FLOR	OBTF	174	174	174	Starfield.esm 173, sfbgs00b.esm 1	Starfield.esm 000242F8; Starfield.esm 000242F9; Starfield.esm 00076279
+FLOR	STOP	303	303	303	Starfield.esm 300, ShatteredSpace.esm 2, sfbgs00b.esm 1	Starfield.esm 000242F8; Starfield.esm 000242F9; Starfield.esm 00027B61
+FLST	BFCE	44	44	44	Starfield.esm 44	Starfield.esm 00032325; Starfield.esm 00032326; Starfield.esm 00032327
+FURN	BFCE	882	1979	882	Starfield.esm 753, SFBGS003.esm 3, SFBGS004.esm 1, SFBGS006.esm 7, SFBGS00D.esm 10, SFBGS047.esm 1, SFBGS050.esm 34, ShatteredSpace.esm 49, sfbgs00b.esm 2, sfbgs019.esm 1, sfta03.esm 19, sfta06.esm 2	Starfield.esm 000008A6; Starfield.esm 00001260; Starfield.esm 00001E9A
+FURN	DSTF	2	2	2	Starfield.esm 2	Starfield.esm 001593EE; Starfield.esm 0015E6EF
+FURN	INAM	365	365	365	Starfield.esm 333, SFBGS003.esm 1, SFBGS004.esm 1, SFBGS00D.esm 7, SFBGS047.esm 1, SFBGS050.esm 6, ShatteredSpace.esm 8, sfbgs019.esm 1, sfta01.esm 1, sfta03.esm 5, sfta06.esm 1	Starfield.esm 000027D5; Starfield.esm 00003312; Starfield.esm 00003321
+FURN	STOP	1070	1070	1070	Starfield.esm 899, SFBGS003.esm 4, SFBGS004.esm 1, SFBGS006.esm 7, SFBGS00D.esm 11, SFBGS047.esm 1, SFBGS050.esm 39, ShatteredSpace.esm 83, sfbgs00b.esm 2, sfbgs019.esm 1, sfta01.esm 1, sfta03.esm 19, sfta06.esm 2	Starfield.esm 000008A6; Starfield.esm 00001260; Starfield.esm 00001E9A
+GBFM	BFCE	3942	51333	3942	Starfield.esm 3141, BlueprintShips-SFBGS050.esm 32, BlueprintShips-Starfield.esm 356, SFBGS003.esm 3, SFBGS004.esm 1, SFBGS006.esm 175, SFBGS00D.esm 22, SFBGS047.esm 1, SFBGS050.esm 148, ShatteredSpace.esm 24, blueprintships-sfta03.esm 1, blueprintships-sfta06.esm 2, blueprintships-shatteredspace.esm 19, sfbgs00b.esm 6, sfbgs019.esm 1, sfta02.esm 1, sfta03.esm 3, sfta06.esm 5, kgcdoom.esm 1	Starfield.esm 000013B6; Starfield.esm 00001E9F; Starfield.esm 00001EA1
+GBFM	DSTF	2181	2220	2181	Starfield.esm 1641, BlueprintShips-SFBGS050.esm 32, BlueprintShips-Starfield.esm 356, SFBGS003.esm 3, SFBGS00D.esm 13, SFBGS050.esm 80, ShatteredSpace.esm 24, blueprintships-sfta03.esm 1, blueprintships-sfta06.esm 2, blueprintships-shatteredspace.esm 19, sfbgs00b.esm 2, sfta03.esm 2, sfta06.esm 5, kgcdoom.esm 1	Starfield.esm 000013B6; Starfield.esm 00001E9F; Starfield.esm 00001EA1
+GBFM	OBTF	2062	2062	2062	Starfield.esm 1522, BlueprintShips-SFBGS050.esm 32, BlueprintShips-Starfield.esm 356, SFBGS003.esm 3, SFBGS00D.esm 13, SFBGS050.esm 80, ShatteredSpace.esm 24, blueprintships-sfta03.esm 1, blueprintships-sfta06.esm 2, blueprintships-shatteredspace.esm 19, sfbgs00b.esm 2, sfta03.esm 2, sfta06.esm 5, kgcdoom.esm 1	Starfield.esm 000013B6; Starfield.esm 00001E9F; Starfield.esm 00001EA1
+GBFM	PRPS	1	1	2098	Starfield.esm 1	Starfield.esm 001A9562
+GBFM	STOP	3942	7884	3942	Starfield.esm 3141, BlueprintShips-SFBGS050.esm 32, BlueprintShips-Starfield.esm 356, SFBGS003.esm 3, SFBGS004.esm 1, SFBGS006.esm 175, SFBGS00D.esm 22, SFBGS047.esm 1, SFBGS050.esm 148, ShatteredSpace.esm 24, blueprintships-sfta03.esm 1, blueprintships-sfta06.esm 2, blueprintships-shatteredspace.esm 19, sfbgs00b.esm 6, sfbgs019.esm 1, sfta02.esm 1, sfta03.esm 3, sfta06.esm 5, kgcdoom.esm 1	Starfield.esm 000013B6; Starfield.esm 00001E9F; Starfield.esm 00001EA1
+GCVR	BFCE	14	14	14	Starfield.esm 14	Starfield.esm 000A1007; Starfield.esm 000D6F47; Starfield.esm 00138127
+GLOB	BFCE	1	1	1	Starfield.esm 1	Starfield.esm 0010DD95
+GRAS	BFCE	27	27	27	Starfield.esm 23, ShatteredSpace.esm 4	Starfield.esm 001A2F10; Starfield.esm 001A2F11; Starfield.esm 001C13CE
+HAZD	BFCE	41	57	41	Starfield.esm 23, SFBGS00D.esm 3, SFBGS050.esm 3, ShatteredSpace.esm 5, sfbgs00b.esm 1, sfta03.esm 6	Starfield.esm 00047386; Starfield.esm 000496C2; Starfield.esm 000BF72B
+HDPT	BFCE	2	2	2	Starfield.esm 2	Starfield.esm 002F3EC5; Starfield.esm 002F3EC6
+INFO	BFCE	6	6	6	Starfield.esm 6	Starfield.esm 0036D49D; Starfield.esm 000B7128; Starfield.esm 000A8017
+INFO	COCT	101	101	101	Starfield.esm 72, SFBGS003.esm 2, SFBGS00D.esm 8, SFBGS050.esm 6, ShatteredSpace.esm 9, sfbgs00b.esm 1, sfta04.esm 2, kgcdoom.esm 1	Starfield.esm 0028A2AC; Starfield.esm 0006E086; Starfield.esm 0010A70B
+INFO	DOFT	24	24	24	Starfield.esm 19, ShatteredSpace.esm 1, sfta02.esm 3, sfta03.esm 1	Starfield.esm 00216D91; Starfield.esm 000F3EDB; Starfield.esm 000F3EDC
+INFO	DPLT	5	5	5	Starfield.esm 2, ShatteredSpace.esm 2, sfta05.esm 1	Starfield.esm 00237610; Starfield.esm 002C79C1; ShatteredSpace.esm 01045592
+INFO	FNAM	339	362	339	Starfield.esm 251, SFBGS00D.esm 8, SFBGS050.esm 36, ShatteredSpace.esm 2, sfbgs00b.esm 2, sfta01.esm 1, sfta02.esm 20, sfta04.esm 10, sfta05.esm 9	Starfield.esm 00318658; Starfield.esm 00320D27; Starfield.esm 00320D28
+INFO	HNAM	1030	2382	1030	Starfield.esm 627, SFBGS003.esm 1, SFBGS00D.esm 9, SFBGS050.esm 120, ShatteredSpace.esm 88, sfbgs00b.esm 6, sfta01.esm 2, sfta02.esm 32, sfta03.esm 9, sfta04.esm 112, sfta05.esm 14, sfta06.esm 6, kgcdoom.esm 4	Starfield.esm 00318658; Starfield.esm 00320D27; Starfield.esm 00320D28
+INFO	OCOR	16	16	16	Starfield.esm 15, SFBGS00D.esm 1	Starfield.esm 0002DD27; Starfield.esm 00031ABB; Starfield.esm 000A313A
+INFO	PLRL	42	48	42	Starfield.esm 39, sfta02.esm 3	Starfield.esm 000648A0; Starfield.esm 000648A1; Starfield.esm 000648A2
+INFO	PNAM	32	35	32	Starfield.esm 22, SFBGS00D.esm 1, SFBGS050.esm 7, sfta01.esm 1, sfta02.esm 1	Starfield.esm 002E28F4; Starfield.esm 001C3722; Starfield.esm 00229DB0
+INFO	QUAL	8672	9933	8672	Starfield.esm 6629, SFBGS003.esm 226, SFBGS00D.esm 328, SFBGS050.esm 380, ShatteredSpace.esm 847, sfbgs00b.esm 80, sfta01.esm 10, sfta02.esm 97, sfta03.esm 30, sfta04.esm 32, sfta05.esm 5, sfta06.esm 5, kgcdoom.esm 3	Starfield.esm 00023576; Starfield.esm 0028E494; Starfield.esm 0028E495
+INFO	SHRT	1	1	1	sfta02.esm 1	sfta02.esm FD010A18
+INFO	SOFT	3	3	3	sfta02.esm 1, sfta05.esm 1, kgcdoom.esm 1	sfta02.esm FD0114F3; sfta05.esm FD012278; kgcdoom.esm FD007682
+INFO	XNAM	8694	9958	8694	Starfield.esm 6648, SFBGS003.esm 226, SFBGS00D.esm 328, SFBGS050.esm 380, ShatteredSpace.esm 848, sfbgs00b.esm 80, sfta01.esm 10, sfta02.esm 98, sfta03.esm 31, sfta04.esm 32, sfta05.esm 5, sfta06.esm 5, kgcdoom.esm 3	Starfield.esm 00023576; Starfield.esm 0028E494; Starfield.esm 0028E495
+IPCT	BFCE	1047	1353	1047	Starfield.esm 701, SFBGS003.esm 2, SFBGS004.esm 10, SFBGS047.esm 1, SFBGS050.esm 98, ShatteredSpace.esm 215, sfta05.esm 16, kgcdoom.esm 4	Starfield.esm 00000B11; Starfield.esm 00005A47; Starfield.esm 00007D92
+KYWD	BFCE	20	20	20	Starfield.esm 20	Starfield.esm 00022269; Starfield.esm 0002226A; Starfield.esm 0002226B
+LAYR	BFCE	2	2	2	SFBGS003.esm 2	SFBGS003.esm FD00365B; SFBGS003.esm FD00365C
+LCRT	BFCE	5	8	5	Starfield.esm 3, kgcdoom.esm 2	Starfield.esm 000151B4; Starfield.esm 000342F4; Starfield.esm 00074562
+LCTN	LCUN	45	45	220	Starfield.esm 29, SFBGS003.esm 1, SFBGS00D.esm 5, SFBGS050.esm 7, ShatteredSpace.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0001535B; Starfield.esm 0005E819; Starfield.esm 00061527
+LCTN	LCUR	173	173	220	Starfield.esm 123, SFBGS003.esm 2, SFBGS00D.esm 6, SFBGS050.esm 6, ShatteredSpace.esm 28, sfbgs00b.esm 1, sfta01.esm 2, sfta04.esm 1, sfta05.esm 2, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 000019FB; Starfield.esm 000019FC; Starfield.esm 00005748
+LGDI	DATA	204	204	204	Starfield.esm 84, SFBGS003.esm 1, SFBGS00D.esm 8, SFBGS050.esm 41, ShatteredSpace.esm 13, sfta01.esm 1, sfta02.esm 10, sfta03.esm 12, sfta04.esm 11, sfta05.esm 12, sfta06.esm 11	Starfield.esm 00001C85; Starfield.esm 00001C87; Starfield.esm 00001C89
+LIGH	BFCE	1279	2238	1279	Starfield.esm 1147, SFBGS003.esm 1, SFBGS004.esm 1, SFBGS00D.esm 33, SFBGS050.esm 9, ShatteredSpace.esm 82, sfta01.esm 2, sfta02.esm 1, sfta06.esm 1, kgcdoom.esm 2	Starfield.esm 00000990; Starfield.esm 00000E09; Starfield.esm 00001B78
+LMSW	BFCE	1267	1920	1267	Starfield.esm 1174, SFBGS00D.esm 5, SFBGS050.esm 47, ShatteredSpace.esm 37, sfta02.esm 1, sfta03.esm 2, sfta06.esm 1	Starfield.esm 00002C6C; Starfield.esm 00002C6D; Starfield.esm 00002C6E
+LVLI	BFCE	177	177	177	Starfield.esm 136, SFBGS00D.esm 8, SFBGS050.esm 8, ShatteredSpace.esm 20, sfbgs023.esm 1, kgcdoom.esm 4	Starfield.esm 00005DE3; Starfield.esm 00005F63; Starfield.esm 00006038
+LVLN	BFCE	1	1	1	SFBGS050.esm 1	SFBGS050.esm 0203964E
+LVLP	BFCE	12	14	12	Starfield.esm 11, SFBGS00D.esm 1	Starfield.esm 000C70B2; Starfield.esm 000EDAFC; Starfield.esm 001DBEE9
+MGEF	BFCE	1	1	1	SFBGS00D.esm 1	SFBGS00D.esm 01026329
+MISC	BFCE	60	62	60	Starfield.esm 54, ShatteredSpace.esm 6	Starfield.esm 0003EDC8; Starfield.esm 0004F206; Starfield.esm 000638A6
+MISC	DSTF	3	4	3	Starfield.esm 2, sfbgs00b.esm 1	Starfield.esm 0004A6C7; Starfield.esm 001F003B; sfbgs00b.esm FD001EE9
+MOVT	BOLV	14	14	14	Starfield.esm 14	Starfield.esm 00003482; Starfield.esm 00008E74; Starfield.esm 0000C481
+MSTT	BFCE	693	917	693	Starfield.esm 494, SFBGS003.esm 9, SFBGS004.esm 17, SFBGS00D.esm 32, SFBGS050.esm 22, ShatteredSpace.esm 111, sfbgs00b.esm 1, sfta01.esm 1, sfta03.esm 5, sfta06.esm 1	Starfield.esm 00001621; Starfield.esm 000043DB; Starfield.esm 00004559
+MSTT	DSTF	121	227	121	Starfield.esm 111, SFBGS00D.esm 4, SFBGS050.esm 3, sfbgs00b.esm 1, sfta01.esm 1, sfta03.esm 1	Starfield.esm 000043DB; Starfield.esm 0000A2F9; Starfield.esm 0000A2FA
+NAVM	BFCE	1	2	1	Starfield.esm 1	Starfield.esm 001A0D98
+NAVM	MNAM	95836	95836	95836	Starfield.esm 56576, BlueprintShips-SFBGS050.esm 32, BlueprintShips-Starfield.esm 439, SFBGS003.esm 852, SFBGS006.esm 3, SFBGS00D.esm 4058, SFBGS050.esm 1602, ShatteredSpace.esm 29202, blueprintships-sfta03.esm 2, blueprintships-sfta06.esm 3, blueprintships-shatteredspace.esm 20, sfbgs00b.esm 46, sfbgs021.esm 2, sfta01.esm 933, sfta02.esm 765, sfta03.esm 447, sfta04.esm 319, sfta05.esm 258, sfta06.esm 174, kgcdoom.esm 103	Starfield.esm 0014122D; Starfield.esm 002F1304; Starfield.esm 002F1305
+NPC_	BFCE	161	163	161	Starfield.esm 85, SFBGS003.esm 1, SFBGS00D.esm 3, SFBGS050.esm 2, ShatteredSpace.esm 65, sfta03.esm 4, sfta05.esm 1	Starfield.esm 00000007; Starfield.esm 00003A5A; Starfield.esm 00003A5B
+NPC_	CS3E	625	625	625	Starfield.esm 438, SFBGS00D.esm 29, SFBGS050.esm 107, ShatteredSpace.esm 40, sfbgs00b.esm 2, sfta01.esm 1, sfta02.esm 1, sfta03.esm 2, sfta05.esm 5	Starfield.esm 00003A5A; Starfield.esm 00003A5B; Starfield.esm 00004ED6
+NPC_	DATA	8726	8726	8726	Starfield.esm 7131, SFBGS003.esm 88, SFBGS004.esm 1, SFBGS00D.esm 162, SFBGS050.esm 386, ShatteredSpace.esm 679, sfbgs00b.esm 27, sfta01.esm 26, sfta02.esm 36, sfta03.esm 71, sfta04.esm 18, sfta05.esm 59, sfta06.esm 26, kgcdoom.esm 16	Starfield.esm 00000007; Starfield.esm 000013B7; Starfield.esm 00001BB4
+NPC_	OBTF	269	269	269	Starfield.esm 249, SFBGS003.esm 1, SFBGS050.esm 2, ShatteredSpace.esm 5, sfta01.esm 3, sfta02.esm 1, sfta03.esm 3, sfta05.esm 2, kgcdoom.esm 3	Starfield.esm 00003A5A; Starfield.esm 00003A5B; Starfield.esm 0000563A
+NPC_	STOP	5026	5026	5026	Starfield.esm 4310, SFBGS003.esm 53, SFBGS004.esm 1, SFBGS00D.esm 124, SFBGS050.esm 130, ShatteredSpace.esm 278, sfbgs00b.esm 20, sfta01.esm 16, sfta02.esm 7, sfta03.esm 38, sfta04.esm 9, sfta05.esm 21, sfta06.esm 8, kgcdoom.esm 11	Starfield.esm 00000007; Starfield.esm 000013B7; Starfield.esm 00001BB4
+OMOD	BFCE	329	329	329	Starfield.esm 32, SFBGS003.esm 3, SFBGS050.esm 166, ShatteredSpace.esm 46, sfta01.esm 14, sfta04.esm 25, sfta05.esm 15, sfta06.esm 17, kgcdoom.esm 11	Starfield.esm 00090A41; Starfield.esm 00094C5B; Starfield.esm 00131368
+OTFT	INAM	3	3	732	Starfield.esm 2, sfta04.esm 1	Starfield.esm 003B38F2; Starfield.esm 003CD6CD; sfta04.esm FD010F13
+PACK	POBA	4903	4903	4903	Starfield.esm 3548, SFBGS003.esm 43, SFBGS00D.esm 246, SFBGS050.esm 173, ShatteredSpace.esm 568, sfbgs00b.esm 53, sfta01.esm 47, sfta02.esm 49, sfta03.esm 51, sfta04.esm 6, sfta05.esm 74, sfta06.esm 44, kgcdoom.esm 1	Starfield.esm 00000F98; Starfield.esm 00001BD4; Starfield.esm 00001BD5
+PACK	POCA	4903	4903	4903	Starfield.esm 3548, SFBGS003.esm 43, SFBGS00D.esm 246, SFBGS050.esm 173, ShatteredSpace.esm 568, sfbgs00b.esm 53, sfta01.esm 47, sfta02.esm 49, sfta03.esm 51, sfta04.esm 6, sfta05.esm 74, sfta06.esm 44, kgcdoom.esm 1	Starfield.esm 00000F98; Starfield.esm 00001BD4; Starfield.esm 00001BD5
+PACK	POEA	4903	4903	4903	Starfield.esm 3548, SFBGS003.esm 43, SFBGS00D.esm 246, SFBGS050.esm 173, ShatteredSpace.esm 568, sfbgs00b.esm 53, sfta01.esm 47, sfta02.esm 49, sfta03.esm 51, sfta04.esm 6, sfta05.esm 74, sfta06.esm 44, kgcdoom.esm 1	Starfield.esm 00000F98; Starfield.esm 00001BD4; Starfield.esm 00001BD5
+PCBN	BFCE	287	287	287	Starfield.esm 254, SFBGS00D.esm 13, SFBGS050.esm 9, ShatteredSpace.esm 8, sfta03.esm 1, sfta04.esm 2	Starfield.esm 000074C4; Starfield.esm 000074C8; Starfield.esm 00018B98
+PCCN	BFCE	109	109	109	Starfield.esm 104, ShatteredSpace.esm 4, sfta03.esm 1	Starfield.esm 000074C5; Starfield.esm 000074C7; Starfield.esm 000074CB
+PCCN	IOVR	94	94	94	Starfield.esm 89, ShatteredSpace.esm 4, sfta03.esm 1	Starfield.esm 00012319; Starfield.esm 00023C1E; Starfield.esm 00023C1F
+PDCL	BFCE	69	69	69	Starfield.esm 59, ShatteredSpace.esm 4, sfbgs00b.esm 6	Starfield.esm 00001DA2; Starfield.esm 00001E41; Starfield.esm 0000DC73
+PERK	ATAF	84	253	84	Starfield.esm 84	Starfield.esm 0004CE2D; Starfield.esm 0008C3EE; Starfield.esm 00143B6B
+PERK	PRKF	526	2285	526	Starfield.esm 404, SFBGS003.esm 2, SFBGS004.esm 1, SFBGS007.esm 6, SFBGS00D.esm 73, SFBGS050.esm 7, ShatteredSpace.esm 15, sfbgs00b.esm 2, sfta01.esm 3, sfta02.esm 1, sfta03.esm 5, sfta04.esm 2, sfta05.esm 2, kgcdoom.esm 3	Starfield.esm 00001301; Starfield.esm 0000297F; Starfield.esm 000060BB
+PERK	PRRF	626	1355	626	Starfield.esm 502, SFBGS003.esm 2, SFBGS004.esm 1, SFBGS007.esm 6, SFBGS00D.esm 74, SFBGS047.esm 1, SFBGS050.esm 7, ShatteredSpace.esm 15, sfbgs00b.esm 2, sfta01.esm 3, sfta02.esm 1, sfta03.esm 5, sfta04.esm 2, sfta05.esm 2, kgcdoom.esm 3	Starfield.esm 00001301; Starfield.esm 0000297F; Starfield.esm 000060BB
+PERK	PRRK	626	1355	626	Starfield.esm 502, SFBGS003.esm 2, SFBGS004.esm 1, SFBGS007.esm 6, SFBGS00D.esm 74, SFBGS047.esm 1, SFBGS050.esm 7, ShatteredSpace.esm 15, sfbgs00b.esm 2, sfta01.esm 3, sfta02.esm 1, sfta03.esm 5, sfta04.esm 2, sfta05.esm 2, kgcdoom.esm 3	Starfield.esm 00001301; Starfield.esm 0000297F; Starfield.esm 000060BB
+PHZD	XLKT	74	74	74	Starfield.esm 35, SFBGS00D.esm 4, SFBGS050.esm 26, ShatteredSpace.esm 5, sfbgs00b.esm 2, sfta03.esm 2	Starfield.esm 000544A5; Starfield.esm 001E04A8; Starfield.esm 000606A7
+PKIN	BFCE	1278	1395	1278	Starfield.esm 1178, SFBGS00D.esm 64, SFBGS050.esm 1, ShatteredSpace.esm 32, sfta02.esm 1, sfta03.esm 1, sfta06.esm 1	Starfield.esm 00003513; Starfield.esm 0000B065; Starfield.esm 0000BC51
+PNDT	BDED	1798	1798	1798	Starfield.esm 1765, SFBGS003.esm 1, SFBGS00D.esm 4, SFBGS050.esm 5, ShatteredSpace.esm 11, sfbgs00b.esm 1, sfta01.esm 2, sfta03.esm 2, sfta04.esm 1, sfta05.esm 1, sfta06.esm 2, kgcdoom.esm 3	Starfield.esm 000116C1; Starfield.esm 00017FED; Starfield.esm 00026E96
+PNDT	BDST	1798	1798	1798	Starfield.esm 1765, SFBGS003.esm 1, SFBGS00D.esm 4, SFBGS050.esm 5, ShatteredSpace.esm 11, sfbgs00b.esm 1, sfta01.esm 2, sfta03.esm 2, sfta04.esm 1, sfta05.esm 1, sfta06.esm 2, kgcdoom.esm 3	Starfield.esm 000116C1; Starfield.esm 00017FED; Starfield.esm 00026E96
+PNDT	BFCE	1798	8805	1798	Starfield.esm 1765, SFBGS003.esm 1, SFBGS00D.esm 4, SFBGS050.esm 5, ShatteredSpace.esm 11, sfbgs00b.esm 1, sfta01.esm 2, sfta03.esm 2, sfta04.esm 1, sfta05.esm 1, sfta06.esm 2, kgcdoom.esm 3	Starfield.esm 000116C1; Starfield.esm 00017FED; Starfield.esm 00026E96
+PNDT	CNAM	1743	1743	1798	Starfield.esm 1720, SFBGS003.esm 1, SFBGS00D.esm 3, SFBGS050.esm 4, ShatteredSpace.esm 10, sfbgs00b.esm 1, sfta03.esm 1, sfta06.esm 1, kgcdoom.esm 2	Starfield.esm 000116C1; Starfield.esm 00017FED; Starfield.esm 00026E96
+PNDT	EOVR	1	1	9	SFBGS00D.esm 1	SFBGS00D.esm 0005E364
+PROJ	BFCE	284	414	284	Starfield.esm 246, SFBGS003.esm 1, SFBGS004.esm 1, SFBGS00D.esm 4, SFBGS047.esm 1, SFBGS050.esm 12, ShatteredSpace.esm 14, sfbgs019.esm 1, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0000085A; Starfield.esm 0000424D; Starfield.esm 0000481F
+PROJ	DATA	304	304	304	Starfield.esm 265, SFBGS003.esm 1, SFBGS004.esm 1, SFBGS00D.esm 4, SFBGS047.esm 1, SFBGS050.esm 12, ShatteredSpace.esm 15, sfbgs019.esm 1, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0000085A; Starfield.esm 0000424D; Starfield.esm 0000481F
+PROJ	DSTF	53	53	53	Starfield.esm 45, SFBGS00D.esm 1, SFBGS050.esm 1, ShatteredSpace.esm 6	Starfield.esm 000277F2; Starfield.esm 00029598; Starfield.esm 0005516E
+QUST	ALED	2461	31333	2461	Starfield.esm 1970, SFBGS003.esm 33, SFBGS004.esm 1, SFBGS007.esm 3, SFBGS00D.esm 109, SFBGS050.esm 102, ShatteredSpace.esm 217, sfbgs00b.esm 4, sfta01.esm 1, sfta02.esm 4, sfta03.esm 7, sfta04.esm 3, sfta05.esm 3, sfta06.esm 1, kgcdoom.esm 3	Starfield.esm 0000080B; Starfield.esm 0000118F; Starfield.esm 00001190
+QUST	ALPS	88	101	88	Starfield.esm 65, SFBGS003.esm 2, SFBGS00D.esm 7, SFBGS050.esm 8, ShatteredSpace.esm 4, sfta03.esm 1, sfta04.esm 1	Starfield.esm 00002C1C; Starfield.esm 00002C1D; Starfield.esm 00002FAE
+QUST	BFCE	1	3	1	Starfield.esm 1	Starfield.esm 000308F5
+QUST	NEXT	2662	2662	2662	Starfield.esm 2077, SFBGS003.esm 37, SFBGS004.esm 2, SFBGS007.esm 3, SFBGS00D.esm 116, SFBGS050.esm 128, ShatteredSpace.esm 240, sfbgs00a_a.esm 1, sfbgs00a_d.esm 1, sfbgs00a_e.esm 1, sfbgs00a_f.esm 1, sfbgs00a_g.esm 1, sfbgs00a_i.esm 1, sfbgs00b.esm 6, sfbgs019.esm 1, sfbgs021.esm 1, sfbgs023.esm 1, sfta01.esm 3, sfta02.esm 8, sfta03.esm 11, sfta04.esm 6, sfta05.esm 7, sfta06.esm 5, kgcdoom.esm 4	Starfield.esm 0000080B; Starfield.esm 0000118F; Starfield.esm 00001190
+QUST	QSRD	1537	21359	1537	Starfield.esm 1188, SFBGS003.esm 26, SFBGS007.esm 1, SFBGS00D.esm 83, SFBGS050.esm 65, ShatteredSpace.esm 150, sfbgs00b.esm 4, sfta01.esm 1, sfta02.esm 5, sfta03.esm 5, sfta04.esm 2, sfta05.esm 3, sfta06.esm 2, kgcdoom.esm 2	Starfield.esm 0000118F; Starfield.esm 00001190; Starfield.esm 000013A8
+RACE	BFCE	4	4	4	SFBGS050.esm 1, ShatteredSpace.esm 3	SFBGS050.esm 0202AD7F; ShatteredSpace.esm 01006528; ShatteredSpace.esm 01011BF9
+RACE	FNAM	53	212	53	Starfield.esm 31, SFBGS003.esm 1, SFBGS004.esm 2, SFBGS00D.esm 1, SFBGS047.esm 2, SFBGS050.esm 5, ShatteredSpace.esm 5, sfbgs019.esm 2, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0000347D; Starfield.esm 00005629; Starfield.esm 0000A1D7
+RACE	MNAM	53	212	53	Starfield.esm 31, SFBGS003.esm 1, SFBGS004.esm 2, SFBGS00D.esm 1, SFBGS047.esm 2, SFBGS050.esm 5, ShatteredSpace.esm 5, sfbgs019.esm 2, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0000347D; Starfield.esm 00005629; Starfield.esm 0000A1D7
+RACE	NAM0	13	26	13	Starfield.esm 2, SFBGS003.esm 1, SFBGS004.esm 1, SFBGS047.esm 1, SFBGS050.esm 3, sfbgs019.esm 1, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0000347D; Starfield.esm 002BBC09; SFBGS003.esm FD00009D
+RACE	NAM1	53	53	53	Starfield.esm 31, SFBGS003.esm 1, SFBGS004.esm 2, SFBGS00D.esm 1, SFBGS047.esm 2, SFBGS050.esm 5, ShatteredSpace.esm 5, sfbgs019.esm 2, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0000347D; Starfield.esm 00005629; Starfield.esm 0000A1D7
+RACE	NAM3	53	53	53	Starfield.esm 31, SFBGS003.esm 1, SFBGS004.esm 2, SFBGS00D.esm 1, SFBGS047.esm 2, SFBGS050.esm 5, ShatteredSpace.esm 5, sfbgs019.esm 2, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 0000347D; Starfield.esm 00005629; Starfield.esm 0000A1D7
+REFR	BFCE	251175	251593	251175	Starfield.esm 88863, BlueprintShips-SFBGS050.esm 7020, BlueprintShips-Starfield.esm 95795, SFBGS003.esm 4048, SFBGS006.esm 5655, SFBGS00D.esm 12291, SFBGS050.esm 10127, ShatteredSpace.esm 17133, blueprintships-sfta03.esm 506, blueprintships-sfta06.esm 846, blueprintships-shatteredspace.esm 3786, sfbgs00b.esm 206, sfbgs021.esm 28, sfta01.esm 387, sfta02.esm 146, sfta03.esm 465, sfta04.esm 895, sfta05.esm 818, sfta06.esm 1742, kgcdoom.esm 418	Starfield.esm 0002734B; Starfield.esm 000785EA; Starfield.esm 000783C1
+REFR	ONAM	3268	3268	3268	Starfield.esm 1681, BlueprintShips-SFBGS050.esm 80, BlueprintShips-Starfield.esm 594, SFBGS003.esm 18, SFBGS006.esm 14, SFBGS00D.esm 270, SFBGS050.esm 145, ShatteredSpace.esm 296, blueprintships-sfta03.esm 2, blueprintships-sfta06.esm 3, blueprintships-shatteredspace.esm 22, sfbgs00b.esm 14, sfta01.esm 20, sfta02.esm 19, sfta03.esm 21, sfta04.esm 12, sfta05.esm 8, sfta06.esm 34, kgcdoom.esm 15	Starfield.esm 003B5D05; Starfield.esm 003B5D04; Starfield.esm 003B5D02
+REFR	XATP	2413	2413	2413	Starfield.esm 1644, BlueprintShips-SFBGS050.esm 32, BlueprintShips-Starfield.esm 335, SFBGS003.esm 7, SFBGS00D.esm 52, SFBGS050.esm 53, ShatteredSpace.esm 197, blueprintships-sfta03.esm 2, blueprintships-sfta06.esm 3, blueprintships-shatteredspace.esm 18, sfbgs00b.esm 16, sfta02.esm 1, sfta03.esm 48, sfta05.esm 1, sfta06.esm 3, kgcdoom.esm 1	Starfield.esm 003B5BB6; Starfield.esm 00056E17; Starfield.esm 00056E16
+REFR	XGOM	3129	3129	3129	Starfield.esm 2357, SFBGS00D.esm 772	Starfield.esm 0012BFE6; Starfield.esm 0012BFE4; Starfield.esm 0012BFE3
+REFR	XIS2	1435	1435	1435	Starfield.esm 1100, SFBGS003.esm 21, SFBGS00D.esm 29, SFBGS050.esm 15, ShatteredSpace.esm 227, sfbgs00b.esm 9, sfta02.esm 19, sfta03.esm 2, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 11	Starfield.esm 003A6ABF; Starfield.esm 003A6AE6; Starfield.esm 003A69F0
+REFR	XLKT	458808	458808	458808	Starfield.esm 117294, BlueprintShips-SFBGS050.esm 16875, BlueprintShips-Starfield.esm 234769, SFBGS003.esm 2490, SFBGS006.esm 10873, SFBGS008.esm 56, SFBGS00D.esm 16053, SFBGS050.esm 16682, ShatteredSpace.esm 26147, blueprintships-sfta03.esm 552, blueprintships-sfta06.esm 2888, blueprintships-shatteredspace.esm 2292, sfbgs00b.esm 742, sfta01.esm 534, sfta02.esm 646, sfta03.esm 1759, sfta04.esm 675, sfta05.esm 1069, sfta06.esm 6190, kgcdoom.esm 222	Starfield.esm 0019E456; Starfield.esm 000C8876; Starfield.esm 0023BEA7
+REFR	XMRK	804	804	804	Starfield.esm 517, SFBGS003.esm 3, SFBGS008.esm 72, SFBGS00D.esm 76, SFBGS050.esm 38, ShatteredSpace.esm 80, sfbgs00b.esm 1, sfta01.esm 3, sfta03.esm 4, sfta04.esm 3, sfta05.esm 2, sfta06.esm 2, kgcdoom.esm 3	Starfield.esm 0021A823; Starfield.esm 00138F55; Starfield.esm 0005AD0F
+REFR	XPPA	7083	7083	7083	Starfield.esm 4678, BlueprintShips-Starfield.esm 34, SFBGS003.esm 12, SFBGS00D.esm 525, SFBGS050.esm 512, ShatteredSpace.esm 999, sfbgs00b.esm 10, sfta01.esm 46, sfta02.esm 53, sfta03.esm 8, sfta04.esm 36, sfta05.esm 54, sfta06.esm 13, kgcdoom.esm 103	Starfield.esm 003A6ABF; Starfield.esm 003A6AE6; Starfield.esm 000AE0FB
+REFR	XWPK	1834285	3668570	1834285	Starfield.esm 153024, BlueprintShips-SFBGS050.esm 71266, BlueprintShips-Starfield.esm 1440604, SFBGS003.esm 7946, SFBGS006.esm 6, SFBGS00D.esm 38694, SFBGS050.esm 23662, ShatteredSpace.esm 1496, blueprintships-sfta03.esm 4936, blueprintships-sfta06.esm 17121, blueprintships-shatteredspace.esm 40095, sfbgs00b.esm 1770, sfta02.esm 2, sfta03.esm 118, sfta04.esm 1, sfta05.esm 181, sfta06.esm 30432, kgcdoom.esm 2931	Starfield.esm 00202502; Starfield.esm 00209FA4; Starfield.esm 0023BC0D
+RFGP	BFCE	2	2	2	Starfield.esm 1, ShatteredSpace.esm 1	Starfield.esm 0000C65C; ShatteredSpace.esm 010D2638
+SCEN	ACBS	546	1222	546	Starfield.esm 454, SFBGS003.esm 4, SFBGS00D.esm 12, SFBGS050.esm 11, ShatteredSpace.esm 42, sfbgs00b.esm 6, sfta02.esm 5, sfta03.esm 9, sfta05.esm 1, sfta06.esm 2	Starfield.esm 00005B8F; Starfield.esm 000059AF; Starfield.esm 0020EED9
+SCEN	AIDT	14	18	14	Starfield.esm 8, ShatteredSpace.esm 1, sfta03.esm 5	Starfield.esm 00000869; Starfield.esm 0000086E; Starfield.esm 0000086F
+SCEN	ANAM	10097	48753	10097	Starfield.esm 7603, SFBGS003.esm 137, SFBGS004.esm 1, SFBGS00D.esm 530, SFBGS050.esm 364, ShatteredSpace.esm 1022, sfbgs00b.esm 93, sfta01.esm 45, sfta02.esm 39, sfta03.esm 83, sfta04.esm 28, sfta05.esm 45, sfta06.esm 83, kgcdoom.esm 24	Starfield.esm 00000869; Starfield.esm 0000086E; Starfield.esm 0000086F
+SCEN	ATXT	13	20	13	Starfield.esm 12, ShatteredSpace.esm 1	Starfield.esm 003625FD; Starfield.esm 0005512D; Starfield.esm 0015DF4C
+SCEN	BOLV	9777	9777	9777	Starfield.esm 7376, SFBGS003.esm 132, SFBGS004.esm 1, SFBGS00D.esm 532, SFBGS050.esm 364, ShatteredSpace.esm 933, sfbgs00b.esm 92, sfta01.esm 45, sfta02.esm 39, sfta03.esm 84, sfta04.esm 27, sfta05.esm 45, sfta06.esm 83, kgcdoom.esm 24	Starfield.esm 00000869; Starfield.esm 0000086E; Starfield.esm 0000086F
+SCEN	BTXT	13	20	106	Starfield.esm 12, ShatteredSpace.esm 1	Starfield.esm 003625FD; Starfield.esm 0005512D; Starfield.esm 0015DF4C
+SCEN	DEVT	337	337	337	Starfield.esm 237, SFBGS003.esm 5, SFBGS00D.esm 3, ShatteredSpace.esm 90, sfbgs00b.esm 1, sfta04.esm 1	Starfield.esm 00005B8F; Starfield.esm 00063800; Starfield.esm 00016A65
+SCEN	DNAM	1	2	10049	Starfield.esm 1	Starfield.esm 00005636
+SCEN	DOFT	6	10	6	Starfield.esm 1, SFBGS050.esm 1, ShatteredSpace.esm 1, sfta03.esm 3	Starfield.esm 0022EB0E; SFBGS050.esm 020438C9; ShatteredSpace.esm 010D731B
+SCEN	DPLT	2	2	2	sfta03.esm 2	sfta03.esm FD01516B; sfta03.esm FD015C01
+SCEN	FNAM	3190	6177	10114	Starfield.esm 2523, SFBGS003.esm 59, SFBGS00D.esm 194, SFBGS050.esm 147, ShatteredSpace.esm 191, sfbgs00b.esm 19, sfta01.esm 11, sfta02.esm 17, sfta03.esm 9, sfta04.esm 3, sfta05.esm 6, sfta06.esm 9, kgcdoom.esm 2	Starfield.esm 00005B7E; Starfield.esm 00005B8A; Starfield.esm 00005B8B
+SCEN	HNAM	10111	168348	10111	Starfield.esm 7610, SFBGS003.esm 137, SFBGS004.esm 1, SFBGS00D.esm 535, SFBGS050.esm 364, ShatteredSpace.esm 1023, sfbgs00b.esm 93, sfta01.esm 45, sfta02.esm 39, sfta03.esm 84, sfta04.esm 28, sfta05.esm 45, sfta06.esm 83, kgcdoom.esm 24	Starfield.esm 00000869; Starfield.esm 0000086E; Starfield.esm 0000086F
+SCEN	HTID	14	26	7442	Starfield.esm 6, SFBGS050.esm 3, sfta03.esm 5	Starfield.esm 00005636; Starfield.esm 00195775; Starfield.esm 00234DF9
+SCEN	MPCD	21	30	21	Starfield.esm 3, sfta01.esm 2, sfta03.esm 14, sfta05.esm 2	Starfield.esm 000059AF; Starfield.esm 0005490F; Starfield.esm 00298AA9
+SCEN	NEXT	10111	87676	10111	Starfield.esm 7610, SFBGS003.esm 137, SFBGS004.esm 1, SFBGS00D.esm 535, SFBGS050.esm 364, ShatteredSpace.esm 1023, sfbgs00b.esm 93, sfta01.esm 45, sfta02.esm 39, sfta03.esm 84, sfta04.esm 28, sfta05.esm 45, sfta06.esm 83, kgcdoom.esm 24	Starfield.esm 00000869; Starfield.esm 0000086E; Starfield.esm 0000086F
+SCEN	NVCI	16	30	16	Starfield.esm 13, SFBGS050.esm 1, sfta03.esm 2	Starfield.esm 00226379; Starfield.esm 0021FE5C; Starfield.esm 0028E54E
+SCEN	OCOR	38	63	38	Starfield.esm 23, SFBGS003.esm 1, SFBGS050.esm 3, ShatteredSpace.esm 3, sfta03.esm 7, sfta06.esm 1	Starfield.esm 0000086F; Starfield.esm 00005743; Starfield.esm 00013D4A
+SCEN	PLRL	13	38	13	Starfield.esm 6, ShatteredSpace.esm 4, sfta03.esm 3	Starfield.esm 000057B8; Starfield.esm 002A1796; Starfield.esm 001C224F
+SCEN	PNAM	2313	3759	10114	Starfield.esm 1962, SFBGS003.esm 22, SFBGS00D.esm 80, SFBGS050.esm 54, ShatteredSpace.esm 141, sfbgs00b.esm 12, sfta01.esm 11, sfta02.esm 16, sfta03.esm 1, sfta04.esm 2, sfta05.esm 3, sfta06.esm 7, kgcdoom.esm 2	Starfield.esm 00005B8A; Starfield.esm 00005B8B; Starfield.esm 00005B8E
+SCEN	QUAL	239	767	239	Starfield.esm 92, SFBGS003.esm 3, SFBGS00D.esm 53, SFBGS050.esm 25, ShatteredSpace.esm 56, sfbgs00b.esm 5, sfta03.esm 5	Starfield.esm 0000086F; Starfield.esm 00000870; Starfield.esm 00005B99
+SCEN	SCSP	1362	1362	1362	Starfield.esm 993, SFBGS003.esm 25, SFBGS00D.esm 70, SFBGS050.esm 16, ShatteredSpace.esm 132, sfta01.esm 23, sfta02.esm 8, sfta03.esm 15, sfta04.esm 11, sfta05.esm 10, sfta06.esm 46, kgcdoom.esm 13	Starfield.esm 0020EEDA; Starfield.esm 0020EEDB; Starfield.esm 002116C4
+SCEN	SHRT	2	9	2	Starfield.esm 1, sfta03.esm 1	Starfield.esm 002FF6F9; sfta03.esm FD015C01
+SCEN	SOFT	3	10	3	Starfield.esm 2, sfta03.esm 1	Starfield.esm 00005B8F; Starfield.esm 00073CA0; sfta03.esm FD012F18
+SCEN	SPDF	420	420	420	Starfield.esm 387, SFBGS003.esm 12, SFBGS00D.esm 9, SFBGS050.esm 6, ShatteredSpace.esm 6	Starfield.esm 0007E2B6; Starfield.esm 00012F81; Starfield.esm 00012F82
+SCEN	SPMV	8	9	8	Starfield.esm 5, SFBGS00D.esm 1, ShatteredSpace.esm 1, sfta03.esm 1	Starfield.esm 000F7904; Starfield.esm 00215DBD; Starfield.esm 002458CB
+SCEN	SPOR	7	12	7	Starfield.esm 2, sfta03.esm 5	Starfield.esm 00005636; Starfield.esm 00005743; sfta03.esm FD013EFB
+SCEN	SPPQ	1362	1362	1362	Starfield.esm 993, SFBGS003.esm 25, SFBGS00D.esm 70, SFBGS050.esm 16, ShatteredSpace.esm 132, sfta01.esm 23, sfta02.esm 8, sfta03.esm 15, sfta04.esm 11, sfta05.esm 10, sfta06.esm 46, kgcdoom.esm 13	Starfield.esm 0020EEDA; Starfield.esm 0020EEDB; Starfield.esm 002116C4
+SCEN	SPRP	230	230	230	Starfield.esm 156, SFBGS003.esm 14, SFBGS00D.esm 12, SFBGS050.esm 6, ShatteredSpace.esm 27, sfta01.esm 6, sfta02.esm 1, sfta03.esm 3, sfta05.esm 2, sfta06.esm 3	Starfield.esm 0007E2B6; Starfield.esm 00012F81; Starfield.esm 00012F82
+SCEN	VNAM	5	6	10114	Starfield.esm 1, sfta03.esm 4	Starfield.esm 0000D360; sfta03.esm FD01232F; sfta03.esm FD012333
+SCEN	VTXT	21	27	21	Starfield.esm 4, SFBGS050.esm 1, sfta01.esm 2, sfta03.esm 14	Starfield.esm 000059AF; Starfield.esm 0000D360; Starfield.esm 0005490F
+SCEN	XNAM	301	895	10114	Starfield.esm 126, SFBGS003.esm 4, SFBGS00D.esm 53, SFBGS050.esm 27, ShatteredSpace.esm 61, sfbgs00b.esm 5, sfta01.esm 2, sfta03.esm 20, sfta05.esm 2, sfta06.esm 1	Starfield.esm 00000869; Starfield.esm 0000086E; Starfield.esm 0000086F
+SCOL	BFCE	3	3	3	Starfield.esm 3	Starfield.esm 001A95EB; Starfield.esm 001A968C; Starfield.esm 001A970E
+SECH	ECHD	33	33	33	Starfield.esm 30, ShatteredSpace.esm 2, kgcdoom.esm 1	Starfield.esm 0003B27D; Starfield.esm 0004C144; Starfield.esm 00080539
+SECH	ECHE	33	101	33	Starfield.esm 30, ShatteredSpace.esm 2, kgcdoom.esm 1	Starfield.esm 0003B27D; Starfield.esm 0004C144; Starfield.esm 00080539
+SECH	ECHO	32	68	32	Starfield.esm 30, ShatteredSpace.esm 2	Starfield.esm 0003B27D; Starfield.esm 0004C144; Starfield.esm 00080539
+SFBK	BFCE	726	726	726	Starfield.esm 472, SFBGS00D.esm 53, SFBGS050.esm 17, ShatteredSpace.esm 45, sfta01.esm 3, sfta03.esm 1, sfta04.esm 1, sfta05.esm 1, sfta06.esm 132, kgcdoom.esm 1	Starfield.esm 00002FA1; Starfield.esm 00002FA2; Starfield.esm 0000577C
+SFPT	BFCE	261	349	261	Starfield.esm 254, ShatteredSpace.esm 1, sfta01.esm 2, sfta03.esm 1, sfta04.esm 1, sfta05.esm 1, sfta06.esm 1	Starfield.esm 000015E2; Starfield.esm 00005BA7; Starfield.esm 0000DB34
+SFTR	BFCE	39	39	39	Starfield.esm 32, ShatteredSpace.esm 1, sfta01.esm 2, sfta03.esm 1, sfta04.esm 1, sfta05.esm 1, sfta06.esm 1	Starfield.esm 000478AD; Starfield.esm 0005B3B3; Starfield.esm 0005BB44
+SPCH	SGEN	91	91	91	Starfield.esm 43, SFBGS003.esm 2, SFBGS00D.esm 7, SFBGS050.esm 4, ShatteredSpace.esm 19, sfta01.esm 4, sfta02.esm 1, sfta03.esm 1, sfta04.esm 1, sfta05.esm 2, sfta06.esm 6, kgcdoom.esm 1	Starfield.esm 0004C229; Starfield.esm 00057918; Starfield.esm 000874F5
+SPCH	SRAN	6	6	6	Starfield.esm 4, sfta05.esm 2	Starfield.esm 0025D687; Starfield.esm 0025D68B; Starfield.esm 002CD89C
+STAT	BFCE	21838	26293	21838	Starfield.esm 20100, SFBGS003.esm 6, SFBGS00D.esm 134, SFBGS050.esm 255, ShatteredSpace.esm 1267, sfbgs00b.esm 5, sfbgs021.esm 12, sfta01.esm 1, sfta02.esm 1, sfta03.esm 18, sfta04.esm 1, sfta05.esm 3, sfta06.esm 2, kgcdoom.esm 33	Starfield.esm 00000001; Starfield.esm 00000002; Starfield.esm 00000003
+STBH	BFCE	30	30	30	Starfield.esm 18, SFBGS050.esm 12	Starfield.esm 0004FB78; Starfield.esm 00051CF5; Starfield.esm 0005B783
+STDT	BFCE	123	734	123	Starfield.esm 122, ShatteredSpace.esm 1	Starfield.esm 0005E5BD; Starfield.esm 0005E5BE; Starfield.esm 0005E5BF
+STMP	BFCE	227	227	227	Starfield.esm 224, SFBGS050.esm 2, sfbgs021.esm 1	Starfield.esm 000040DF; Starfield.esm 0000B865; Starfield.esm 00015898
+STND	BFCE	21	21	21	Starfield.esm 21	Starfield.esm 001C1469; Starfield.esm 00209618; Starfield.esm 002B3EC6
+TERM	BFCE	541	1077	541	Starfield.esm 368, SFBGS003.esm 2, SFBGS00D.esm 23, SFBGS050.esm 31, ShatteredSpace.esm 76, sfbgs00b.esm 7, sfta02.esm 15, sfta03.esm 12, sfta04.esm 1, sfta06.esm 3, kgcdoom.esm 3	Starfield.esm 00002974; Starfield.esm 00002977; Starfield.esm 000029A4
+TERM	STOP	542	542	542	Starfield.esm 368, SFBGS003.esm 2, SFBGS00D.esm 24, SFBGS050.esm 31, ShatteredSpace.esm 76, sfbgs00b.esm 7, sfta02.esm 15, sfta03.esm 12, sfta04.esm 1, sfta06.esm 3, kgcdoom.esm 3	Starfield.esm 00002974; Starfield.esm 00002977; Starfield.esm 000029A4
+TODD	BFCE	9	9	9	Starfield.esm 9	Starfield.esm 00015414; Starfield.esm 00149FDD; Starfield.esm 0014A55C
+WATR	DATA	19	19	19	Starfield.esm 15, ShatteredSpace.esm 4	Starfield.esm 00000018; Starfield.esm 000017E9; Starfield.esm 0001C0CC
+WEAP	BFCE	160	387	160	Starfield.esm 119, SFBGS003.esm 2, SFBGS00D.esm 2, SFBGS050.esm 13, ShatteredSpace.esm 17, sfbgs00b.esm 2, sfta01.esm 1, sfta04.esm 1, sfta05.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 00000FD6; Starfield.esm 00016758; Starfield.esm 0001BC4F
+WEAP	BNAM	22	22	153	Starfield.esm 21, ShatteredSpace.esm 1	Starfield.esm 000297F6; Starfield.esm 000297F7; Starfield.esm 000547A0
+WEAP	ENAM	2	2	2	Starfield.esm 1, ShatteredSpace.esm 1	Starfield.esm 0026D963; ShatteredSpace.esm 010CA4CA
+WEAP	OBTF	144	926	144	Starfield.esm 103, SFBGS003.esm 2, SFBGS00D.esm 2, SFBGS050.esm 13, ShatteredSpace.esm 17, sfbgs00b.esm 2, sfta01.esm 1, sfta04.esm 1, sfta06.esm 1, kgcdoom.esm 2	Starfield.esm 00000FD6; Starfield.esm 00016758; Starfield.esm 0001BC4F
+WEAP	STOP	462	462	462	Starfield.esm 406, SFBGS003.esm 2, SFBGS004.esm 1, SFBGS00D.esm 2, SFBGS047.esm 1, SFBGS050.esm 13, ShatteredSpace.esm 27, sfbgs00b.esm 2, sfbgs019.esm 1, sfta01.esm 1, sfta04.esm 1, sfta05.esm 2, sfta06.esm 1, kgcdoom.esm 2	Starfield.esm 000001F4; Starfield.esm 000001F6; Starfield.esm 00000FD6
+WRLD	BFCE	600	1029	600	Starfield.esm 430, SFBGS003.esm 11, SFBGS008.esm 3, SFBGS00D.esm 57, SFBGS047.esm 1, SFBGS050.esm 36, ShatteredSpace.esm 42, sfbgs00b.esm 1, sfta01.esm 5, sfta02.esm 1, sfta03.esm 2, sfta04.esm 7, sfta05.esm 2, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 00002D62; Starfield.esm 00002D64; Starfield.esm 00005944
+WRLD	WHGT	561	561	583	Starfield.esm 421, SFBGS003.esm 8, SFBGS008.esm 2, SFBGS00D.esm 55, SFBGS050.esm 23, ShatteredSpace.esm 37, sfbgs00b.esm 1, sfta01.esm 5, sfta02.esm 1, sfta03.esm 2, sfta04.esm 3, sfta05.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 00002D62; Starfield.esm 00002D64; Starfield.esm 00005944
+WRLD	XCLW	561	561	583	Starfield.esm 421, SFBGS003.esm 8, SFBGS008.esm 2, SFBGS00D.esm 55, SFBGS050.esm 23, ShatteredSpace.esm 37, sfbgs00b.esm 1, sfta01.esm 5, sfta02.esm 1, sfta03.esm 2, sfta04.esm 3, sfta05.esm 1, sfta06.esm 1, kgcdoom.esm 1	Starfield.esm 00002D62; Starfield.esm 00002D64; Starfield.esm 00005944
+
+# GroupedPackIn blocks (XWPK..XWPK): plugin, blocks, with LNAM, with an empty LNAM
+# Starfield.esm	153024	153024	0
+# BlueprintShips-SFBGS050.esm	71266	71266	0
+# BlueprintShips-Starfield.esm	1440604	1440604	0
+# SFBGS003.esm	7946	7946	0
+# SFBGS006.esm	6	6	0
+# SFBGS00D.esm	38694	38694	0
+# SFBGS050.esm	23662	23662	0
+# ShatteredSpace.esm	1496	1496	0
+# blueprintships-sfta03.esm	4936	4936	0
+# blueprintships-sfta06.esm	17121	17121	0
+# blueprintships-shatteredspace.esm	40095	40095	0
+# sfbgs00b.esm	1770	1770	0
+# sfta02.esm	2	2	0
+# sfta03.esm	118	118	0
+# sfta04.esm	1	1	0
+# sfta05.esm	181	181	0
+# sfta06.esm	30432	30432	0
+# kgcdoom.esm	2931	2931	0

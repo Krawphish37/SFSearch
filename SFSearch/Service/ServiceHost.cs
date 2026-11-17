@@ -50,13 +50,13 @@ namespace SFSearch.Service
         static bool _short;
         static DateTime _shortSince = DateTime.MinValue, _bgPausedAt = DateTime.MinValue, _nextStopAllowed = DateTime.MinValue;
         static Worker? _lastStopped;
-        static long _ownMB, _shortStops, _shortPauses, _shortEpisodes, _lowestAvailMB = long.MaxValue;
+        static long _shortStops, _shortPauses, _shortEpisodes, _lowestAvailMB = long.MaxValue;
         /// <summary>A command holding less than this (MB) isn't stopped for the PC's sake: it would free next to nothing.</summary>
         const long ShortStopMinMB = 256;
         /// <summary>A page of a long answer when the caller asked for a cursor's next page without saying how big.</summary>
         const int DefaultPageChars = 20000;
 
-        static string _home = "", _logDir = "", _exe = "", _scratch = "", _scratchNote = "";
+        static string _home = "", _logDir = "", _exe = "", _scratch = "", _scratchNote = "", _indexesNote = "";
         static readonly DateTime Started = DateTime.Now;
         static readonly object Gate = new();
         static readonly CancellationTokenSource Stopping = new();
@@ -73,28 +73,33 @@ namespace SFSearch.Service
 
         // The indexer: one more low-priority lane, for the header pass, content hashes and link index of the later
         // milestones. One job at a time, only when no agent is waiting; a running one gives way when an agent has to wait.
-        const string IndexLane = "~index";
+        const string IndexLane = GiveWay.IndexLane;
         static long _indexRan, _indexGaveWay;
         // The header index of the new tools (milestone M5): built in the indexer lane when the service starts. While the
-        // service is idle it is checked again every 10 minutes (every plugin's quick stamp: about 30 ms), and once an
-        // hour every file is hashed again (about half a second with the files in Windows' cache). SFSEARCH_INDEX=0 turns
-        // all of it off: the first tool call that needs the index then builds it itself.
-        static bool IndexOn => Environment.GetEnvironmentVariable("SFSEARCH_INDEX") != "0";
+        // service is idle it is checked again every pluginCheckSeconds (sfsearch.json, 10 minutes by default: every
+        // plugin's quick stamp, about 30 ms), and once an hour every file is hashed again (about half a second with the
+        // files in Windows' cache). (SFSEARCH_INDEX=0, which turned all of it off, went in J37.)
         static readonly TimeSpan IndexSweepEvery = TimeSpan.FromMinutes(60);
-        // A test may make the idle check come sooner (SFSEARCH_TEST_HOOKS=1, SFSEARCH_TEST_INDEX_EVERY=<seconds>): the
-        // `historylook` service test waits for the service's own look
-        static readonly int? TestIndexEvery = Environment.GetEnvironmentVariable("SFSEARCH_TEST_HOOKS") == "1" && int.TryParse(Environment.GetEnvironmentVariable("SFSEARCH_TEST_INDEX_EVERY"), out int s) && s > 0 ? s : null;
-        static readonly TimeSpan IndexCheckEvery = TestIndexEvery is int t ? TimeSpan.FromSeconds(t) : TimeSpan.FromMinutes(10);
-        static readonly TimeSpan IndexQuiet = TestIndexEvery is int q ? TimeSpan.FromSeconds(Math.Min(30, q)) : TimeSpan.FromSeconds(30);
+        // The idle check's interval (pluginCheckSeconds); it comes after this long without an agent's command (IndexQuiet):
+        // 30 s, or the interval when that is shorter
+        static TimeSpan IndexCheckEvery => TimeSpan.FromSeconds(Cfg.PluginCheckSeconds);
+        static TimeSpan IndexQuiet => TimeSpan.FromSeconds(Math.Min(30, Cfg.PluginCheckSeconds));
         // changes2's history (2026-11-13, fix S11): the header index's jobs also take a look for it, unless historyLook is off
         static bool HistoryOn => Cfg.HistoryLook;
         static string _historyState = "no look yet";
         static DateTime _indexLast = DateTime.MinValue, _indexLastSweep = DateTime.Now;
         static string _indexState = "not built yet";
         // The link index of the refs tool (milestone M5, second half): after every job of the header index, the plugins
-        // that have no link file yet are walked, in the same lane. SFSEARCH_LINKS=0 turns it off: refs then searches bytes.
-        static bool LinksOn => IndexOn && Environment.GetEnvironmentVariable("SFSEARCH_LINKS") != "0";
+        // that have no link file yet are walked, in the same lane. (SFSEARCH_LINKS=0, which turned it off, went in J37.)
         static string _linksState = "not built yet";
+        // The kept indexes (J31, 2026-11-15): with keepStartupIndexes on, the header index and the link index are kept in
+        // indexes\ between starts. The start's build maps what is there and takes each plugin's content key from the
+        // stamps it remembers (a plugin whose quick stamp changed is hashed and read again); then one full check hashes
+        // every plugin, in this lane, after the link index's job: it catches a change in the middle of a file that kept its
+        // size, date and ends, and deletes the parts no plugin uses any more. Commands answer meanwhile.
+        static bool KeepIndexes => Cfg.KeepStartupIndexes;
+        static bool _startCheckQueued;
+        static readonly DateTime StartedUtc = DateTime.UtcNow;
         static bool IsBackground(string lane) => lane == IndexLane;
 
         // The heavy lane: one heavy command at a time, and only when Windows has its estimate plus the spare available
@@ -128,6 +133,8 @@ namespace SFSearch.Service
             // Indexer: when it was asked to give way, and how often it has
             public DateTime? YieldAsked;
             public int GaveWay;
+            /// <summary>Runs on a worker with the workstation garbage collector: the job asked for it on a server one (J58).</summary>
+            public bool Workstation;
             // What the command said about its answer, for the structured reply
             public SourceInfo[]? Source;
             public string[]? Read;
@@ -162,6 +169,10 @@ namespace SFSearch.Service
             /// <summary>Stopped so an agent's command could run: its indexer job is queued again, not counted as a crash.</summary>
             public bool Preempted;
             public bool LowPriority;
+            /// <summary>Its garbage collector: server (workerGarbageCollector) or workstation.</summary>
+            public bool ServerGc;
+            /// <summary>Started for a job that asked for the workstation collector (J58): retired when that job is done.</summary>
+            public bool ForWorkstationJob;
             /// <summary>When it last finished a command (or became ready): the idle workers above the setting go longest idle first.</summary>
             public DateTime IdleSince = DateTime.Now;
             /// <summary>Set when its command was stopped because the PC was short of memory: what Windows had available then (MB).</summary>
@@ -187,17 +198,18 @@ namespace SFSearch.Service
             _jobObject = CreateKillOnCloseJob();
             CleanOldLogs();
             PrepareScratch();
+            PrepareIndexes();
             File.WriteAllText(Wire.MarkerPath(_home), $"{Environment.ProcessId}|{DateTime.Now:o}|{_exe}");
-            Log($"Service started: process {Environment.ProcessId}, {Workers} workers");
+            Log($"Service started: process {Environment.ProcessId}, {Workers} workers; the service itself on .NET's {(System.Runtime.GCSettings.IsServerGC ? "server" : "workstation")} garbage collector");
             if (Home.OldDataLine(_home) is { } oldData) Log(oldData);
             Log($"Scratch folder {_scratch}: {_scratchNote}. Workers together may hold {ServiceMaxMB} MB; a worker is stopped above {HardMB} MB.");
+            Log($"Indexes folder {Path.Combine(_home, "indexes")}: {_indexesNote}.");
             Log(Cfg.MemoryLines()); // with the rewrite of an older sfsearch.json, when this start made it (fix S20)
-            MemoryInfo.OwnMB = () => Interlocked.Read(ref _ownMB);
             try
             {
                 lock (Gate)
                 {
-                    if (IndexOn) QueueIndex("build");
+                    QueueIndex("build");
                     Pump();
                 }
                 var accept = Task.Run(AcceptLoop);
@@ -271,6 +283,57 @@ namespace SFSearch.Service
             }
             catch (IOException e) { _scratchNote = "couldn't be prepared: " + e.Message; }
             catch (UnauthorizedAccessException e) { _scratchNote = "couldn't be prepared: " + e.Message; }
+        }
+
+        /// <summary>
+        /// Makes `indexes\` under the home (J31). With keepStartupIndexes on, what is in it is kept: the start's build maps
+        /// it again and its full check deletes the parts no plugin uses any more. Off, `header\` and `links\` are emptied
+        /// here, as the scratch folder is. A folder with files in it and no marker of ours wasn't made by SFSearch: nothing
+        /// in it is deleted.
+        /// </summary>
+        static void PrepareIndexes()
+        {
+            string root = Path.Combine(_home, "indexes");
+            try
+            {
+                Directory.CreateDirectory(root);
+                string marker = Path.Combine(root, Home.IndexesMarker);
+                var entries = Directory.GetFileSystemEntries(root);
+                if (entries.Length > 0 && !File.Exists(marker))
+                {
+                    _indexesNote = "it holds files SFSearch didn't put there, so nothing in it was deleted";
+                    return;
+                }
+                if (!File.Exists(marker)) File.WriteAllText(marker, Home.IndexesMarkerText);
+                var (bytes, files) = FolderBytes(root);
+                if (KeepIndexes)
+                {
+                    _indexesNote = $"kept from before ({files} file(s), {bytes / 1048576} MB; keepStartupIndexes): brought up to date plugin by plugin, then checked by a full hash";
+                    return;
+                }
+                int left = 0;
+                foreach (var part in new[] { "header", "links" })
+                {
+                    string dir = Path.Combine(root, part);
+                    if (!Directory.Exists(dir)) continue;
+                    try { Directory.Delete(dir, true); }
+                    catch (IOException) { left++; }
+                    catch (UnauthorizedAccessException) { left++; }
+                }
+                var (after, _) = FolderBytes(root);
+                _indexesNote = $"emptied at start (keepStartupIndexes is false): {(bytes - after) / 1048576} MB removed{(left > 0 ? $"; {left} folder(s) couldn't be removed whole" : "")}";
+            }
+            catch (IOException e) { _indexesNote = "couldn't be prepared: " + e.Message; }
+            catch (UnauthorizedAccessException e) { _indexesNote = "couldn't be prepared: " + e.Message; }
+        }
+
+        static (long Bytes, int Files) FolderBytes(string dir)
+        {
+            long bytes = 0; int files = 0;
+            if (!Directory.Exists(dir)) return (0, 0);
+            foreach (var f in new DirectoryInfo(dir).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true }))
+            { bytes += f.Length; files++; }
+            return (bytes, files);
         }
 
         // ---------------------------------------------------------------- Requests
@@ -366,21 +429,20 @@ namespace SFSearch.Service
                                 _rejected++;
                                 return Shape(null, new Reply { Done = true, Code = 3, Error = $"The service is busy: {queued} commands are waiting. Try again shortly." }, req);
                             }
-                            bool index = string.Equals(req.Lane, "index", StringComparison.OrdinalIgnoreCase);
-                            if (!index) _lastAgent = DateTime.Now;
+                            _lastAgent = DateTime.Now;
                             job = new Job
                             {
                                 Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}",
-                                Agent = index ? IndexLane : string.IsNullOrWhiteSpace(req.Agent) ? "cli" : req.Agent!,
+                                Agent = string.IsNullOrWhiteSpace(req.Agent) ? "cli" : req.Agent!,
                                 Args = req.Args ?? Array.Empty<string>(), Cwd = req.Cwd,
                                 Tool = string.IsNullOrWhiteSpace(req.Tool) ? null : req.Tool, Params = req.Params, Key = req.Key,
                                 // A caller that gives the estimate itself has said yes to a heavy run
-                                AllowHeavy = req.AllowHeavy || req.HeavyMB > 0 || (req.Args?.Any(a => a.Equals("--allow-heavy", StringComparison.OrdinalIgnoreCase)) ?? false)
+                                AllowHeavy = req.AllowHeavy || req.HeavyMB > 0 || (req.Args?.Any(a => a.Equals("--allow-heavy", StringComparison.OrdinalIgnoreCase) || JobContext.IsSaveFlag(a)) ?? false)
                                     // The run tool's own command line (sfs_run: args) may carry the flag
                                     || (req.Params != null && req.Params.Any(kv => kv.Key.Equals("args", StringComparison.OrdinalIgnoreCase) && kv.Value.ValueKind == System.Text.Json.JsonValueKind.Array
-                                        && kv.Value.EnumerateArray().Any(a => a.ValueKind == System.Text.Json.JsonValueKind.String && string.Equals(a.GetString(), "--allow-heavy", StringComparison.OrdinalIgnoreCase))))
+                                        && kv.Value.EnumerateArray().Any(a => a.ValueKind == System.Text.Json.JsonValueKind.String && (string.Equals(a.GetString(), "--allow-heavy", StringComparison.OrdinalIgnoreCase) || JobContext.IsSaveFlag(a.GetString())))))
                                     // A tool's own argument (sfs_record: allow_heavy) says yes too
-                                    || (req.Params != null && req.Params.Any(kv => kv.Key.Equals("allow_heavy", StringComparison.OrdinalIgnoreCase) && (kv.Value.ValueKind == System.Text.Json.JsonValueKind.True || kv.Value.ValueKind == System.Text.Json.JsonValueKind.String && kv.Value.GetString() is "true" or "1" or "yes"))),
+                                    || (req.Params != null && req.Params.Any(kv => kv.Key.Equals("allow_heavy", StringComparison.OrdinalIgnoreCase) && (kv.Value.ValueKind == System.Text.Json.JsonValueKind.True || kv.Value.ValueKind == System.Text.Json.JsonValueKind.String && (kv.Value.GetString() is "true" or "1" or "yes" || SFSearch.Records.HeavyAnswers.IsSave(kv.Value.GetString()))))),
                                 HeavyMB = req.HeavyMB >= Cfg.HeavyMinMB ? req.HeavyMB : 0,
                             };
                             _jobs[job.Id] = job;
@@ -643,7 +705,22 @@ namespace SFSearch.Service
                 if (free == null) break;
                 var job = TakeNext();
                 if (job == null) break;
-                Assign(free, job);
+                // A job that asked for the workstation garbage collector (J58: a big link walk) waits for a worker on it, which
+                // is started for it; every other job takes a worker of the setting's collector first
+                var kind = _workers.Where(w => w.Ready && w.Current == null && !w.Retiring && w.ServerGc == (!job.Workstation && Cfg.ServerGcWorkers))
+                    .OrderByDescending(w => w.IdleSince).FirstOrDefault();
+                if (job.Workstation && kind == null)
+                {
+                    if (!_workers.Any(w => !w.ServerGc && !w.Retiring)) // else one is starting, or busy
+                    {
+                        int before = _workers.Count;
+                        Spawn(gc: false, forWorkstationJob: true);
+                        if (_workers.Count > before) Log($"Worker {_workers[^1].Id} started on the workstation garbage collector for job {job.Id}: {job.Short}");
+                        else job.Workstation = false; // none could be started: it runs where it can, and isn't moved again
+                    }
+                    if (job.Workstation) { Enqueue(job, front: true); break; }
+                }
+                Assign(kind ?? free, job);
             }
             int queued = Startable();
             int running = _workers.Count(w => w.Current != null && !w.Blocked);
@@ -708,7 +785,7 @@ namespace SFSearch.Service
             job.YieldAsked = null;
             w.Current = job;
             if (job.Agent == IndexLane) { _indexRan++; SetPriority(w, low: true); }
-            Tell(w, new WorkOrder { Job = job.Id, Args = job.Args, Cwd = job.Cwd, Tool = job.Tool, Params = job.Params, AllowHeavy = job.AllowHeavy, HeavyMB = job.HeavyHeld ? job.HeavyMB : 0 });
+            Tell(w, new WorkOrder { Job = job.Id, Args = job.Args, Cwd = job.Cwd, Tool = job.Tool, Params = job.Params, AllowHeavy = job.AllowHeavy, HeavyMB = job.HeavyHeld ? job.HeavyMB : 0, LimitMB = HardFor(job) });
         }
 
         // ---------------------------------------------------------------- The heavy lane (call with Gate held)
@@ -748,7 +825,7 @@ namespace SFSearch.Service
             if (job.HeavyHeld)
             {
                 // It has the lane already. A bigger estimate than it was admitted with needs the memory checked again.
-                if (estimateMB <= job.HeavyMB || HeavyFits(estimateMB, out _)) { job.HeavyMB = Math.Max(job.HeavyMB, estimateMB); Tell(w, new WorkOrder { Kind = "grant", Job = job.Id, HeavyMB = estimateMB }); }
+                if (estimateMB <= job.HeavyMB || HeavyFits(estimateMB, out _)) { job.HeavyMB = Math.Max(job.HeavyMB, estimateMB); Tell(w, new WorkOrder { Kind = "grant", Job = job.Id, HeavyMB = estimateMB, LimitMB = HardFor(job) }); }
                 else DenyHeavy(w, job, estimateMB, "no_memory");
                 return;
             }
@@ -770,7 +847,7 @@ namespace SFSearch.Service
             if (!HeavyFits(estimateMB, out _)) { DenyHeavy(w, job, estimateMB, "no_memory"); return; }
             job.HeavyMB = estimateMB;
             TakeHeavy(job);
-            Tell(w, new WorkOrder { Kind = "grant", Job = job.Id, HeavyMB = estimateMB });
+            Tell(w, new WorkOrder { Kind = "grant", Job = job.Id, HeavyMB = estimateMB, LimitMB = HardFor(job) });
         }
 
         static void DenyHeavy(Worker w, Job job, int estimateMB, string reason)
@@ -796,9 +873,9 @@ namespace SFSearch.Service
             }
         }
 
-        static void Spawn()
+        static void Spawn(bool? gc = null, bool forWorkstationJob = false)
         {
-            var w = new Worker { Id = ++_workerSeq };
+            var w = new Worker { Id = ++_workerSeq, ForWorkstationJob = forWorkstationJob };
             string pipeName = $"sfsearch_w_{Wire.Hash(_home)}_{Environment.ProcessId}_{w.Id}";
             w.Pipe = NewPipe(pipeName, 1);
             var psi = new ProcessStartInfo(_exe)
@@ -813,6 +890,12 @@ namespace SFSearch.Service
             foreach (var a in new[] { "service", "worker", _home, pipeName }) psi.ArgumentList.Add(a);
             psi.Environment["SFSEARCH_HOME"] = _home;
             psi.Environment["SFSEARCH_SCRATCH"] = _scratch;
+            // The worker's garbage collector (workerGarbageCollector, J44): server with DATAS (its heaps grow and shrink
+            // with the work), or workstation. Set either way, so a DOTNET_ variable of the PC's can't pick it instead.
+            w.ServerGc = gc ?? Cfg.ServerGcWorkers;
+            bool serverGc = w.ServerGc;
+            psi.Environment["DOTNET_gcServer"] = serverGc ? "1" : "0";
+            if (serverGc) psi.Environment["DOTNET_GCDynamicAdaptationMode"] = "1"; else psi.Environment.Remove("DOTNET_GCDynamicAdaptationMode");
             try { w.Proc = Process.Start(psi)!; }
             catch (Exception e) { Log("Couldn't start a worker: " + e.Message); w.Pipe.Dispose(); return; }
             try { w.Proc.StandardInput.Close(); } catch (Exception) { } // nothing a command does can wait on input
@@ -871,7 +954,7 @@ namespace SFSearch.Service
                 case "done":
                     {
                         var job = w.Current;
-                        w.Current = null; w.Blocked = false; w.Served++; w.IdleSince = DateTime.Now; w.MemMB = MemoryInfo.Scaled(e.MemMB); w.OpenPlugins = e.OpenPlugins;
+                        w.Current = null; w.Blocked = false; w.Served++; w.IdleSince = DateTime.Now; w.MemMB = e.MemMB; w.OpenPlugins = e.OpenPlugins;
                         w.HeavyAsk = null; _heavyWaiters.Remove(w);
                         SetPriority(w, low: false);
                         if (job != null && job.Id == e.Job && e.Yielded && job.Agent == IndexLane && !job.Cancelled)
@@ -883,6 +966,16 @@ namespace SFSearch.Service
                             Enqueue(job, front: true);
                             Log($"job {job.Id} [{job.Agent}] gave way after {e.Ms} ms; queued again: {job.Short}");
                         }
+                        else if (job != null && job.Id == e.Job && e.Workstation && w.ServerGc && !job.Workstation && !job.Cancelled)
+                        {
+                            // It asked for the workstation garbage collector (J58: a big link walk) and did nothing here:
+                            // queued again at the front, for a worker on that collector. Once: there it runs.
+                            job.Workstation = true;
+                            ReleaseHeavy(job);
+                            job.Started = null; job.On = null; job.YieldAsked = null; job.Attempts = Math.Max(0, job.Attempts - 1);
+                            Enqueue(job, front: true);
+                            Log($"job {job.Id} [{job.Agent}] asked for a worker on the workstation garbage collector after {e.Ms} ms; queued again: {job.Short}");
+                        }
                         else if (job != null && job.Id == e.Job)
                         {
                             job.Source = e.Source; job.Read = e.Read; job.Failure = e.Failure; job.Heavy = e.Heavy; job.MemMB = e.MemMB; job.ToolMore = e.More;
@@ -893,6 +986,11 @@ namespace SFSearch.Service
                             _served++;
                             if (e.Code != 0) _failed++;
                             Log($"job {job.Id} [{job.Agent}] w{w.Id} {e.Ms} ms exit {e.Code} mem {e.MemMB} MB: {job.Short}");
+                            // The caller answered "save_index" (J33): the index is made in the indexer lane now that the answer is given
+                            if (e.IndexAfter == "world")
+                            {
+                                if (QueueWorldIndex()) Log($"Indexer: the world link index asked for by job {job.Id} (save_index) is queued.");
+                            }
                             if (job.Agent == IndexLane && job.Args.Length > 0 && job.Args[0] == "__index")
                             {
                                 _indexState = (e.Out ?? "").Split((char)10)[0].Trim();
@@ -905,7 +1003,14 @@ namespace SFSearch.Service
                                     Log("History: " + _historyState);
                                 }
                                 // The header index is up to date: now the link index, for every plugin that has no link file yet
-                                if (LinksOn && e.Code == 0) QueueLinks();
+                                if (e.Code == 0) QueueLinks();
+                                // Kept indexes: after the start's build and its link job, one full check of every plugin (J31)
+                                if (e.Code == 0 && KeepIndexes && !_startCheckQueued && job.Args.Length > 1 && job.Args[1] == "build")
+                                {
+                                    _startCheckQueued = true;
+                                    // No history look: the build's look at start is the start's (changes2 dates a change it finds by the next look)
+                                    QueueIndex("sweep", history: false, "--unused-before", StartedUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                                }
                                 // After every look of the header index: the material paths materials2 tells from what Data
                                 // names (fix S33h), gathered again when an archive, a loose .mat file or a plugin changed
                                 // (S33g: the plugins' records are read too); near-instant when the scratch folder already
@@ -918,9 +1023,14 @@ namespace SFSearch.Service
                             {
                                 _linksState = (e.Out ?? "").Split((char)10)[0].Trim();
                                 Log("Indexer: " + _linksState);
+                                // The world link index the user asked to keep, when the job made some of it (J32)
+                                foreach (var line in (e.Out ?? "").Split((char)10).Select(l => l.Trim()).Where(l => l.StartsWith("world link index:", StringComparison.Ordinal)))
+                                    Log("Indexer: " + line);
                             }
                         }
-                        if (w.MemMB > RecycleMB || w.Served >= RecycleJobs)
+                        if (w.ForWorkstationJob && job != null && job.Workstation && job.Finished != null && Cfg.ServerGcWorkers)
+                            Retire(w, $"started on the workstation garbage collector for job {job.Id}, which is done");
+                        else if (w.MemMB > RecycleMB || w.Served >= RecycleJobs)
                         {
                             w.Retiring = true;
                             Log($"Worker {w.Id} retired after {w.Served} commands ({w.MemMB} MB).");
@@ -932,10 +1042,13 @@ namespace SFSearch.Service
             Pump();
         }
 
-        /// <summary>Queues the header index's job in the indexer lane (call with Gate held): "build" at start, "sweep" while idle.</summary>
-        static void QueueIndex(string what)
+        /// <summary>Queues the header index's job in the indexer lane (call with Gate held): "build" at start, "sweep" while idle and after the start's build.</summary>
+        static void QueueIndex(string what, bool history = true, params string[] more)
         {
-            var job = new Job { Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}", Agent = IndexLane, Args = HistoryOn ? new[] { "__index", what, "--history" } : new[] { "__index", what }, Cwd = _home };
+            var args = new List<string> { "__index", what };
+            args.AddRange(more);
+            if (history && HistoryOn) args.Add("--history");
+            var job = new Job { Id = $"j{Environment.ProcessId:x}-{Interlocked.Increment(ref _jobSeq)}", Agent = IndexLane, Args = args.ToArray(), Cwd = _home };
             _jobs[job.Id] = job;
             _indexLast = DateTime.Now;
             Enqueue(job, front: false);
@@ -966,10 +1079,23 @@ namespace SFSearch.Service
             Enqueue(job, front: false);
         }
 
-        /// <summary>While nothing is asked: check the header index again every ten minutes, and hash every file again once an hour (call with Gate held).</summary>
+        /// <summary>
+        /// Queues `__links world` in the indexer lane (call with Gate held): it makes the world link files of the plugins
+        /// the user asked for (WorldLinks.Want) that have none. Not when one is already waiting: it reads what is asked
+        /// for when it starts. False when none was queued.
+        /// </summary>
+        static bool QueueWorldIndex()
+        {
+            static bool IsWorld(Job j) => j.Args.Length > 1 && j.Args[0] == "__links" && j.Args[1] == "world";
+            if (_lanes.TryGetValue(IndexLane, out var lane) && lane.Any(IsWorld)) return false;
+            QueueIndexerJob("__links", "world");
+            return true;
+        }
+
+        /// <summary>While nothing is asked: check the header index again every pluginCheckSeconds (10 minutes by default), and hash every file again once an hour (call with Gate held).</summary>
         static void IndexSweep()
         {
-            if (!IndexOn || DateTime.Now - _indexLast < IndexCheckEvery || DateTime.Now - _lastAgent < IndexQuiet) return;
+            if (DateTime.Now - _indexLast < IndexCheckEvery || DateTime.Now - _lastAgent < IndexQuiet) return;
             if (_lanes.Values.Any(l => l.Count > 0) || _workers.Any(w => w.Current != null)) return;
             bool sweep = DateTime.Now - _indexLastSweep >= IndexSweepEvery;
             if (sweep) _indexLastSweep = DateTime.Now;
@@ -1080,7 +1206,6 @@ namespace SFSearch.Service
                             else if (w.Ready && !w.Retiring && second && MemoryInfo.PrivateMB(w.Proc) is var idle and >= 0)
                                 w.MemMB = idle; // idle workers count toward the service's total too
                         }
-                        Interlocked.Exchange(ref _ownMB, _workers.Sum(w => w.MemMB));
                         Guard();
                         if (!second) { Pump(); continue; }
                         foreach (var w in _workers.ToList())
@@ -1089,12 +1214,13 @@ namespace SFSearch.Service
                             var limit = w.Current is { HeavyHeld: true } ? HeavyTimeout : JobTimeout;
                             if (w.Current is { } job && (job.HeavyHeld ? job.HeavySince ?? job.Started : job.Started) is { } st && DateTime.Now - st > limit)
                                 Kill(w, $"it ran longer than the {limit.TotalMinutes:0}-minute limit");
-                            else if (w.Current is { YieldAsked: { } asked, Cancelled: false } && DateTime.Now - asked > TimeSpan.FromSeconds(2) && w.KillReason == null && AgentsWaiting())
-                            {
-                                // An indexer job that didn't give way by itself
-                                w.Preempted = true;
-                                Kill(w, "an agent was waiting");
-                            }
+                        }
+                        // An indexer job that didn't give way by itself: stopped 2 s after it was asked (GiveWay.cs)
+                        var busy = _workers.Where(w => w.Current != null).ToList();
+                        foreach (int i in GiveWay.ToStop(busy.Select(w => new GiveWay.Running(w.Current!.Agent, w.Current.YieldAsked, w.Current.Cancelled || w.KillReason != null)).ToList(), DateTime.Now, AgentsWaiting()))
+                        {
+                            busy[i].Preempted = true;
+                            Kill(busy[i], "an agent was waiting");
                         }
                         foreach (var k in _cancelledKeys.Where(kv => DateTime.Now - kv.Value > TimeSpan.FromMinutes(1)).Select(kv => kv.Key).ToList())
                             _cancelledKeys.Remove(k);
@@ -1175,7 +1301,7 @@ namespace SFSearch.Service
                 var idx = _workers.FirstOrDefault(w => w.Current?.Agent == IndexLane);
                 int idxQueued = _lanes.TryGetValue(IndexLane, out var il) ? il.Count : 0;
                 sb.AppendLine($"Indexer: {(idx != null ? $"running on worker {idx.Id}" : "idle")}; {idxQueued} waiting. Since start: {_indexRan} run(s), gave way to an agent {_indexGaveWay} time(s).");
-                sb.AppendLine($"History (changes2): {(!IndexOn ? "no look by the service (SFSEARCH_INDEX=0): only changes2 takes one" : !HistoryOn ? "no look by the service (historyLook is off in sfsearch.json, or SFSEARCH_HISTORY=0): only changes2 takes one" : $"looked at with the header index, at the start and every {IndexCheckEvery.TotalMinutes:0.#} min while idle; the last: {_historyState}")}");
+                sb.AppendLine($"History (changes2): {(!HistoryOn ? "no look by the service (historyLook is off in sfsearch.json): only changes2 takes one" : $"looked at with the header index, at the start and {ServiceConfig.EveryText(Cfg.PluginCheckSeconds)} while idle (pluginCheckSeconds); the last: {_historyState}")}");
                 long total = MemoryInfo.TotalMB(), together = WorkersMB();
                 long avail = MemoryInfo.AvailableMB();
                 sb.AppendLine($"Memory: the workers together hold {together} MB of the {ServiceMaxMB} MB the service may use{(together > ServiceMaxMB ? " (over: no new command starts until some is given back)" : "")}. "
@@ -1188,8 +1314,8 @@ namespace SFSearch.Service
             {
                 lock (Gate)
                 {
-                    sb.AppendLine($"Header index job: {(IndexOn ? _indexState : "off (SFSEARCH_INDEX=0): the first tool call builds the index")}");
-                    sb.AppendLine($"Link index job: {(LinksOn ? _linksState : "off (SFSEARCH_LINKS=0): refs searches bytes, and find has no in-game names")}");
+                    sb.AppendLine($"Header index job: {_indexState}");
+                    sb.AppendLine($"Link index job: {_linksState}");
                     sb.AppendLine($"Open plugins (Mutagen overlays the new tools keep open), by worker: {(_workers.Count == 0 ? "no worker" : string.Join(", ", _workers.OrderBy(w => w.Id).Select(w => $"worker {w.Id}: {w.OpenPlugins}")))}.");
                 }
             }

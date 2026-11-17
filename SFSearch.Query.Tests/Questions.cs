@@ -284,7 +284,9 @@ static class MutagenOrder
         foreach (string n in names)
         {
             var p = c.Index.Plugin(n);
-            if (p?.Segment == null || p.Problems.MissingMasters.Count > 0) continue;   // Mutagen can't read FormIDs through a missing master either
+            // Mutagen can't read FormIDs through a missing master either, and its load order drops a plugin it refuses (C204:
+            // one FormKey held twice) and any plugin built on a dropped one (fixes.17, DropPlugin): MissionsGalore.esm here
+            if (p?.Segment == null || p.Problems.MissingMasters.Count > 0 || p.LeftOut != null) continue;
             mods.Add(c.Mod(p.Name));
         }
         return _loaded = mods;

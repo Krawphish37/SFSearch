@@ -24,14 +24,17 @@ namespace SFSearch.Engine
     {
         public const string Help = """
             query2 [<plugins>] "<sql>;" [--plugins <plugin,...>] [--scope plugins|winners|versions] [--rows N] [--cursor C]
-                   [--language <language>] [--max-chars N] [--allow-heavy] [--file query.sql | --stdin] [--json]
+                   [--language <language>] [--max-chars N] [--allow-heavy | --allow-heavy=save-index] [--file query.sql | --stdin] [--json]
               SQL over typed views, read live from the plugin files. No database is read or built.
 
               sql        One or more statements; the last SELECT's rows are the answer. Typed on the command line it must
                          end with ';': cmd.exe cuts a command at a line break, and a cut query would run as a shorter one.
                          --file and --stdin take any SQL.
-              --plugins  the plugins to read, each as it is: names in Data, or the path of one plugin file elsewhere.
-                         (The first word may name them too: query2 kgcdoom.esm "SELECT ...;")
+              --plugins  the plugins to read, each as it is, parted by commas: names in Data, a name with * (sfta*.esm),
+                         a set: @official (the game's own plugins and Bethesda's Creations), @loaded (every plugin the
+                         load order enables), @all (every plugin in Data), @winners (the winners scope); or the path of
+                         one plugin file elsewhere. A set's plugin that can't be read is left out, with a note.
+                         (The first word may name them too: query2 @official "SELECT ...;")
               --scope    plugins   (default when plugins are named) each plugin named, as it is; a Plugin column tells them apart
                          winners   (default with no plugin) for each record, the version the game uses
                          versions  every copy in every loaded plugin, with LoadOrder and IsWinner
@@ -40,10 +43,14 @@ namespace SFSearch.Engine
                          Spanish (es), French (fr), Italian (it), Japanese (ja), Polish (pl), Portuguese_Brazil (ptbr),
                          ChineseSimplified (zhhans, zh); text(Name, 'ja') gives one column in another language.
               --allow-heavy  run a query estimated over 10 s or 2 GB. Without it the answer is what it would cost.
+              --allow-heavy=save-index  run it now as --allow-heavy does; when the world link index would make it fast
+                         (Links WHERE ToKey = '...' over world data of plugins without one), save that index too (made after
+                         the answer). Where no index would help, the answer says so. (MCP: allow_heavy "save_index")
 
               What SQL sees: one view per record type (Weapon, Npc, ...: FormKey, EditorID, Plugin, IsOverride, one column
               per plain field, Json), one per list (Weapon_Keywords: FormKey, Idx, Value), ObjectModification and GameSetting
-              over all types of their signature, Records, Forms (every record, read or not), Links, schema.* tables.
+              over all types of their signature, Records, Forms (every record, read or not), Links, Conditions,
+              Plugins (every plugin's header: flags, size, record count, masters), schema.* tables.
               Functions: edid(fk), name(fk), winner(fk), versions(fk), type(fk), sig(fk), formkey(text), text(value, 'de').
               describe <type> lists a type's fields. Names shown have the Creation Kit's <ID=...> tag taken off; Json keeps it.
               SQL here only reads: DELETE, UPDATE, INSERT or DROP on a record table is an error. A temporary table of your
@@ -110,9 +117,8 @@ namespace SFSearch.Engine
             answer.Emit();
         }
 
-        static bool LooksLikePlugins(string text) =>
-            text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) is { Length: > 0 } parts
-            && parts.All(p => p.EndsWith(".esm", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".esp", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".esl", StringComparison.OrdinalIgnoreCase));
+        /// <summary>Plugin names, patterns or sets (@official) and nothing else: the first word of query2 may name them.</summary>
+        static bool LooksLikePlugins(string text) => PluginSets.LooksLikePlugins(text);
 
         static void Guarded(ToolArgs a, EngineAnswer answer, string? sql)
         {
@@ -139,12 +145,16 @@ namespace SFSearch.Engine
             public List<string> Plugins = new();
             public ScopeKind Scope;
             public List<(HeaderIndex Ix, IndexedPlugin Plugin, string? ShownAs)> ReadFrom = new();
+            /// <summary>How the plugins were named when a set was among them, as the answer repeats it: "@official (33 plugins)". Null: by their names.</summary>
+            public string? Shown;
         }
 
         /// <summary>
-        /// The plugins and the scope a caller named. A plugin file outside Data is read with its masters from Data, in
-        /// an index of its own: it can be queried alone or beside its masters, never beside other plugins.
-        /// Null with a failed answer.
+        /// The plugins and the scope a caller named: names, names with * or ?, sets (@official, @loaded, @all; @winners is
+        /// the winners scope), through the one resolver every verb uses (<see cref="PluginSets"/>, GAPS S117). A plugin
+        /// file outside Data is read with its masters from Data, in an index of its own: it can be queried alone or
+        /// beside its masters, never beside other plugins. A plugin a set holds that can't be read is left out with a
+        /// note; one named by itself is an error. Null with a failed answer.
         /// </summary>
         public static Target? Resolve(EngineIndex eng, string? pluginsText, string? scopeText, Language language, EngineAnswer answer, string verb, bool defaultWinners = true)
         {
@@ -155,32 +165,53 @@ namespace SFSearch.Engine
                 { answer.Fail($"{verb} has no scope named '{scopeText}'", "use plugins (each plugin named, as it is), winners (the version the game uses) or versions (every copy in every loaded plugin)", 2); return null; }
                 scope = s;
             }
-            var names = (pluginsText ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(n => n.Trim('"')).Where(n => n.Length > 0).ToList();
+            var names = string.IsNullOrWhiteSpace(pluginsText) ? new List<string>() : Home.SplitPluginList(pluginsText).Select(n => n.Trim().Trim('"')).Where(n => n.Length > 0).ToList();
+            var ix = eng.Index;
+            PluginNaming? naming = null;
+            if (names.Count > 0)
+            {
+                try { naming = PluginSets.Resolve(ix, names, verb: verb); }
+                catch (PluginSetException e) { answer.Fail(e.Message, e.Fix, 2); return null; }
+                // @winners is the winners scope: the version of each record the game uses
+                if (naming.WinnersOnly)
+                {
+                    if (scope is ScopeKind.Plugins or ScopeKind.Versions)
+                    { answer.Fail($"@winners is the winners scope, and scope {scope.ToString()!.ToLowerInvariant()} was asked for too", "ask for @winners (or scope winners) alone, or name the plugins: @loaded is every plugin the load order enables, each as it is", 2); return null; }
+                    scope = ScopeKind.Winners;
+                    names.Clear();
+                }
+            }
             if (scope is ScopeKind.Winners or ScopeKind.Versions && names.Count > 0)
             { answer.Fail($"the {scope.ToString()!.ToLowerInvariant()} scope reads the whole load order, and plugins were named too ({string.Join(", ", names)})", "leave plugins out, or use scope plugins. In the load-order scopes a WHERE Plugin = '…' narrows the rows", 2); return null; }
             scope ??= names.Count > 0 || !defaultWinners ? ScopeKind.Plugins : ScopeKind.Winners;
 
-            var ix = eng.Index;
             var t = new Target { Engine = null!, Ix = ix, Scope = scope.Value };
             if (scope == ScopeKind.Plugins)
             {
-                if (names.Count == 0) { answer.Fail($"{verb} names no plugin", "name one or more plugins, or use scope winners or versions", 2); return null; }
+                if (names.Count == 0 || naming == null) { answer.Fail($"{verb} names no plugin", "name one or more plugins, or use scope winners or versions", 2); return null; }
                 var picked = new List<(HeaderIndex Ix, IndexedPlugin Plugin, bool ByPath)>();
-                foreach (var n in names)
+                var unreadable = new List<string>();
+                foreach (var pick in naming.Picks)
                 {
-                    // A wildcard names every plugin in Data that fits
-                    if (Glob.IsPattern(n) && !n.Contains('\\') && !n.Contains('/'))
+                    if (pick.Plugin == null)
                     {
-                        var g = new Glob(n);
-                        var fits = ix.Plugins.Where(p => g.IsMatch(p.Name)).ToList();
-                        if (fits.Count == 0) { answer.Fail($"no plugin in Data fits \"{n}\" ({ix.Plugins.Count} plugins are there)", "check the pattern: loadorder2 lists the plugins"); return null; }
-                        picked.AddRange(fits.Select(p => (ix, p, false)));
+                        // A path, or a name that isn't in Data: read from the file, or the nearest names
+                        var one = RecordPick.Plugin(eng, pick.Item, answer);
+                        if (one == null) return null;
+                        picked.Add(one.Value);
                         continue;
                     }
-                    var one = RecordPick.Plugin(eng, n, answer);
-                    if (one == null) return null;
-                    picked.Add(one.Value);
+                    // A set or a pattern holds every plugin of its kind, readable or not: one that can't be read is left out, and said
+                    if (pick.Kind is PluginPickKind.Set or PluginPickKind.Pattern && ProblemNotes.Blocking(pick.Plugin) is { } blocked)
+                    { answer.Problem($"{blocked.What}. It was left out of {pick.Item}."); unreadable.Add(pick.Plugin.Name); continue; }
+                    // So is one Mutagen refuses, or whose master it refuses (C204): the query leaves such a plugin out of the
+                    // load-order scopes, and named by a set it failed the whole answer (query2 @loaded with MissionsGalore.esm)
+                    if (pick.Kind is PluginPickKind.Set or PluginPickKind.Pattern && pick.Plugin.LeftOut is { } leftOut)
+                    { answer.Problem($"{pick.Plugin.Name}: {leftOut.TrimEnd('.')}. It was left out of {pick.Item}."); unreadable.Add(pick.Plugin.Name); continue; }
+                    picked.Add((ix, pick.Plugin, false));
                 }
+                if (picked.Count == 0) { answer.Fail($"no plugin {string.Join(", ", naming.Items)} names can be read ({string.Join(", ", unreadable)})", "loadorder2 problems says what is wrong with each", 2); return null; }
+                if (naming.NamesASet) t.Shown = naming.Shown(picked.Select(p => p.Plugin.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
                 var byPath = picked.Where(p => p.ByPath).ToList();
                 if (byPath.Count > 1) { answer.Fail($"{byPath.Count} plugin files outside Data were named ({string.Join(", ", byPath.Select(p => p.Plugin.Path))})", "a file outside Data is read alone, or beside its own masters: ask about one at a time", 2); return null; }
                 if (byPath.Count == 1)
@@ -225,6 +256,19 @@ namespace SFSearch.Engine
             var result = target.Engine.Run(request);
             SqlNotes(answer, sql, result);
             Render(answer, result, maxChars, target);
+            SaveIndex(answer, result);
+        }
+
+        /// <summary>
+        /// The caller answered "save_index" (J33): when the statement is one the world link index answers (Links WHERE ToKey
+        /// = '…' over world data of plugins without one) and it ran, the index is saved after the answer; otherwise the
+        /// answer says no index would make it faster.
+        /// </summary>
+        public static void SaveIndex(EngineAnswer answer, QueryAnswer result)
+        {
+            if (!JobContext.SaveIndexAsked || result.Error != null || result.NotRun != null) return;
+            if (result.IndexWouldHelp is { } offer) IndexOffers.Take(answer, offer);
+            else IndexOffers.NothingToSave(answer, "SFSearch keeps indexes of where links are, not of the fields this query reads; the world link index answers Links WHERE ToKey = '…' over world data");
         }
 
         /// <summary>
@@ -245,9 +289,27 @@ namespace SFSearch.Engine
             }
             var notIndexed = new HashSet<string>(StringComparer.Ordinal);
             var world = WorldTypes.Of(seg);
-            for (int s = 0; s < world.Length; s++) if (world[s]) notIndexed.Add(seg.Signatures[s].Signature);
+            // World data: the records that link to it, from the plugin's world link index when the user made one (J32)
+            var wf = WorldLinks.For(p);
+            List<int>? worldEntries = null;
+            if (wf != null)
+            {
+                worldEntries = new List<int>();
+                if (HeaderIndex.TryParseFormKey(formKey, out var wo, out var wid) && seg.OwnerOf(wo) is int wOwner && wOwner >= 0)
+                {
+                    var (first, end) = wf.Range((ulong)wOwner << 24 | wid);
+                    var postings = wf.Postings;
+                    for (int i = first; i < end; i++) worldEntries.Add((int)postings[i].From);
+                    worldEntries = worldEntries.Distinct().OrderBy(e => e).ToList();
+                }
+                foreach (int entry in wf.Unread) notIndexed.Add(seg.Signatures[seg[entry].Signature].Signature);
+            }
+            // Its world types (J33): covered by its world link file, or what one would cover
+            var worldTypes = new HashSet<string>(StringComparer.Ordinal);
+            for (int s = 0; s < world.Length; s++) if (world[s]) worldTypes.Add(seg.Signatures[s].Signature);
+            if (wf == null) notIndexed.UnionWith(worldTypes);
             foreach (int entry in file.Unread) notIndexed.Add(seg.Signatures[seg[entry].Signature].Signature);
-            return new SFSearch.Query.LinkHolders(sigs, notIndexed);
+            return new SFSearch.Query.LinkHolders(sigs, notIndexed, worldEntries, worldTypes);
         }
 
         static readonly System.Text.RegularExpressions.Regex JsonEach = new(@"\bjson_(each|tree)\s*\(\s*(?:\w+\s*\.\s*)?Json\s*(?:,\s*'\$\.(?<list>[A-Za-z0-9_]+))?", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -284,6 +346,8 @@ namespace SFSearch.Engine
         public static void Sources(EngineAnswer answer, QueryAnswer result, Target target)
         {
             const int most = 6;
+            // How the plugins were named, first: "@official (33 plugins)"
+            if (target.Shown != null) answer.Source(target.Shown);
             foreach (var s in result.Sources.Take(result.Sources.Count > most + 1 ? most : int.MaxValue))
             {
                 var p = target.Ix.Plugin(s.Plugin);
@@ -321,7 +385,7 @@ namespace SFSearch.Engine
             }
             if (result.NotRun != null)
             {
-                JobContext.NotRun("Not run. " + result.NotRun.What, result.NotRun.MemoryMB, result.NotRun.What);
+                JobContext.NotRun("Not run. " + result.NotRun.What, result.NotRun.MemoryMB, result.NotRun.What, IndexOffers.Info(result.NotRun.SaveIndex, result.NotRun.Seconds));
                 answer.Refused();
                 return;
             }

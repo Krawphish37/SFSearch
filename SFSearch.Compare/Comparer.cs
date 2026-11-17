@@ -27,8 +27,9 @@ public sealed partial class Comparer
     HeaderIndex Index => Session.Index;
 
     /// <summary>For two versions of one plugin with the same masters: a pair of records with equal bytes in the two
-    /// files is equal, and isn't read. Off: every pair is read through Mutagen and compared (tests, and doubt).</summary>
-    public bool TrustEqualBytes { get; set; } = true;
+    /// files is equal, and isn't read. Off: every pair is read through Mutagen and compared. Internal (J81): only the
+    /// tests (sfscompare-tests, through InternalsVisibleTo) turn it off, to hold the two ways against each other.</summary>
+    internal bool TrustEqualBytes { get; set; } = true;
 
     public Comparer(CompareSession session) { Session = session; }
 

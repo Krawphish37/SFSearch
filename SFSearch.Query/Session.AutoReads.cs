@@ -8,6 +8,7 @@
 // and, when it narrows to nothing and nothing is read yet for the scope, every type of the scope. The usual cost
 // check comes after: a read over the limit is answered with its estimate and the call that runs it.
 using SFSearch.Index;
+using SFSearch.Records;
 using SFSearch.SchemaGen;
 
 namespace SFSearch.Query;
@@ -52,6 +53,17 @@ public sealed partial class QueryEngine
         static readonly string[] RecordColumns = { "FormKey", "FromKey" };
         /// <summary>What was read first for Records or Links, said once the read is let through.</summary>
         string? _autoReadNote, _autoReadRefused;
+        /// <summary>The statement narrows Records, Links or Conditions to some types or records.</summary>
+        bool _narrowed;
+        /// <summary>J33: plugins with no world link file whose world types a Links WHERE ToKey = '…' would have to read whole,
+        /// and those types: what the world link index would answer instead (offered as the third answer).</summary>
+        readonly HashSet<IndexedPlugin> _worldHelpPlugins = new();
+        readonly HashSet<string> _worldHelpSigs = new(StringComparer.Ordinal);
+        /// <summary>The statement has an OR: a type it names is read whole whatever index there is (J33: so no index is offered for that read).</summary>
+        bool _anyOr;
+
+        /// <summary>The world link index of the plugins that need it, as the host offers it; null when there is none to offer.</summary>
+        IndexOffer? WorldOffer() => _worldHelpPlugins.Count == 0 ? null : _e._options.WorldIndexOffer?.Invoke(_worldHelpPlugins);
 
         /// <summary>
         /// Each text literal the statement compares a column with: <c>Col = 'x'</c>, <c>'x' = Col</c>,
@@ -109,17 +121,32 @@ public sealed partial class QueryEngine
         /// </summary>
         List<ViewSpec>? AutoReads(Probed probed, List<Tok> toks)
         {
-            bool links = probed.Special.Contains("Links"), records = probed.Special.Contains("Records");
-            if (!links && !records || _req.NoAutoReads) return null;
-            string table = links && records ? "Records and Links" : links ? "Links" : "Records";
+            bool links = probed.Special.Contains("Links"), records = probed.Special.Contains("Records"), conds = probed.Special.Contains("Conditions");
+            _narrowed = false;
+            _anyOr = toks.Any(t => t.Is("OR"));
+            if (!links && !records && !conds || _req.NoAutoReads) return null;
+            var tables = new List<string>();
+            if (records) tables.Add("Records");
+            if (links) tables.Add("Links");
+            if (conds) tables.Add("Conditions");
+            string table = tables.Count == 1 ? tables[0] : string.Join(", ", tables.Take(tables.Count - 1)) + " and " + tables[^1];
+            bool several = tables.Count > 1;
+            // Conditions alone: only the types whose records can hold a condition (Conditions.cs)
+            Func<string, bool> candidate = !links && !records ? _e.ConditionSigs.Contains : _ => true;
             var inScope = ScopeSignatures();
             var named = new HashSet<string>(StringComparer.Ordinal);     // asked for by type: read even when big
             var wanted = new HashSet<string>(StringComparer.Ordinal);
             var why = new List<string>();
             var unknownTypes = new List<string>();
             var tooBig = new List<string>();
+            var tooBigSigs = new List<string>();
             // Plugins with no link file, for a ToKey: searched by their bytes once every comparison is known
             var byBytes = new List<(IndexedPlugin Plugin, string Key, HashSet<string> SchemaSigs)>();
+            // World records that link to a ToKey, from a plugin's world link index (J32): read alone
+            var fromWorld = new List<(IndexedPlugin Plugin, string Key, IReadOnlyList<int> Entries)>();
+            // J33: for each world type, the plugins whose world link index covers it: a statement that names it with a
+            // ToKey (and no OR) gets its records that link to the key from the index, not by reading the type whole
+            var worldCovered = new Dictionary<string, HashSet<IndexedPlugin>>(StringComparer.Ordinal);
             bool narrowed = false;
             foreach (var (col, value) in Comparisons(toks).Distinct())
             {
@@ -154,6 +181,18 @@ public sealed partial class QueryEngine
                             fromIndex = true;
                             wanted.UnionWith(held.Signatures);
                             foreach (var s in held.NotIndexed) if (schemaSigs.Contains(s)) { wanted.Add(s); fromSchema = true; }
+                            if (held.WorldEntries != null)
+                            {
+                                fromWorld.Add((p, value, held.WorldEntries));
+                                foreach (var ws in held.WorldTypes ?? Array.Empty<string>())
+                                    if (!held.NotIndexed.Contains(ws)) { if (!worldCovered.TryGetValue(ws, out var by)) worldCovered[ws] = by = new HashSet<IndexedPlugin>(); by.Add(p); }
+                            }
+                            else if (held.WorldTypes is { Count: > 0 } worldSigs && worldSigs.Any(schemaSigs.Contains))
+                            {
+                                // Its world records would come from its world link index, if the user made one (J33)
+                                _worldHelpPlugins.Add(p);
+                                foreach (var ws in worldSigs) if (schemaSigs.Contains(ws)) _worldHelpSigs.Add(ws);
+                            }
                         }
                         else if (p.Segment != null) byBytes.Add((p, value, schemaSigs));
                     }
@@ -162,31 +201,35 @@ public sealed partial class QueryEngine
                             : $"the types whose records link to {value} (link index), and those the index doesn't cover that can (schema)");
                 }
             }
-            foreach (var (p, key, schemaSigs) in byBytes) SearchBytes(p, key, schemaSigs, named, tooBig);
+            _narrowed = narrowed;
+            if (WorldOffer() is { } offer) _answer.IndexWouldHelp = offer;
+            foreach (var (p, key, schemaSigs) in byBytes) SearchBytes(p, key, schemaSigs, named, tooBig, tooBigSigs);
             NoteByBytes();
+            FromWorldIndex(fromWorld);
             foreach (string u in unknownTypes.Distinct(StringComparer.OrdinalIgnoreCase))
                 Note($"'{u}' isn't a record type, so nothing is read for it.{SFSearch.SchemaGen.NearNames.DidYouMean(_e.Views.RootNames.Where(r => r.Contains(u, StringComparison.OrdinalIgnoreCase) || u.Contains(r, StringComparison.OrdinalIgnoreCase)).Take(4).ToList())}");
 
             if (!narrowed && probed.Views.Count == 0)
             {
-                bool anyRead = _files.Any(f => _done[f].Keys.Any(k => k != FormsDone));
-                var unread = inScope.Keys.Where(s => _e._schema.TypesOf(s).Count > 0 && _files.Any(f => !_done[f].ContainsKey(s))).ToList();
+                bool anyRead = _files.Any(f => _done[f].Keys.Any(k => k != FormsDone && candidate(k)));
+                var unread = inScope.Keys.Where(s => candidate(s) && _e._schema.TypesOf(s).Count > 0 && _files.Any(f => !_done[f].ContainsKey(s))).ToList();
                 if (unread.Count == 0) return null;
                 if (anyRead && !_req.AllowHeavy)
                 {
                     var est = Estimate.None;
                     foreach (var f in _files) foreach (string s in unread) foreach (var l in Loads(f, s)) est += CostModel.Full(l.Load);
-                    Note($"{table} {(links && records ? "hold" : "holds")} only the record types read so far for {(_winners || _versions ? "the load order" : "these plugins")}. {unread.Count:N0} more type(s) of them aren't read ({string.Join(", ", unread.Select(_e.LabelOf).OrderBy(x => x, StringComparer.Ordinal).Take(8))}{(unread.Count > 8 ? ", …" : "")}): " +
-                        $"{Seconds(est.Seconds)} and {Memory(est.MemoryMB)} to read them all. Narrow to what you need and it is read first (WHERE Type = 'Armor', WHERE FormKey = '…', WHERE EditorID = '…'{(links ? ", WHERE ToKey = '…'" : "")}), or call again with allow_heavy=true to read every type.");
+                    Note($"{table} {(several ? "hold" : "holds")} only the record types read so far for {(_winners || _versions ? "the load order" : "these plugins")}. {unread.Count:N0} more type(s) of them aren't read ({string.Join(", ", unread.Select(_e.LabelOf).OrderBy(x => x, StringComparer.Ordinal).Take(8))}{(unread.Count > 8 ? ", …" : "")}): " +
+                        $"{Seconds(est.Seconds)} and {Memory(est.MemoryMB)} to read them all. Narrow to what you need and it is read first (WHERE Type = 'Armor', WHERE FormKey = '…', WHERE EditorID = '…'{(links ? ", WHERE ToKey = '…'" : "")}), or call again with allow_heavy=true to read every type. "
+                        + $"No saved index would make reading every type faster{(links ? " (the link indexes answer WHERE ToKey = '…')" : "")}.");
                     return null;
                 }
                 wanted.UnionWith(unread);
-                why.Add($"every record type of {(_winners || _versions ? "the load order" : "these plugins")}, because the query narrows to none (WHERE Type = '…', FormKey, EditorID{(links ? " or ToKey" : "")} would read less)");
+                why.Add($"every record type {(!links && !records ? "that can hold a condition " : "")}of {(_winners || _versions ? "the load order" : "these plugins")}, because the query narrows to none (WHERE Type = '…', FormKey, EditorID{(links ? " or ToKey" : "")} would read less)");
             }
             // What a byte search left out is said even when nothing else is read
             if (wanted.Count == 0)
             {
-                if (tooBig.Count > 0) NoteTooBig(tooBig, table, links);
+                if (tooBig.Count > 0) NoteTooBig(tooBig, tooBigSigs, table, links);
                 return null;
             }
 
@@ -196,24 +239,36 @@ public sealed partial class QueryEngine
             {
                 if (!inScope.ContainsKey(sig) || _e._schema.TypesOf(sig).Count == 0) continue;
                 if (_files.All(f => _done[f].ContainsKey(sig))) { if (!narrowed) continue; _usedLabels.Add(_e.LabelOf(sig)); continue; }
+                // A world type named with a ToKey, covered by the world link index of every plugin of the scope that holds it:
+                // its records that link to the key are read alone (FromWorldIndex), not the whole type (J33)
+                if (named.Contains(sig) && !_anyOr && worldCovered.TryGetValue(sig, out var covering)
+                    && _members.Where(m => m.Segment != null && m.Segment.Signatures.Any(x => x.Signature == sig)).All(covering.Contains)) continue;
                 var est = Estimate.None; long count = 0;
                 foreach (var f in _files) foreach (var l in Loads(f, sig)) { est += CostModel.Full(l.Load); count += l.Load.Count; }
-                if (!named.Contains(sig) && (Heavy(est) || count > _e._options.HeavyRecords)) { tooBig.Add($"{_e.LabelOf(sig)} ({count:N0} records)"); continue; }
+                if (!named.Contains(sig) && (Heavy(est) || count > _e._options.HeavyRecords)) { tooBig.Add($"{_e.LabelOf(sig)} ({count:N0} records)"); tooBigSigs.Add(sig); continue; }
                 if (_e.Views.Find(_e.LabelOf(sig)) is { IsList: false } view && !probed.Views.ContainsKey(view)) views.Add(view);
             }
-            if (tooBig.Count > 0) NoteTooBig(tooBig, table, links);
+            if (tooBig.Count > 0) NoteTooBig(tooBig, tooBigSigs, table, links);
             if (views.Count > 0)
             {
                 string which = $"{string.Join(", ", views.Select(v => v.Name).Take(12))}{(views.Count > 12 ? ", …" : "")} ({string.Join("; ", why.Distinct())})";
-                string holds = $"{table} {(links && records ? "hold" : "holds")} only the record types read";
+                string holds = $"{table} {(several ? "hold" : "holds")} only the record types read";
                 _autoReadNote = $"Read first, because {holds}: {(views.Count == 1 ? "1 type" : $"{views.Count:N0} types")}, {which}.";
                 _autoReadRefused = $"{holds}: this query needs {(views.Count == 1 ? "this one" : $"these {views.Count:N0}")} read first: {which}.";
             }
             return views;
         }
 
-        void NoteTooBig(List<string> tooBig, string table, bool links) =>
-            Note($"Not read for {table}, because each is over the cost limit by itself: {string.Join(", ", tooBig.Distinct())}. Their records aren't in this answer: name one (WHERE {(links ? "FromType" : "Type")} = '…') to have it read, with its cost said first.");
+        /// <summary>The types left out of Records or Links because each is too big to read whole. When they are world types the
+        /// world link index would answer for (J33), the note offers it: the answer as it is now, and the index saved after it.</summary>
+        void NoteTooBig(List<string> tooBig, List<string> sigs, string table, bool links)
+        {
+            string note = $"Not read for {table}, because each is over the cost limit by itself: {string.Join(", ", tooBig.Distinct())}. Their records aren't in this answer: name one (WHERE {(links ? "FromType" : "Type")} = '…') to have it read, with its cost said first.";
+            if (links && sigs.Any(_worldHelpSigs.Contains) && WorldOffer() is { } offer)
+                note += " " + HeavyAnswers.SaveLine(offer, "allow_heavy=\"save_index\"", "--allow-heavy=save-index", "get this answer as it is") + " Or leave them out, as this answer did.";
+            else note += $" No saved index would bring them in{(links ? "" : " (the link indexes answer Links WHERE ToKey = '…')")}.";
+            Note(note);
+        }
 
         /// <summary>What the byte searches of this statement found, per FormKey, said once.</summary>
         readonly Dictionary<string, BytesFound> _bytesFound = new(StringComparer.OrdinalIgnoreCase);
@@ -232,7 +287,7 @@ public sealed partial class QueryEngine
         /// for this statement. A type over the cost limit by itself is left out unless the statement names it, as
         /// when it would be read whole. A type already read whole has its links in the Links table already.
         /// </summary>
-        void SearchBytes(IndexedPlugin p, string key, HashSet<string> schemaSigs, HashSet<string> named, List<string> tooBig)
+        void SearchBytes(IndexedPlugin p, string key, HashSet<string> schemaSigs, HashSet<string> named, List<string> tooBig, List<string> tooBigSigs)
         {
             var seg = p.Segment!;
             var file = _files.FirstOrDefault(f => f.Members.Any(m => m.Plugin.Equals(p.Name, StringComparison.OrdinalIgnoreCase)));
@@ -248,7 +303,7 @@ public sealed partial class QueryEngine
                 if (!schemaSigs.Contains(sig) || _e._schema.TypesOf(sig).Count == 0 || _done[file].ContainsKey(sig)) continue;
                 var est = Estimate.None; long count = 0;
                 foreach (var l in Loads(file, sig)) { est += CostModel.Full(l.Load); count += l.Load.Count; }
-                if (!named.Contains(sig) && (Heavy(est) || count > _e._options.HeavyRecords)) { tooBig.Add($"{_e.LabelOf(sig)} ({count:N0} records)"); continue; }
+                if (!named.Contains(sig) && (Heavy(est) || count > _e._options.HeavyRecords)) { tooBig.Add($"{_e.LabelOf(sig)} ({count:N0} records)"); tooBigSigs.Add(sig); continue; }
                 mask[s] = any = true;
             }
             if (!any) return;
@@ -258,6 +313,29 @@ public sealed partial class QueryEngine
             found.Plugins++; found.Records += r.Records; found.Bytes += r.Bytes; found.Ms += r.Ms; found.Hits += r.Hits.Count; found.NotInflated += r.NotInflated.Count;
             foreach (int e in r.Hits) found.Types.Add(_e.LabelOf(seg.SignatureOf(seg[e])));
             if (refs.Count > 0) _keyedJobs.Add((file, refs, true, "", $"found by a byte search of {p.Name}"));
+        }
+
+        /// <summary>
+        /// Links WHERE ToKey = '…' for plugins with a world link index (J32): the world records that link to the key are
+        /// read alone for this statement, as a byte search's hits are, without reading their types whole. A type already
+        /// read whole has its links in the Links table already.
+        /// </summary>
+        void FromWorldIndex(List<(IndexedPlugin Plugin, string Key, IReadOnlyList<int> Entries)> found)
+        {
+            var said = new Dictionary<string, (int Plugins, int Records, SortedSet<string> Types)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (p, key, entries) in found)
+            {
+                var seg = p.Segment!;
+                var file = _files.FirstOrDefault(f => f.Members.Any(m => m.Plugin.Equals(p.Name, StringComparison.OrdinalIgnoreCase)));
+                if (file == null) continue;
+                if (!said.TryGetValue(key, out var s)) said[key] = s = (0, 0, new SortedSet<string>(StringComparer.Ordinal));
+                var refs = entries.Where(e => !_done[file].ContainsKey(seg.SignatureOf(seg[e]))).Select(e => new RecordRef(p.Id, e)).ToList();
+                foreach (var r in refs) s.Types.Add(_e.LabelOf(seg.SignatureOf(seg[r.Entry])));
+                said[key] = (s.Plugins + 1, s.Records + refs.Count, s.Types);
+                if (refs.Count > 0) _keyedJobs.Add((file, refs, true, "", $"from the world link index of {p.Name}"));
+            }
+            foreach (var (key, s) in said)
+                Note($"Links WHERE ToKey = '{key}': the world records that link to it (cells, placed objects, navmeshes, terrain) came from the world link index of {(s.Plugins == 1 ? "1 plugin" : $"{s.Plugins:N0} plugins")}: {s.Records:N0} record(s){(s.Types.Count > 0 ? $" ({string.Join(", ", s.Types.Take(8))}{(s.Types.Count > 8 ? ", …" : "")})" : "")}, read alone.");
         }
 
         void NoteByBytes()

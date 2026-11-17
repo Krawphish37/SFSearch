@@ -37,7 +37,9 @@ namespace SFSearch.Engine
 
         public int? Int(string name) => Text(name) is { } s && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) ? n : null;
 
-        public bool Flag(string name) => Text(name) is { } s && (s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1" || s.Equals("yes", StringComparison.OrdinalIgnoreCase));
+        /// <summary>A yes: true, 1, yes, or (J33) "save_index", the third answer of allow_heavy and of refs' world, which is a
+        /// yes that also saves an index (<see cref="Service.JobContext.SaveIndexAsked"/>).</summary>
+        public bool Flag(string name) => Text(name) is { } s && (s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1" || s.Equals("yes", StringComparison.OrdinalIgnoreCase) || SFSearch.Records.HeavyAnswers.IsSave(s));
 
         /// <summary>Arguments the tool doesn't have. A wrong name is an error with the real names, never ignored.</summary>
         public List<string> Unknown(params string[] known) =>

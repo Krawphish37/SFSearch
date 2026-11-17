@@ -303,7 +303,7 @@ static class ChangesTests
             var first = new ChangesReport(s, old, history, "the test's folder").Changes(new ChangesOptions { Now = t0 });
             Check(first.FirstRun && first.Changes.Count == 0, $"the first look: {first.Changes.Count} changes");
         }
-        var options = new IndexOptions { ScratchFolder = Path.Combine(ctx.Folder("changes-strings"), "scratch"), VersionText = "sfsreport-tests changes", PluginsTxt = "", Ccc = "", StringFiles = new SFSearch.Records.StringFiles(ctx.Data, null) };
+        var options = new IndexOptions { ScratchFolder = Path.Combine(ctx.Folder("changes-strings"), "scratch"), VersionText = "sfsreport-tests changes", PluginsTxt = "", Ccc = "", StringFiles = new SFSearch.Records.StringFiles(ctx.Data) };
         using var index = new HeaderIndex(PluginSource.FromFiles(files), options);
         var report = new ChangesReport(s, index, history, "the test's folder");
         // ---- 2. the same files with string files recorded: a line is added, and no change is listed

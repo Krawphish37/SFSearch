@@ -76,7 +76,7 @@ SFSearch 1.x had 25 MCP tools and a command for each. **They were removed in SFS
 | `Scripts <plugin> [--find t] [--show s]` | `scripts2 <plugin> [--find t] [--show s]` | |
 | `LossCheck <plugin>` | `check2 <plugin> --what roundtrip` | Compares the written file with the plugin byte for byte, and names the first record that differs |
 | `VerifyDb <plugin>` | `record <record> --view verify`; `check2 <plugin> --what roundtrip` | |
-| `Databases` | `status` | The scratch folder and the indexes |
+| `Databases` | `indexes` (through `sfs_run`) | What SFSearch keeps on disk: the header index and the link index, each one's size, coverage and age, and how to drop it. `sfs_status` has one line of it |
 | `Add`, `BuildCache`, `LiveScanCheck` | Nothing replaces them | They looked after stored tables |
 | `Session …` | `Service …` | The old name of the service command |
 | `--live` on any command | Not needed | Everything is read live |

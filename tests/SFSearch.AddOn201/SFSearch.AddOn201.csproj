@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A test add-on built against SFSearch 2.0.1 (the tag v2.0.1), not against this checkout: it calls the add-on API's
+       JobContext.RequireHeavy, NotRun and NotAllowedLine by their 2.0.1 signatures, so a later SFSearch that changes them
+       refuses it ("built against a different SFSearch", J81). Only for test homes:
+         dotnet build tests\SFSearch.AddOn201 -c Release -p:SfsExtensionsDir=<test home>\extensions
+       The first build takes the tag's source out of git (git archive, into obj\sfsearch-v2.0.1) and builds its SFSearch
+       there (a few minutes, once); this add-on then references that SFSearch.dll. -p:SfsDll=<an SFSearch.dll> names another.
+       SFSearch.ServiceTest addon201 runs its commands. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SfsTag Condition="'$(SfsTag)' == ''">v2.0.1</SfsTag>
+    <SfsTagDir>$(MSBuildThisFileDirectory)obj\sfsearch-$(SfsTag)\</SfsTagDir>
+    <SfsDll Condition="'$(SfsDll)' == ''">$(SfsTagDir)SFSearch\bin\Release\net10.0\SFSearch.dll</SfsDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="SFSearch">
+      <HintPath>$(SfsDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="NeedTestHome" BeforeTargets="Build" Condition="'$(SfsExtensionsDir)' == ''">
+    <Error Text="Name the test home's extensions folder: -p:SfsExtensionsDir=&lt;test home&gt;\extensions. This add-on is a test and never goes into SFSearch's own extensions folder." />
+  </Target>
+
+  <!-- SFSearch as the tag has it: its source from git (the whole tree: git archive run in a subfolder takes only that folder), built in Release. Skipped once its SFSearch.dll is there. -->
+  <Target Name="BuildTaggedSFSearch" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(SfsDll)')">
+    <RemoveDir Directories="$(SfsTagDir)" />
+    <MakeDir Directories="$(SfsTagDir)" />
+    <Exec Command="git archive --format=tar -o &quot;$(SfsTagDir)source.tar&quot; $(SfsTag)" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\" />
+    <Exec Command="tar -xf source.tar" WorkingDirectory="$(SfsTagDir)" />
+    <Delete Files="$(SfsTagDir)source.tar" />
+    <Exec Command="dotnet build &quot;$(SfsTagDir)SFSearch\SFSearch.csproj&quot; -c Release -nologo" />
+    <Error Text="SFSearch $(SfsTag) didn't build: $(SfsDll) isn't there." Condition="!Exists('$(SfsDll)')" />
+  </Target>
+
+  <Target Name="CopyToSfsExtensions" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SfsExtensionsDir)" />
+  </Target>
+
+</Project>

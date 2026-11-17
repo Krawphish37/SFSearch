@@ -201,7 +201,7 @@ static class Languages
             double cold = T(() => { foreach (var r in thousand) e.Card(e.Load(r)).ToText(); });
             double warm = T(() => { foreach (var r in thousand) e.Card(e.Load(r)).ToText(); });
             long bytes = 0;
-            double npc = T(() => { foreach (var r in npcs) { var rec = e.Load(r); bytes += RecordSerializer.ToUtf8(rec.Record, rec.Type).Length; } });
+            double npc = T(() => { foreach (var r in npcs) { var rec = e.Load(r); bytes += RecordSerializer.ToUtf8(rec.Record).Length; } });
             lines.Add($"{language}: 1,000 cards of Starfield.esm {cold / 1000:F2} s the first time, {warm / 1000:F2} s after; {npcs.Count:N0} NPCs to JSON {npc / 1000:F2} s ({bytes / 1048576.0:F1} MB)");
         }
         ctx.WriteReport("languages-cost.txt", lines);

@@ -75,18 +75,13 @@ public sealed class StringsStamp
 }
 
 /// <summary>
-/// Where a localized plugin's string files are found, worked out the way its texts are read (the record layer does it
-/// with Mutagen's own rules: loose files first, then the archives in the order Mutagen reads them). The header index
-/// takes one look per refresh and asks it for the stamp of each localized plugin.
+/// Where a localized plugin's string files are found, worked out the way its texts are read (the record layer asks
+/// Mutagen: loose files first, then the archives in the order Mutagen reads them). The header index asks once per
+/// refresh for the stamps of all its localized plugins.
 /// </summary>
 public abstract class StringFilesSource
 {
-    /// <summary>One look at the folders the string files can be in. Several threads may ask the look at once.</summary>
-    public abstract IStringFilesLook Look();
-}
-
-/// <summary>One look at the folders. Disposing it keeps what was learned (archives read) for the next look.</summary>
-public interface IStringFilesLook : IDisposable
-{
-    StringsStamp Stamp(string pluginPath, string pluginName);
+    /// <summary>The stamps of these plugins' string files (each given by its path and file name), in their order, from
+    /// one look at the folders. Several threads may ask at once.</summary>
+    public abstract StringsStamp[] Stamps(IReadOnlyList<(string PluginPath, string PluginName)> plugins);
 }

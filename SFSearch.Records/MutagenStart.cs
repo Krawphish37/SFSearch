@@ -12,7 +12,8 @@ public static class MutagenStart
     /// <summary>How long Warmup.Init took in this program, in ms (0 before it ran).</summary>
     public static double Ms { get; private set; }
 
-    /// <summary>Runs Mutagen's Warmup.Init once in this program; later calls return at once.</summary>
+    /// <summary>Runs Mutagen's Warmup.Init once in this program; later calls return at once. A call while
+    /// <see cref="Begin"/>'s run is under way waits for it.</summary>
     public static void Run()
     {
         lock (_gate)
@@ -23,5 +24,20 @@ public static class MutagenStart
             Ms = clock.Elapsed.TotalMilliseconds;
             _done = true;
         }
+    }
+
+    static int _begun;
+
+    /// <summary>
+    /// Starts <see cref="Run"/> on another thread and returns at once, for a command that may need Mutagen only late
+    /// or not at all: assets2 reads most records from their bytes (GAPS S30), and the header index asks Mutagen only
+    /// about a plugin that repeats a FormKey. The start-up then runs beside the work that needs no Mutagen. Mutagen's
+    /// own code that needs it (Warmup.Init, which holds a lock) waits for it to finish.
+    /// </summary>
+    public static void Begin()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _begun, 1) == 1) return;
+        lock (_gate) { if (_done) return; }
+        System.Threading.Tasks.Task.Run(Run);
     }
 }

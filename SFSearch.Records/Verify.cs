@@ -2,9 +2,10 @@
 // that record (uncompressed). It proves that the JSON an agent sees is the whole record. No database is involved:
 // everything happens in memory, and the only file written is a small test plugin in the scratch folder.
 //
-// The JSON alone doesn't carry everything a byte-exact write needs. What it lacks is taken from the record as Mutagen
-// read it, through Mutagen's public round-trip API: the order the subrecords had in the file, the string IDs of
-// translated texts, a package's data order, a compressed record's original stream, and a cell's child-group layout.
+// The JSON carries what a byte-exact write needs beside the fields as Mutagen.Bethesda.Serialization's round-trip notes
+// (1.38.6-fixes.3/4: the subrecord order C211, a compressed record's original stream C213, the string IDs of translated
+// texts C214, a cell's child-group layout C215), so the record is rebuilt from the JSON alone. One thing it still lacks
+// is taken from the record as Mutagen read it: a package's data order (WORKAROUNDS W13, until the serializer carries it).
 using System.Buffers.Binary;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -56,8 +57,6 @@ public sealed partial class Verifier
     public long BatchBytes { get; init; } = 4 << 20;
     /// <summary>The most bytes of a differing subrecord that a result quotes from each side.</summary>
     public int MaxBytes { get; init; } = 48;
-    /// <summary>Tests change the JSON here, to show that a JSON that is not the record is caught.</summary>
-    internal Action<JsonObject>? ChangeJsonForTests;
 
     public Verifier(RecordEngine engine) { _engine = engine; }
 
@@ -109,11 +108,10 @@ public sealed partial class Verifier
                 var loaded = _engine.Load(r);
                 item.Result.Type = loaded.Type;
                 var json = RecordSplit.WithoutChildren(_engine.Json(loaded));
-                ChangeJsonForTests?.Invoke(json);
-                // 2. The JSON back to a record
+                // 2. The JSON back to a record: everything a byte-exact write needs comes with the JSON, a package's
+                // procedure tree data order too since serializer 1.38.6-fixes.5 (C59 W13; sfsrecord-tests
+                // verify-json-notes holds that)
                 var rebuilt = (IMajorRecord)RecordSerializer.FromJson(json.ToJsonString(), loaded.Type);
-                // 3. What the JSON doesn't carry, from the record as read
-                GiveBack(loaded.Record, rebuilt, json, session.ModKey);
                 item.File = _engine.Raw(r);
                 item.RawFormId = item.File.FormId;
                 item.Rebuilt = rebuilt;
@@ -131,60 +129,6 @@ public sealed partial class Verifier
     }
 
     static string Short(string s) => s.Length <= 300 ? s.ReplaceLineEndings(" ") : s[..300].ReplaceLineEndings(" ") + "…";
-
-    // ------------------------------------------------------------------ What the JSON doesn't carry
-    static void GiveBack(IMajorRecordGetter read, IMajorRecord rebuilt, JsonObject json, ModKey modKey)
-    {
-        if (read.GetSubrecordOrder() is { } order) rebuilt.SetSubrecordOrder(order);
-        if (read.GetOriginalCompressedData() is { } compressed) rebuilt.SetOriginalCompressedData(compressed);
-        if (read is IPackageGetter pk && rebuilt is Package package && pk.GetProcedureTreeDataOrder() is { } dataOrder)
-            package.ProcedureTreeDataOrder = dataOrder.ToList();
-        if (read is ICellGetter cell && rebuilt is ICell newCell && cell.GetChildGroupLayout() is { } layout)
-            newCell.SetChildGroupLayout(layout);
-        foreach (var path in TextPaths(json, ""))
-            if (Resolve(read, path) is TranslatedString { StringsKey: { } key } from && Resolve(rebuilt, path) is TranslatedString to)
-                to.SetStringsKey(key, from.StringsKeySource, from.StringsKeyPlugin ?? modKey);
-    }
-
-    /// <summary>Every translated text of a record, by its path in the JSON: a text is written as an object with "TargetLanguage".</summary>
-    static IEnumerable<string> TextPaths(JsonNode? n, string p)
-    {
-        if (n is JsonObject o)
-        {
-            if (o.ContainsKey("TargetLanguage")) { yield return p; yield break; }
-            foreach (var (k, v) in o) if (v != null && k != RecordSplit.ChildKey) foreach (var x in TextPaths(v, p.Length == 0 ? k : $"{p}.{k}")) yield return x;
-        }
-        else if (n is JsonArray a)
-            for (int i = 0; i < a.Count; i++) if (a[i] != null) foreach (var x in TextPaths(a[i], $"{p}[{i}]")) yield return x;
-    }
-
-    [GeneratedRegex(@"([^.\[\]]+)|\[(\d+)\]")]
-    private static partial Regex SegmentRx();
-
-    /// <summary>Follows a JSON path through a Mutagen object by property name and list index.</summary>
-    internal static object? Resolve(object root, string path)
-    {
-        object? cur = root;
-        foreach (Match m in SegmentRx().Matches(path))
-        {
-            if (cur == null) return null;
-            if (m.Groups[2].Success)
-            {
-                int i = int.Parse(m.Groups[2].Value);
-                if (cur is System.Collections.IList l) cur = i < l.Count ? l[i] : null;
-                else if (cur is System.Collections.IEnumerable e) cur = e.Cast<object>().ElementAtOrDefault(i);
-                else return null;
-            }
-            else
-            {
-                string name = m.Groups[1].Value;
-                var type = cur.GetType();
-                var prop = type.GetProperty(name) ?? type.GetInterfaces().Select(t => t.GetProperty(name)).FirstOrDefault(pp => pp != null);
-                cur = prop?.GetValue(cur);
-            }
-        }
-        return cur;
-    }
 
     // ------------------------------------------------------------------ Writing and comparing
     void Write(PluginSession session, List<Item> items)

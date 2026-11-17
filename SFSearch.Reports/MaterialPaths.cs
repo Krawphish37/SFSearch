@@ -3,7 +3,8 @@
 //  - Whole, from a path some file in Data writes out: a .mat file's own path, the material paths .mat files name
 //    (their parent, their imports), the material paths every mesh (.nif) names in its header's strings, and the .mat
 //    texts the plugins' records hold (S33g: a material swap's materials, a landscape texture's, a biome's water; read
-//    from the records' bytes, RecordMats). Both hashes must agree: 64 bits.
+//    from the records' bytes, RecordMats), the material paths the particle files (.blob) name, and the paths the
+//    databases' own object names hold ("Data\Materials\x\y.mat_Material1", j811). Both hashes must agree: 64 bits.
 //  - From its name and a folder: the material's name (its BSComponentDB::CTName) is its file's name when the file hash
 //    agrees (48,740 of the game's 48,749), and the folder is one whose hash is the material's folder hash. The folders
 //    tried are those Data names: every folder of every archive, as it is and with its first folder read as materials\
@@ -43,6 +44,11 @@ public sealed class MaterialPathEvidence
     public int PathsFound => Paths.Count;
     public int FoldersFound => Folders.Count;
     public int FoldersTried { get; internal set; }
+    /// <summary>The distinct material paths Data writes (every text the gather tries as a path), and the pairs of
+    /// different paths among them with the same folder and file hashes: a database, and the game, would take them for
+    /// one material. Counted when gathered, not kept in the scratch file (0 there).</summary>
+    public int PathTexts { get; internal set; }
+    public List<(string A, string B)> Collisions { get; } = new();
     public int MatFiles { get; internal set; }
     public int Meshes { get; internal set; }
     /// <summary>Meshes read whole because Mutagen's stream of the entry failed (GAPS Part 2 row 32). Always 0 since
@@ -66,6 +72,12 @@ public sealed class MaterialPathEvidence
     /// <summary>The distinct .mat texts they hold.</summary>
     public int RecordTexts { get; internal set; }
     public double RecordSeconds { get; internal set; }
+    /// <summary>The particle files (.blob) read for the material paths they name (j811), and their bytes.</summary>
+    public int Blobs { get; internal set; }
+    public long BlobBytes { get; internal set; }
+    /// <summary>The names of the databases' objects that hold a material's path ("Data\Materials\x\y.mat_Material1": a
+    /// layer's material named for the file it was made in, j811).</summary>
+    public int DatabaseNames { get; internal set; }
     public DateTime GatheredUtc { get; internal set; }
     /// <summary>Taken by a plain call although a plugin changed since it was gathered (MaterialPaths.KeyOf).</summary>
     public bool OlderPlugins { get; internal set; }
@@ -77,12 +89,14 @@ public enum EvidenceFrom { Now, Memory, Scratch }
 
 public static class MaterialPaths
 {
-    static MaterialPathEvidence? _kept;
-    static readonly object Gate = new();
+    // Internal (J81): the tests read what this process holds, and forget it as a new process would start, through
+    // InternalsVisibleTo (sfsreport-tests' MaterialDatabaseTests.KeptNow and Forget)
+    internal static MaterialPathEvidence? _kept;
+    internal static readonly object Gate = new();
     /// <summary>The scratch file's name.</summary>
     public const string FileName = "material-paths.tsv";
     /// <summary>Changes when what the gather keeps changes, so an older file isn't used.</summary>
-    const string Version = "s33g-1";
+    const string Version = "s33a-2";
 
     static uint DirHash(string folder) => MaterialDatabase.ResourceId(folder + @"\x.mat").Dir;
 
@@ -112,20 +126,6 @@ public static class MaterialPaths
     /// <summary>A kept gather fits a key: the same key; or, when <paramref name="olderPlugins"/>, the same files part.</summary>
     static bool Fits(string kept, string key, bool olderPlugins) => kept == key || olderPlugins && FilesPart(kept) == FilesPart(key);
 
-    /// <summary>For the test: what this process holds now.</summary>
-    internal static MaterialPathEvidence? Current { get { lock (Gate) return _kept; } }
-
-    /// <summary>For the test: forget what this process holds, as a new process (or another worker) would start, and
-    /// with <paramref name="scratch"/> also the scratch file.</summary>
-    internal static void Forget(string? scratch)
-    {
-        lock (Gate)
-        {
-            _kept = null;
-            if (scratch != null) File.Delete(Path.Combine(scratch, FileName));
-        }
-    }
-
     /// <summary>The evidence for this key when it is at hand: in memory, else in the scratch folder. Null when it would
     /// have to be gathered. With <paramref name="olderPlugins"/> (a plain call), one gathered before a plugin changed
     /// is taken too (<see cref="KeyOf"/>); <see cref="MaterialPathEvidence.OlderPlugins"/> then says so.</summary>
@@ -148,15 +148,16 @@ public static class MaterialPaths
     /// <param name="databases">Every compiled material database, its material list read: only the hashes their
     /// materials have are kept.</param>
     /// <param name="textureNames">The texture names of the databases read whole.</param>
+    /// <param name="objectNames">The names of the databases' objects that hold ".mat" (<see cref="MaterialContents.MatNames"/>).</param>
     /// <param name="matFiles">Every .mat file in Data, each with the material paths it names.</param>
     /// <param name="plugins">Every plugin of the header index: their records' material paths (S33g).</param>
     internal static MaterialPathEvidence Get(string key, string? scratch, bool save, ArchiveStore store, IReadOnlyList<string> archives, IReadOnlyList<MaterialDatabase> databases,
-        Func<IEnumerable<string>> textureNames, Func<IReadOnlyList<(string Path, string[] Names)>> matFiles, IReadOnlyList<IndexedPlugin> plugins, out EvidenceFrom from)
+        Func<IEnumerable<string>> textureNames, Func<IEnumerable<string>> objectNames, Func<IReadOnlyList<(string Path, string[] Names)>> matFiles, IReadOnlyList<IndexedPlugin> plugins, out EvidenceFrom from)
     {
         lock (Gate)
         {
             if (Kept(key, scratch, out from) is { } have) return have;
-            var e = Gather(key, store, archives, databases, textureNames, matFiles, plugins);
+            var e = Gather(key, store, archives, databases, textureNames, objectNames, matFiles, plugins);
             from = EvidenceFrom.Now;
             if (save && scratch != null) Save(Path.Combine(scratch, FileName), e);
             return _kept = e;
@@ -170,6 +171,7 @@ public static class MaterialPaths
         readonly MaterialPathEvidence _e;
         readonly HashSet<uint> _wantDirs = new();
         readonly IReadOnlyList<MaterialDatabase> _databases;
+        readonly Dictionary<ulong, string> _every = new();
 
         public Collector(MaterialPathEvidence e, IReadOnlyList<MaterialDatabase> databases)
         {
@@ -206,6 +208,10 @@ public static class MaterialPaths
         {
             string p = MaterialsReport.RecordMaterial(text.Trim());
             var (file, _, dir) = MaterialDatabase.ResourceId(p);
+            ulong id = ((ulong)dir << 32) | file;
+            string same = p.Replace('/', '\\');
+            if (!_every.TryGetValue(id, out var had)) { _every[id] = same; _e.PathTexts = _every.Count; }
+            else if (!had.Equals(same, StringComparison.OrdinalIgnoreCase)) _e.Collisions.Add((had, same));
             if (!_wantDirs.Contains(dir)) { Both(System.IO.Path.GetDirectoryName(p) ?? ""); return; }
             if (_databases.Any(d => d.Has(file, dir))) _e.Paths.TryAdd(((ulong)dir << 32) | file, p);
             Folder(System.IO.Path.GetDirectoryName(p) ?? "");
@@ -213,7 +219,7 @@ public static class MaterialPaths
     }
 
     static MaterialPathEvidence Gather(string k, ArchiveStore store, IReadOnlyList<string> archives, IReadOnlyList<MaterialDatabase> databases,
-        Func<IEnumerable<string>> textureNames, Func<IReadOnlyList<(string Path, string[] Names)>> matFiles, IReadOnlyList<IndexedPlugin> plugins)
+        Func<IEnumerable<string>> textureNames, Func<IEnumerable<string>> objectNames, Func<IReadOnlyList<(string Path, string[] Names)>> matFiles, IReadOnlyList<IndexedPlugin> plugins)
     {
         var sw = Stopwatch.StartNew();
         var e = new MaterialPathEvidence { Key = k, GatheredUtc = DateTime.UtcNow };
@@ -231,11 +237,12 @@ public static class MaterialPaths
         // Every folder of every archive; and the material paths every mesh names, as header strings
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var withMeshes = new List<string>();
+        var withBlobs = new List<string>();
         foreach (var a in archives)
         {
             var paths = store.PathsOf(a);
             e.ArchivesNamed++;
-            bool meshes = false;
+            bool meshes = false, blobs = false;
             foreach (var p in paths.Paths)
             {
                 int at = p.LastIndexOf('\\');
@@ -245,9 +252,24 @@ public static class MaterialPaths
                     if (seen.Add(f)) c.Both(f);
                 }
                 if (!meshes && p.EndsWith(".nif", StringComparison.OrdinalIgnoreCase)) meshes = true;
+                if (!blobs && p.EndsWith(".blob", StringComparison.OrdinalIgnoreCase)) blobs = true;
             }
             if (meshes) withMeshes.Add(a);
+            if (blobs) withBlobs.Add(a);
         }
+        // The particle files (.blob), loose and in the archives: a particle system names its materials by path
+        // (sfbgs00b - main.ba2's completepsfx.blob: materials\effects\blood\bloodspurt_medium_01.mat, which nothing
+        // else in Data writes)
+        // A file read before (the same bytes: nine archives hold the same 27 MB file) isn't searched again
+        var blobsSeen = new HashSet<ulong>();
+        foreach (var loose in store.Loose.Where(f => f.EndsWith(".blob", StringComparison.OrdinalIgnoreCase)))
+        {
+            byte[] b;
+            try { b = File.ReadAllBytes(System.IO.Path.Combine(store.DataFolder, loose)); }
+            catch (Exception x) when (x is IOException or UnauthorizedAccessException) { continue; }
+            Blob(b, e, c, blobsSeen);
+        }
+        foreach (var a in withBlobs) Blobs(a, e, c, blobsSeen);
         part.Restart();
         var named = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
         var counts = new MeshCounts();
@@ -266,6 +288,15 @@ public static class MaterialPaths
         foreach (var t in rec.Texts.Keys) c.MatPath(t);
         e.RecordPlugins = rec.Plugins; e.Records = rec.Records; e.RecordBytes = rec.Bytes; e.RecordTexts = rec.Texts.Count;
         e.RecordSeconds = part.Elapsed.TotalSeconds;
+        // The databases' own names that hold a material's path (a layer's material made in a file: "Data\Materials\Test\
+        // Test\MGoulet_Pattern05_Test.mat_Material2" in SFBGS007's database): the text to ".mat"
+        foreach (var n in objectNames())
+        {
+            int at = n.IndexOf(".mat", StringComparison.OrdinalIgnoreCase);
+            if (at <= 0 || (at + 4 < n.Length && char.IsAsciiLetterOrDigit(n[at + 4]))) continue;
+            e.DatabaseNames++;
+            c.MatPath(n[..(at + 4)]);
+        }
         // The textures' folders
         var texFolders = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in textureNames())
@@ -284,9 +315,10 @@ public static class MaterialPaths
     /// of the 363 plugins in this Data folder (12.2 million records, 5.9 GB inflated, 55 s; notes\fix-s33efg.md): these
     /// 14 types and CELL are the only ones whose bytes hold a .mat text. LMSW (material swaps) holds most (11,965
     /// texts), then MTPT, LTEX, EFSQ, PNDT, BIOM, STDT. CELL is left out: 1.6 GB of inflated records for 7 texts,
-    /// which tell no path the other types don't. A set, so a test can ask for others (null reads every type).
+    /// which tell no path the other types don't. Not settable (J81); the test that gathers without the records empties
+    /// it for that gather and puts the types back (through InternalsVisibleTo).
     /// </summary>
-    internal static HashSet<string>? RecordTypes = new(StringComparer.Ordinal)
+    internal static readonly HashSet<string> RecordTypes = new(StringComparer.Ordinal)
     {
         "LMSW", "MTPT", "LTEX", "EFSQ", "PNDT", "BIOM", "STDT", "WRLD", "ACTI", "STAT", "DOOR", "MSTT", "CONT", "TERM",
     };
@@ -389,9 +421,15 @@ public static class MaterialPaths
     static bool PathByte(byte b) => b >= 0x20 && b < 0x7F && b is not ((byte)'"' or (byte)'*' or (byte)'<' or (byte)'>' or (byte)'?' or (byte)'|' or (byte)':');
 
     /// <summary>Every text in the bytes that ends in ".mat" (any letter case, then a byte that isn't a path's), with
-    /// the path characters before it. When the text holds "materials\" (or /) after its start, that is taken as its
-    /// start too: the byte before a path may be a length that reads as a letter.</summary>
-    internal static List<string> MatTexts(ReadOnlySpan<byte> d)
+    /// the path characters before it. When the text holds "materials\" (or /) after its start, the text from there is
+    /// listed too: the byte before a path may be a length that reads as a letter.</summary>
+    internal static List<string> MatTexts(ReadOnlySpan<byte> d) => PathTexts(d, "mat", "materials");
+
+    /// <summary>Every text in the bytes that ends in "." and the three letters of <paramref name="ext"/> (any letter
+    /// case, then a byte that isn't a path's), with the path characters before it; with <paramref name="root"/>, a text
+    /// that holds it (and a slash) after its start is listed from there too. The materials report reads a record's
+    /// mesh paths so (S8), one subrecord at a time.</summary>
+    internal static List<string> PathTexts(ReadOnlySpan<byte> d, string ext, string? root)
     {
         var list = new List<string>();
         int from = 0;
@@ -401,7 +439,7 @@ public static class MaterialPaths
             if (i < 0) break;
             int dot = from + i;
             from = dot + 1;
-            if (dot + 3 >= d.Length || (d[dot + 1] | 0x20) != 'm' || (d[dot + 2] | 0x20) != 'a' || (d[dot + 3] | 0x20) != 't') continue;
+            if (dot + 3 >= d.Length || (d[dot + 1] | 0x20) != ext[0] || (d[dot + 2] | 0x20) != ext[1] || (d[dot + 3] | 0x20) != ext[2]) continue;
             int end = dot + 4;
             if (end < d.Length && (char.IsAsciiLetterOrDigit((char)d[end]) || d[end] == (byte)'_')) continue; // .material, .mat2
             int start = dot;
@@ -409,11 +447,38 @@ public static class MaterialPaths
             if (dot - start < 1) continue;
             string text = Encoding.ASCII.GetString(d[start..end]).Trim();
             if (text.Contains("$(", StringComparison.Ordinal)) continue;
-            int m = text.IndexOf("materials", 1, StringComparison.OrdinalIgnoreCase);
-            if (m > 0 && m + 9 < text.Length && text[m + 9] is '\\' or '/' && text[m - 1] is not ('\\' or '/')) text = text[m..];
             list.Add(text);
+            // The byte before a path may be a length that reads as a letter ("Xmaterials\..."): the text from the root
+            // is taken too. Both are kept: a folder may end in the root's name ("BaseMaterials\"), and a text that
+            // isn't a material's path does no harm (j811: Neon_MetalRust01.mat was lost so)
+            int m = root == null ? -1 : text.IndexOf(root, 1, StringComparison.OrdinalIgnoreCase);
+            if (m > 0 && m + root!.Length < text.Length && text[m + root.Length] is '\\' or '/' && text[m - 1] is not ('\\' or '/')) list.Add(text[m..]);
         }
         return list;
+    }
+
+    /// <summary>The material paths an archive's particle files (.blob) name, read whole through Mutagen's reader.</summary>
+    static void Blobs(string archive, MaterialPathEvidence e, Collector c, HashSet<ulong> seen)
+    {
+        try
+        {
+            using var reader = Archive.CreateDisposableReader(GameRelease.Starfield, archive);
+            foreach (var f in reader.Files.Where(f => f.Path.EndsWith(".blob", StringComparison.OrdinalIgnoreCase)))
+            {
+                byte[] b;
+                try { b = f.GetBytes(); }
+                catch (Exception x) when (x is IOException or InvalidDataException) { continue; }
+                Blob(b, e, c, seen);
+            }
+        }
+        catch (Exception x) when (x is IOException or InvalidDataException or UnauthorizedAccessException or NotImplementedException or ArgumentException or OverflowException) { }
+    }
+
+    static void Blob(byte[] b, MaterialPathEvidence e, Collector c, HashSet<ulong> seen)
+    {
+        e.Blobs++; e.BlobBytes += b.Length;
+        if (!seen.Add(System.IO.Hashing.XxHash3.HashToUInt64(b))) return;
+        foreach (var t in MatTexts(b)) c.MatPath(t);
     }
 
     sealed class MeshCounts
@@ -483,7 +548,7 @@ public static class MaterialPaths
             sb.Append("# SFSearch material paths, made from file names in Data; delete it at will\t").Append(e.Key).Append('\n');
             sb.Append(string.Join("\t", "#stats", e.MatFiles, e.Meshes, e.MeshesReadWhole, e.ArchivesNamed, e.FoldersTried, e.MeshBytes, e.MeshDiskBytes,
                 e.Seconds.ToString("R", inv), e.MeshSeconds.ToString("R", inv), e.MatSeconds.ToString("R", inv), e.GatheredUtc.Ticks,
-                e.RecordPlugins, e.Records, e.RecordBytes, e.RecordTexts, e.RecordSeconds.ToString("R", inv))).Append('\n');
+                e.RecordPlugins, e.Records, e.RecordBytes, e.RecordTexts, e.RecordSeconds.ToString("R", inv), e.Blobs, e.BlobBytes, e.DatabaseNames)).Append('\n');
             foreach (var (k, v) in e.Paths) sb.Append("P\t").Append(k.ToString("x16")).Append('\t').Append(v).Append('\n');
             foreach (var (k, v) in e.Folders) sb.Append("F\t").Append(k.ToString("x8")).Append('\t').Append(v).Append('\n');
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -505,7 +570,7 @@ public static class MaterialPaths
             int tab = first?.LastIndexOf('\t') ?? -1;
             if (first == null || tab < 0 || !Fits(first[(tab + 1)..], key, olderPlugins)) return null;
             var st = r.ReadLine()?.Split('\t');
-            if (st is not { Length: 17 } || st[0] != "#stats") return null;
+            if (st is not { Length: 20 } || st[0] != "#stats") return null;
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             var e = new MaterialPathEvidence
             {
@@ -513,7 +578,7 @@ public static class MaterialPaths
                 FoldersTried = int.Parse(st[5], inv), MeshBytes = long.Parse(st[6], inv), MeshDiskBytes = long.Parse(st[7], inv), Seconds = double.Parse(st[8], inv),
                 MeshSeconds = double.Parse(st[9], inv), MatSeconds = double.Parse(st[10], inv), GatheredUtc = new DateTime(long.Parse(st[11], inv), DateTimeKind.Utc),
                 RecordPlugins = int.Parse(st[12], inv), Records = long.Parse(st[13], inv), RecordBytes = long.Parse(st[14], inv), RecordTexts = int.Parse(st[15], inv),
-                RecordSeconds = double.Parse(st[16], inv),
+                RecordSeconds = double.Parse(st[16], inv), Blobs = int.Parse(st[17], inv), BlobBytes = long.Parse(st[18], inv), DatabaseNames = int.Parse(st[19], inv),
             };
             var hex = System.Globalization.NumberStyles.HexNumber;
             string? line;

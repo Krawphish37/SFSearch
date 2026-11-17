@@ -1,0 +1,100 @@
+{
+  "about": "The polish cases of two fixes of 2026-11-16, in the shape of polish.json: a set's plugin that Mutagen refuses is left out with a note, and a GUID in the form Wwise and xEdit show. In a file of their own so that other fixes' cases don't collide with them.",
+  "cases": [
+    {
+      "n": 173,
+      "title": "query2 over @loaded answers when the load order holds a plugin Mutagen refuses: the plugin is left out and the notes say so",
+      "before": "query2 @loaded \"SELECT count(*) FROM Weapon;\" answered \"Error: MissionsGalore.esm can't be read: Mutagen refuses it\" (its records share FormKeys, C204), where @winners left the plugin out. A set left out a plugin with a read error or a missing master, but not a refused one.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_query",
+            "params": {
+              "sql": "SELECT count(*) AS Weapons FROM Weapon;",
+              "plugins": "@loaded",
+              "allow_heavy": true
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "a count, no error, and the refused plugin named as left out of the set",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| \\d[\\d,]* \\|"
+              },
+              {
+                "call": 1,
+                "part": "all",
+                "not_matches": "can't be read"
+              },
+              {
+                "call": 1,
+                "part": "all",
+                "matches": "MissionsGalore\\.esm: Mutagen refuses it[^\\n]*It was left out of @loaded"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 174,
+      "title": "a sound reference's GUID in the form Wwise and xEdit show: first on the card, and by wwise() in query2 (Mutagen register C5)",
+      "before": "Eon's equip sound read 836f4d41-ec16-59a5-d734-f9911bfcd7a2, the same 16 bytes as .NET prints them; xEdit and Wwise show {59A5EC16-836F-4D41-A2D7-FC1B91F934D7} (Play_WPN_Pistol_Eon_Equip_Up), so a GUID taken from SFSearch didn't find the event. Held to xEdit by the user on Eon, Cutter and Grendel, six of six.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "0476C4:Starfield.esm",
+              "plugin": "Starfield.esm",
+              "max_chars": 200000
+            }
+          },
+          {
+            "tool": "sfs_query",
+            "params": {
+              "sql": "SELECT EditorID, Equip_StartEvent, wwise(Equip_StartEvent) AS Wwise FROM Weapon WHERE EditorID IN ('Eon','Cutter','Grendel') ORDER BY EditorID;",
+              "plugins": "Starfield.esm"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "the card gives the Wwise form with Mutagen's beside it, and wwise() gives xEdit's GUID for each of the three weapons while the column keeps Mutagen's",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "\\{59A5EC16-836F-4D41-A2D7-FC1B91F934D7\\}[^\\n]*836f4d41-ec16-59a5-d734-f9911bfcd7a2 as Mutagen reads it"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "\\{5A9FB96D-12DB-475C-B405-CAF18B475C77\\}"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^\\| Cutter \\| e70d49b2-f32b-f47b-f0dc-8194d8da9083 \\| \\{F47BF32B-E70D-49B2-8390-DAD89481DCF0\\} \\|"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^\\| Eon \\| 836f4d41-ec16-59a5-d734-f9911bfcd7a2 \\| \\{59A5EC16-836F-4D41-A2D7-FC1B91F934D7\\} \\|"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^\\| Grendel \\| 908943b9-3765-4edf-6739-4412bb16f3a2 \\| \\{4EDF3765-9089-43B9-A2F3-16BB12443967\\} \\|"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

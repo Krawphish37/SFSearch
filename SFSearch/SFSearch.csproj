@@ -8,14 +8,14 @@
     <!-- The first number is the add-on API: raise it only when ISfsExtension or the helpers add-ons use change in a breaking way (DEVELOPING.md).
          2.0: the older commands and their helpers (Sfs, Program.EnsureCacheForFile, RecordStore, LegacyStore, ...) were removed;
          add-ons use SFSearch.AddOns (AddOnApi.cs). An add-on built for 1.x is refused with "rebuild it". -->
-    <Version>2.0.1</Version>
+    <Version>2.1.0</Version>
     <!-- The link index and the byte search read memory-mapped files in place (SFSearch\Engine\LinkFile.cs, ByteSearch.cs) -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
-    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.17" />
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.25" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,7 +24,20 @@
          placed objects took 8.1 to 8.8 s with the wait and 5.7 to 6.5 s without (design\agent-first\notes\perf-reads.md).
          The service's workers are this program, so they get it too. -->
     <RuntimeHostConfigurationOption Include="System.Runtime.TieredCompilation.CallCountingDelayMs" Value="0" />
+    <!-- DATAS for the server garbage collector: its heaps grow and shrink with the work (on by default in .NET 10 for
+         server; said here so the program doesn't depend on that default). See ServerGarbageCollection below. -->
+    <RuntimeHostConfigurationOption Include="System.GC.DynamicAdaptationMode" Value="1" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <!-- A command run without the service starts on .NET's server garbage collector (J59, 2026-11-15): every cell of
+         Starfield.esm read on many threads about 2.5 times as fast. That start costs nothing where workerGarbageCollector
+         ("auto": one command may use 2.5 GB or more) picks server. Where it picks workstation, the command starts itself
+         again with DOTNET_gcServer=0 (Program.RunOnChosenCollector, about 0.2 s). The service itself is started with
+         DOTNET_gcServer=0 (SessionServer.StartLocked), its workers with the collector the setting picks (ServiceHost.Spawn).
+         The MCP server is another program and keeps workstation. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
 
   <!-- The agent-first engine (design\agent-first): the header index, and the schema the new tools read record types from. -->
   <ItemGroup>

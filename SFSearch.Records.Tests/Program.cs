@@ -44,6 +44,8 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("known-weapon", Tests.KnownWeapon),
     ("reflection-card", ReflectionCard.Run),
     ("evidence-items", EvidenceItems.Run),
+    ("link-positions", LinkPositions.Run),
+    ("value-positions", ValuePositions.Run),
     ("heavy-list", HeavyPart.List),
     ("heavy-part", HeavyPart.Run),
     ("unknown-field", Tests.UnknownField),
@@ -58,6 +60,7 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("languages-cost", Languages.Cost),
     ("cards-mods", Tests.CardsOfTheMods),
     ("cards-starfield", Tests.CardsOfStarfield),
+    ("names-with-spaces", Tests.NamesWithSpaces),
     ("fields-defaults", Tests.FieldsDefaults),
     ("card-defaults", Tests.CardDefaultsShown),
     ("derived-fields", Tests.DerivedFields),
@@ -65,8 +68,10 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("names-load-order", Tests.NamesWholeLoadOrder),
     ("text-places", TextSearch.Places),
     ("text-search", TextSearch.Search),
+    ("text-plain", TextSearch.Plain),
     ("verify-mods", Tests.VerifyTheMods),
     ("verify-starfield", Tests.VerifyStarfield),
+    ("verify-json-notes", JsonNotes.Run),
     ("timing", Tests.Timing),
     ("nested-route", Tests.NestedRoute),
     ("direct-top-level", Tests.DirectTopLevel),
@@ -129,7 +134,7 @@ sealed class Ctx : IDisposable
     /// <summary>The engine over the whole Data folder, made once: plugins stay open from test to test.</summary>
     public RecordEngine Engine => _engine ??= Track(new RecordEngine(DataIndex, Schema, Path.Combine(Work, "verify"), Data));
 
-    public IndexOptions Options(string? version = null) => new() { ScratchFolder = Path.Combine(Scratch, "index"), VersionText = version ?? VersionText, StringFiles = new StringFiles(Data, Path.Combine(Scratch, "index")) };
+    public IndexOptions Options(string? version = null) => new() { ScratchFolder = Path.Combine(Scratch, "index"), VersionText = version ?? VersionText, StringFiles = new StringFiles(Data) };
     public T Track<T>(T item) where T : IDisposable { _open.Add(item); return item; }
     public string Folder(string name) { string f = Path.Combine(Work, name); Directory.CreateDirectory(f); return f; }
     public void Dispose() { for (int i = _open.Count - 1; i >= 0; i--) _open[i].Dispose(); _open.Clear(); }

@@ -179,6 +179,10 @@ sealed class Functions
         // and NULL with a note for any other (the session rewrites text(Name, 'ja') on a view's column to read Json)
         c.CreateFunction("text", (string? v) => Languages.Text(v, language, notes, language), isDeterministic: true);
         c.CreateFunction("text", (string? v, string? lang) => Languages.Text(v, lang == null ? language : Languages.Name(lang), notes, language), isDeterministic: true);
+        // The views' flags number columns (<Field>Raw, GAPS S168): a flags column's list of names as the enum's number
+        c.CreateFunction("sfs_flagbits", (string? json, string? enumName) => FlagsRaw.FromNames(json, enumName), isDeterministic: true);
+        // A GUID column's value in the form Wwise and xEdit show (a sound reference's events): wwise(StartEvent)
+        c.CreateFunction("wwise", (string? guid) => SFSearch.Records.Card.WwiseGuid(guid), isDeterministic: true);
     }
 
     public void Register(SqliteConnection c)
@@ -190,6 +194,9 @@ sealed class Functions
         c.CreateFunction("winner", (string? fk) => Winner(fk), isDeterministic: true);
         c.CreateFunction("versions", (string? fk) => Versions(fk), isDeterministic: true);
         c.CreateFunction("sfs_iswinner", (string? fk, string? plugin) => IsWinner(fk, plugin), isDeterministic: true);
+        // The Forms view's FlagNames (GAPS S108): a record header's flags by Mutagen's names for its type
+        var flags = RecordFlags.For(_records.Schema);
+        c.CreateFunction("sfs_flagnames", (string? sig, long? f) => f is long v ? flags.Names(sig, unchecked((uint)v)) : null, isDeterministic: true);
         // Added for stored queries (M10): what kind of record a FormKey is, from the header index
         c.CreateFunction("sig", (string? fk) => Signature(fk), isDeterministic: true);
         c.CreateFunction("type", (string? fk) => Signature(fk) is { } s ? Label?.Invoke(s) ?? s : null, isDeterministic: true);

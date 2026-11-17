@@ -1,7 +1,6 @@
 // sfsquery-tests: the tests of the SQL layer (milestone M6 of design\agent-first\PLAN.md).
 //
 //   sfsquery-tests <Data folder> [--only name,name] [--work <folder>] [--report <folder>] [--heavy]
-//                  [--baseline <recorded answers of today's SFSearch>] [--today <SFSearch.exe> --today-home <test home>]
 //
 // Every test prints one line with its numbers. The Data folder is only read: scratch tables and the header index go
 // to the work folder (default %TEMP%\sfsquery-tests), which is emptied at the start. --report keeps the full lists.
@@ -24,8 +23,6 @@ string? Opt(string name) { int i = rest.IndexOf(name); if (i < 0 || i + 1 >= res
 string work = Path.GetFullPath(Opt("--work") ?? Path.Combine(Path.GetTempPath(), "sfsquery-tests"));
 string? report = Opt("--report") is { } rep ? Path.GetFullPath(rep) : null;
 bool heavy = rest.Remove("--heavy");
-// The stored queries held against today's Q macros (the stored-macros test): the recorded answers, and today's program to make more
-Macros.Baseline = Opt("--baseline"); Macros.TodayExe = Opt("--today"); Macros.TodayHome = Opt("--today-home");
 // --tool <SFSearch.exe> --tool-home <test home>: the SQL questions go through SFSearch's own query tool (milestone M8)
 Questions.ToolExe = Opt("--tool") is { } toolExe ? Path.GetFullPath(toolExe) : null; Questions.ToolHome = Opt("--tool-home") is { } toolHome ? Path.GetFullPath(toolHome) : null;
 var only = Opt("--only")?.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -57,17 +54,32 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("cost-notice", Tests.CostNotice),
     ("timing", Tests.Timing),
     ("views-all", Tests.EveryViewRuns),
+    ("plugins-view", PluginsTests.Run),
     ("two-processes", Tests.TwoProcesses),
     ("world-columns", Tests.WorldColumns),
     ("direct-columns", GSqlTests.DirectColumns),
+    ("world-reads", WorldReadTests.Run),
+    ("planned-columns", PlannedColumnTests.Run),
+    ("condition-lists", PlannedColumnTests.Conditions),
+    ("typed-all", TypedAllTests.Run),
+    ("lists-all", TypedAllTests.Lists),
+    ("shared-signatures", TypedAllTests.SharedSignatures),
+    ("read-census", ReadCensusTests.Run),
+    ("text-bytes", TextBytesTests.Run),
+    ("forms-sizes", GSqlTests.FormsSizes),
+    ("forms-flags", FlagsTests.Run),
+    ("flag-bits", FlagBitsTests.Run),
+    ("flag-raw", FlagRawTests.Run),
     ("keyed-reads", GSqlTests.KeyedReads),
     ("links-by-bytes", GSqlTests.LinksByBytes),
+    ("conditions", ConditionTests.Run),
+    ("list-reads", ListReadTests.Run),
+    ("query-memory", MemoryTests.Run),
     ("strings-stamp", GSqlTests.StringsStamp),
     ("scratch-build-key", GSqlTests.ScratchBuildKey),
     ("stored-format", Stored.Format),
     ("stored-shipped", Stored.Shipped),
     ("stored-mutagen", Stored.AgainstMutagen),
-    ("stored-macros", Macros.Run),
     ("stored-timing", Stored.Timing),
 };
 int failed = 0, ran = 0;

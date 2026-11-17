@@ -31,6 +31,7 @@ namespace SFSearch.Engine
               check    is a query's header in order, and does its SQL name real tables and columns? No plugin is read.
               run      runs one. Its parameters are given by name: saved run cobj plugin=kgcdoom.esm
                        The scope comes from the query's header unless --plugins or --scope says otherwise.
+                       --plugins and plugin= take names, a name with *, or a set (@official, @loaded, @all), as query2.
               save     checks a query file and keeps it as yours (queries\<name>.sql in the SFSearch home)
               Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...); 7 not run: heavy work that wasn't allowed;
               8 not enough memory free for heavy work that was allowed.
@@ -215,8 +216,20 @@ namespace SFSearch.Engine
                 ix = target.Ix;
                 readFrom.AddRange(target.ReadFrom);
             }
-            else if (named.TryGetValue("plugin", out var p) && ix.Plugin(p) is { } known && readFrom.Count == 0) readFrom.Add((ix, known, null));
+            // plugin= may name several plugins, patterns or a set (GAPS S117): each one's problems lead the notes. A plugin
+            // named by itself that can't be read is an error; one a set or a pattern holds is said
+            var fromSets = new List<(SFSearch.Index.HeaderIndex Ix, SFSearch.Index.IndexedPlugin Plugin, string? ShownAs)>();
+            if (target == null && readFrom.Count == 0 && named.TryGetValue("plugin", out var pluginArg))
+            {
+                try
+                {
+                    foreach (var pick in SFSearch.Index.PluginSets.Resolve(ix, Home.SplitPluginList(pluginArg), winnersAllowed: false, verb: "saved run").Picks)
+                        if (pick.Plugin != null) (pick.Kind == SFSearch.Index.PluginPickKind.Name ? readFrom : fromSets).Add((ix, pick.Plugin, null));
+                }
+                catch (SFSearch.Index.PluginSetException) { } // the stored query's own answer says what is wrong with the words
+            }
             if (!ProblemNotes.Add(answer, readFrom, required: true)) return;
+            ProblemNotes.Add(answer, fromSets, required: false, leftOut: false);
             var engine = EngineLibs.Query(eng, ix, english);
             var storedQueries = EngineLibs.Stored(engine);
             var run = new StoredRunRequest
@@ -225,6 +238,7 @@ namespace SFSearch.Engine
                 AllowHeavy = a.Flag("allow_heavy") || JobContext.HeavyAllowed, PageRows = rows, Cursor = a.Text("cursor")?.Trim('"'), MaxChars = maxChars, Language = a.Text("language"),
             };
             var result = storedQueries.Run(run);
+            if (target?.Shown != null) result.Named = target.Shown;
             foreach (var n in result.Notes) answer.Note(n);
             if (result.Error != null)
             {
@@ -234,11 +248,14 @@ namespace SFSearch.Engine
             }
             if (result.NotRun != null)
             {
-                JobContext.NotRun("Not run. " + result.NotRun.What, result.NotRun.MemoryMB, result.NotRun.What);
+                JobContext.NotRun("Not run. " + result.NotRun.What, result.NotRun.MemoryMB, result.NotRun.What, IndexOffers.Info(result.NotRun.SaveIndex, result.NotRun.Seconds));
                 answer.Refused();
                 return;
             }
+            // allow_heavy="save_index" (J33): a stored query reads the types it names; no index makes that faster
+            IndexOffers.NothingToSave(answer, "a stored query reads the record types it names, and SFSearch keeps indexes only of where records and links are");
             var shownTarget = target ?? new QueryTool.Target { Engine = engine, Ix = ix, ReadFrom = readFrom, Scope = result.Scope };
+            shownTarget.Shown ??= result.Named;
             if (EngineAnswer.JsonMode)
             {
                 foreach (var t in result.Tables) Parts(answer, t.Answer, shownTarget);

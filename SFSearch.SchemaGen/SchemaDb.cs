@@ -20,18 +20,22 @@ public sealed class SchemaDb
         con.Open();
 
         foreach (var r in Query(con, "SELECT Key, Value FROM Meta")) m.Meta[r.S(0)!] = r.S(1) ?? "";
-        foreach (var r in Query(con, "SELECT Name, Base, Abstract, Sig, ObjType, Struct, FixedSize, File, Marker, EndMarker, Contains, HandRead, SelectedBy, SelectorValue, ConditionFunction, CkClass, CkName FROM Objects"))
+        foreach (var r in Query(con, "SELECT Name, Base, Abstract, Sig, ObjType, Struct, FixedSize, File, Marker, EndMarker, Contains, HandRead, SelectedBy, SelectorValue, ConditionFunction, CkClass, CkName, ShortCircuit, SelectorEnum FROM Objects"))
         {
             var o = new ObjDef { Name = r.S(0)!, Base = r.S(1), Abstract = r.B(2), Sig = r.S(3), ObjType = r.S(4) ?? "Subrecord", Struct = r.B(5), FixedSize = r.I(6), File = r.S(7),
-                Marker = r.S(8), EndMarker = r.S(9), HandRead = r.S(11), SelectedBy = r.S(12), SelectorValue = r.S(13), ConditionFunction = r.S(14), CkClass = r.S(15), CkName = r.S(16) };
+                Marker = r.S(8), EndMarker = r.S(9), HandRead = r.S(11), SelectedBy = r.S(12), SelectorValue = r.S(13), ConditionFunction = r.S(14), CkClass = r.S(15), CkName = r.S(16), ShortCircuit = r.S(17), SelectorEnum = r.S(18) };
             if (r.S(10) is { Length: > 0 } contains) o.Contains.AddRange(contains.Split(','));
             m.Objects[o.Name] = o;
         }
+        // xEdit's name of each record type (GAPS S98)
+        foreach (var r in Query(con, "SELECT Type, XEdit FROM RecordTypes"))
+            if (m.Objects.TryGetValue(r.S(0)!, out var rt)) rt.XEditName = r.S(1);
         foreach (var r in Query(con, "SELECT Interface, Type FROM LinkInterfaces ORDER BY Type, Interface"))
             if (m.Objects.TryGetValue(r.S(1)!, out var o)) o.LinkInterfaces.Add(r.S(0)!);
         foreach (var r in Query(con, @"SELECT Object, Ord, Path, Name, Kind, Subrecord, Offset, OffsetRel, Size, StartsSubrecord, Nullable, InList, RefObject, LinkTo, Enum, DefaultValue,
                 Translated, Unknown, Custom, Property, SigMap, GenericArg, ClrType, Readable, XEdit, XEditPairs, Unit, Note, Marker, EndMarker,
-                StringsTable, CounterLength, TextForm, LayoutOffset, LayoutBits, LayoutSubrecord, LayoutEncoding, LayoutDroppedBits, LayoutPresentWhen, LayoutGroup, SelectedBy, LayoutMap, Source, ReadOnly, CkName, CkField
+                StringsTable, CounterLength, TextForm, LayoutOffset, LayoutBits, LayoutSubrecord, LayoutEncoding, LayoutDroppedBits, LayoutPresentWhen, LayoutGroup, SelectedBy, LayoutMap, Source, ReadOnly, CkName, CkField,
+                CustomSubrecords, CustomFills, FilledBy, SelectorEnum, GenderRecord, MaleMarker, FemaleMarker, MaxIsNone, ItemMarker, ItemEndMarker
                 FROM ObjectFields ORDER BY Object, Ord"))
             m.Objects[r.S(0)!].Fields.Add(new FieldDef
             {
@@ -42,6 +46,8 @@ public sealed class SchemaDb
                 StringsTable = r.S(30), CounterLength = r.I(31), TextForm = r.S(32),
                 LayoutOffset = r.S(33), LayoutBits = r.S(34), LayoutSubrecord = r.S(35), LayoutEncoding = r.S(36), LayoutDroppedBits = r.S(37),
                 LayoutPresentWhen = r.S(38), LayoutGroup = r.S(39), SelectedBy = r.S(40), LayoutMap = r.S(41), Source = r.S(42), ReadOnly = r.B(43), CkName = r.S(44), CkField = r.S(45),
+                CustomSubrecords = r.S(46), CustomFills = r.S(47), FilledBy = r.S(48), SelectorEnum = r.S(49),
+                GenderRecord = r.S(50), MaleMarker = r.S(51), FemaleMarker = r.S(52), MaxIsNone = r.B(53), ItemMarker = r.S(54), ItemEndMarker = r.S(55),
             });
         foreach (var r in Query(con, "SELECT Kind, Sig, Object, Name, Xml FROM HandLayouts ORDER BY Ord"))
             m.HandLayouts.Add(new HandLayout(r.S(0)!, r.S(1), r.S(2), r.S(3), r.S(4)!));

@@ -10,11 +10,6 @@ public sealed class ReflectStats
     public List<string> Missing = new(), NoType = new();
     public int EnumsNamed, EnumsFound, EnumMembers;
     public List<string> EnumsNotFound = new();
-    /// <summary>Properties of the compiled getters that Mutagen adds beyond the XML (MajorFlags, IsCompressed, IsDeleted,
-    /// Versioning, &lt;Sig&gt;DataTypeState; GAPS Part 2 row 8) and the schema has no field for: should be none.</summary>
-    public List<string> DerivedMissing = new();
-    /// <summary>How many such properties the compiled getters have, each matched by a field derived from the XML.</summary>
-    public int DerivedFound;
 }
 
 public static class Reflect
@@ -29,7 +24,8 @@ public static class Reflect
 
     static Type? GetterOf(string obj)
         => Starfield.GetType($"{Namespace}I{obj}Getter") ?? Starfield.GetType($"{Namespace}I{obj}Getter`1")
-           ?? (obj == "MajorRecord" ? Core.GetType("Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter") : null);
+           ?? (obj == "MajorRecord" ? Core.GetType("Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter")
+               : obj == "MasterReference" ? Core.GetType("Mutagen.Bethesda.Plugins.Records.IMasterReferenceGetter") : null);
 
     static PropertyInfo? Property(Type t, string name)
         => t.GetProperty(name) ?? t.GetInterfaces().Select(i => i.GetProperty(name)).FirstOrDefault(p => p != null);
@@ -56,21 +52,11 @@ public static class Reflect
         return $"{n}<{string.Join(", ", t.GetGenericArguments().Select(Friendly))}>";
     }
 
-    /// <summary>A static method of an object's binary reader (<c>ConditionBinaryCreateTranslation</c>), when the compiled
-    /// package has it: the generator declares one for each field read by hand-written code, and that code fills it.</summary>
-    static string? ReaderMethod(string obj, string method)
-    {
-        var t = Starfield.GetType($"{Namespace}{obj}BinaryCreateTranslation") ?? Starfield.GetType($"{Namespace}{obj}BinaryCreateTranslation`1");
-        if (t == null) return null;
-        const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly;
-        return t.GetMethods(all).Any(m => m.Name == method) ? $"{t.Name.Split('`')[0]}.{method}" : null;
-    }
-
     /// <summary>
-    /// Where the hand-written code that reads an object lives (GAPS S36): the reader methods of its own fields with
-    /// binary="Custom" (<c>FillBinary&lt;Field&gt;Custom</c>) and of a customBinaryEnd (<c>CustomBinaryEndImport</c>), as the
-    /// compiled package has them, and the field of another object whose hand-written code enters it. Null when the
-    /// generated reader reads it all. Returns how many objects are marked.
+    /// Where the hand-written code that reads an object lives (GAPS S36), as Mutagen's XML names it: the readers of its own
+    /// fields with binary="Custom" (each one's hand-written reader, whose other fields the field's fills= names, C60 W5), a
+    /// customBinaryEnd (with the fields its customBinaryEndFills= names), and the field of another object whose hand-written
+    /// code enters it. Null when the generated reader reads it all. Returns how many objects are marked.
     /// </summary>
     public static int HandRead(SchemaModel model)
     {
@@ -80,13 +66,14 @@ public static class Reflect
             var parts = new List<string>();
             var own = o.Fields.Where(f => f.Path == f.Name).ToList();
             foreach (var f in own.Where(f => f.Binary == "Custom"))
-                if (ReaderMethod(o.Name, $"FillBinary{f.Name}Custom") is { } m && !parts.Contains(m)) parts.Add(m);
-            if (o.CustomEnd != null && ReaderMethod(o.Name, "CustomBinaryEndImport") is { } end) parts.Add(end);
+                if (ReaderOf(o.Name, f.Name) is var m && !parts.Contains(m)) parts.Add(m);
+            if (o.CustomEnd != null) parts.Add($"{o.Name}'s customBinaryEnd ({o.CustomEnd}){(o.CustomEndFills != null ? $", filling {o.CustomEndFills.Replace(",", ", ")}" : "")}");
             foreach (var via in o.EnteredVia)
             {
                 int dot = via.IndexOf('.');
-                string? m = ReaderMethod(via[..dot], $"FillBinary{via[(dot + 1)..].Split('.')[0]}Custom");
-                parts.Add(m != null ? $"via {via} ({m})" : $"via {via}");
+                string field = via[(dot + 1)..].Split('.')[0];
+                bool custom = model.Objects.TryGetValue(via[..dot], out var holder) && holder.Fields.Any(f => f.Name == field && f.Path == field && f.Binary == "Custom");
+                parts.Add(custom ? $"via {via} ({ReaderOf(via[..dot], field)})" : $"via {via}");
             }
             // No method of its own, but a field read by hand sits among others in one subrecord, so their places
             // aren't the XML's order (a field in a subrecord of its own, or in the record header, moves nothing)
@@ -96,6 +83,9 @@ public static class Reflect
         }
         return marked;
     }
+
+    /// <summary>A binary="Custom" field's hand-written reader, in words.</summary>
+    static string ReaderOf(string obj, string field) => $"{obj}'s hand-written reader of {field}";
 
     public static ReflectStats Apply(SchemaModel model)
     {
@@ -112,21 +102,6 @@ public static class Reflect
             return allEnums.FirstOrDefault(t => t.FullName == Namespace + want)
                 ?? allEnums.FirstOrDefault(t => t.FullName!.EndsWith("." + want, StringComparison.Ordinal) || t.FullName!.EndsWith("+" + want, StringComparison.Ordinal))
                 ?? allEnums.FirstOrDefault(t => t.Name == xmlName.Split('.').Last());
-        }
-
-        // The other way round: every property of a compiled getter of the kinds Mutagen adds beyond the XML has a field
-        // (declared on the object's own getter, or on Core's IMajorRecordGetter for the hand-written header views)
-        foreach (var o in model.Objects.Values.OrderBy(o => o.Name, StringComparer.Ordinal))
-        {
-            if (GetterOf(o.Name) is not { } gt) continue;
-            var own = gt.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Select(p => p.Name)
-                .Where(n => n is "MajorFlags" or "Versioning" or "IsCompressed" or "IsDeleted" || n.EndsWith("DataTypeState", StringComparison.Ordinal)
-                    || o.Name == "RegionData" && n == "DataType");
-            foreach (var n in own)
-            {
-                if (model.Ancestry(o.Name).Any(a => a.Fields.Any(f => f.Name == n && f.Path == n && f.Source != null))) st.DerivedFound++;
-                else st.DerivedMissing.Add($"{o.Name}.{n}");
-            }
         }
 
         foreach (var o in model.Objects.Values.OrderBy(o => o.Name, StringComparer.Ordinal))
@@ -183,6 +158,19 @@ public static class Reflect
             f.GenericArg = EnumName(et);
             enumTypes[f.GenericArg] = et;
         }
+
+        // The enums whose member names are selector values (the XML's selectorEnum, C57 W3/W4: a component's BFCB text is
+        // a member of AComponent.ComponentType; a terminal menu item's kind one of its reader's TypeOption)
+        foreach (var o in model.Objects.Values)
+            foreach (var holder in new[] { (Get: (Func<string?>)(() => o.SelectorEnum), Set: (Action<string>)(v => o.SelectorEnum = v)) }
+                .Concat(o.Fields.Select(f => (Get: (Func<string?>)(() => f.SelectorEnum), Set: (Action<string>)(v => f.SelectorEnum = v)))))
+            {
+                if (holder.Get() is not { } se) continue;
+                var et = ByName(se);
+                if (et == null) { if (!st.EnumsNotFound.Contains(se)) st.EnumsNotFound.Add(se); continue; }
+                holder.Set(EnumName(et));
+                enumTypes[EnumName(et)] = et;
+            }
 
         foreach (var (name, t) in enumTypes.OrderBy(e => e.Key, StringComparer.Ordinal))
         {

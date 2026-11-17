@@ -42,6 +42,7 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("content-change-small", Tests.ContentChangeSmall),
     ("content-change-middle", Tests.ContentChangeMiddle),
     ("missing-master", Tests.MissingMaster),
+    ("missing-master-chain", ChainTests.MissingMasterChain),
     ("master-size-change", Tests.MasterSizeChange),
     ("one-segment-replaced", Tests.OneSegmentReplaced),
     ("plugins-txt-change", Tests.PluginsTxtChange),
@@ -51,6 +52,9 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("scratch-guard", Tests.ScratchGuard),
     ("late-header", RaceTests.LateHeader),
     ("folder-race", c => RaceTests.FolderRace(c, raceSeconds)),
+    ("pipeline", PipelineTests.Run),
+    ("plugin-sets", PluginSetsTests.Run),
+    ("formid-forms", FormIdFormsTests.Run),
 };
 int failed = 0, ran = 0;
 var total = Stopwatch.StartNew();

@@ -117,7 +117,10 @@ static class ScriptsTests
     {
         var keys = new List<string>();
         var vmad = record.GetType().GetProperty("VirtualMachineAdapter")?.GetValue(record);
-        if (vmad?.GetType().GetProperty("Scripts")?.GetValue(vmad) is not IEnumerable scripts) return keys;
+        if (vmad?.GetType().GetProperty("Scripts")?.GetValue(vmad) is not IEnumerable list) return keys;
+        // The record's scripts, and a quest's fragment script (its Script)
+        var scripts = list.Cast<object?>().ToList();
+        if (vmad.GetType().GetProperty("Script")?.GetValue(vmad) is { } fragments) scripts.Add(fragments);
         foreach (var sc in scripts)
             if (sc?.GetType().GetProperty("Properties")?.GetValue(sc) is IEnumerable props)
                 foreach (var p in props)
@@ -127,6 +130,47 @@ static class ScriptsTests
                         foreach (var x in l.Objects) keys.Add(ReportSession.Canon(x.Object.FormKey.ToString()));
                 }
         return keys;
+    }
+
+    /// <summary>
+    /// One target of a give held against Mutagen's own reading of the records (the version the game uses): the carrier's
+    /// property holds the record; for a two-step value ("core = Q (00180A:x.esm) QUST → workerContainer"), the carrier's
+    /// property holds Q and Q's property holds the record. Returns 1.
+    /// </summary>
+    static int HeldAgainstMutagen(ReportSession s, ScriptCall c, CallTarget t)
+    {
+        // The version the game uses; when it is a partial form with no script block (a quest override that holds only
+        // some fields), the game keeps the script block of the version before it
+        object Record(string formKey)
+        {
+            var h = s.Winner(formKey) ?? throw new TestFailed($"{formKey} isn't found");
+            var record = h.Engine.Load(h.Ref).Record;
+            if (record.GetType().GetProperty("VirtualMachineAdapter")?.GetValue(record) != null) return record;
+            var versions = s.Index.Versions(formKey);
+            if (versions == null || versions.Winner < 0) return record;
+            for (int i = versions.Winner - 1; i >= 0; i--)
+            {
+                var older = s.Engine.Load(versions.Holders[i]).Record;
+                if (older.GetType().GetProperty("VirtualMachineAdapter")?.GetValue(older) != null) return older;
+            }
+            return record;
+        }
+        // "an entry of X": the record is an entry of the form list X holds (FormList.GetAt): X is read
+        string via = t.Via.StartsWith("an entry of ", StringComparison.Ordinal) ? t.Via["an entry of ".Length..] : t.Via;
+        int arrow = via.IndexOf(" → ", StringComparison.Ordinal);
+        if (arrow < 0)
+        {
+            var values = MutagenObjectProperties(Record(t.CarrierFormKey!), via);
+            Check(values.Contains(t.ItemFormKey!, StringComparer.OrdinalIgnoreCase), $"{c.Script}.{c.Function} {c.Shown}: on {t.Carrier} the report gives {via} = {t.ItemFormKey}; Mutagen gives [{string.Join(", ", values)}]");
+            return 1;
+        }
+        string first = via[..via.IndexOf(" = ", StringComparison.Ordinal)], chain = via[(arrow + 3)..];
+        var holder = Regex.Matches(via[..arrow], @"\(([0-9A-F]{6}:[^)]+)\)").Select(m => m.Groups[1].Value).LastOrDefault() ?? throw new TestFailed($"no record in {via}");
+        var held = MutagenObjectProperties(Record(t.CarrierFormKey!), first);
+        Check(held.Contains(holder, StringComparer.OrdinalIgnoreCase), $"{c.Shown}: on {t.Carrier} the report gives {first} = {holder}; Mutagen gives [{string.Join(", ", held)}]");
+        var values2 = MutagenObjectProperties(Record(holder), chain);
+        Check(values2.Contains(t.ItemFormKey!, StringComparer.OrdinalIgnoreCase), $"{c.Shown}: on {holder} the report gives {chain} = {t.ItemFormKey}; Mutagen gives [{string.Join(", ", values2)}]");
+        return 2;
     }
 
     /// <summary>The value of a member of a struct property in a record's top-level scripts, as Mutagen gives it (its
@@ -304,9 +348,7 @@ static class ScriptsTests
             {
                 var hit = s.Winner(t.CarrierFormKey!);
                 Check(hit != null, $"{c.Shown}: the record {t.Carrier} isn't found");
-                var values = MutagenObjectProperties(hit!.Value.Engine.Load(hit.Value.Ref).Record, t.Via);
-                Check(values.Contains(t.ItemFormKey!, StringComparer.OrdinalIgnoreCase), $"{c.Script}.{c.Function} {c.Shown}: on {t.Carrier} the report gives {t.Via} = {t.ItemFormKey}; Mutagen gives [{string.Join(", ", values)}]");
-                heldAgainst++;
+                heldAgainst += HeldAgainstMutagen(s, c, t);
             }
         Check(heldAgainst >= 20, $"only {heldAgainst} property values held against Mutagen");
         static ScriptCall One(ScriptsAnswer x, string script, string function, string call) =>
@@ -358,6 +400,21 @@ static class ScriptsTests
                 $"{Mojo} OnDying: {dying.Shown}: {ScriptsAnswer.Names(dying)}");
             later.Add($"{Mojo}: the 4 paths of MojoEnemyDeathExplosion.OnDying each hand out another property; all 4 listed, DeathExplosionEffect_Default = MojoSTC_EnemyDeathExplosion (000812:MojoSTC.esm) EXPL on the quest alias that attaches it");
         }
+        // ---- J9 (S9a): two steps, a property of the script on the record a property holds
+        var codex = One(a, "DarkStar:CodexMachineInputContainer", "DetectComponents", "PlaceAtMe(workerContainer of property core,");
+        Check(codex.Targets.Count == 2 && codex.Targets.All(t => t.Record == "cont_DarkStar_invis_CodexWorker (00176F:darkstar.esm)" && t.Signature == "CONT"
+                && t.Via.Contains("core = deprecated_quest_DarkStar_CodexCore_", StringComparison.Ordinal) && t.Via.Contains("→ workerContainer", StringComparison.Ordinal)),
+            $"CodexMachineInputContainer.DetectComponents: {ScriptsAnswer.Names(codex)}");
+        // ---- J9: the scripts of the plugins that have it as a master were looked in for a caller
+        Check(noCaller.Via!.Contains("nor does a script of the", StringComparison.Ordinal) && noCaller.Via.Contains("plugins that have darkstar.esm as a master", StringComparison.Ordinal), $"RemoteWorkbench.ActivateRemote: {noCaller.Via}");
+        Check(!a.Calls.Any(c => c.Args.Any(x => x.Contains("one of several", StringComparison.Ordinal))), "darkstar.esm: an argument is still \"one of several values\"");
+        // The raw searches by script name pass over records of types with no script block: every record of darkstar.esm
+        // that carries a script (world data included) is of one of the types they look at
+        var listed = report.Scripts(Plugin, new ScriptsOptions { World = true });
+        var carrierTypes = listed.Scripts.SelectMany(x => x.Carriers).Concat(listed.CarriedFromElsewhere).Select(x => x.Signature).Distinct().ToList();
+        Check(carrierTypes.Count >= 5 && carrierTypes.All(t => report.ScriptRecordTypes.Contains(t)), $"record types that carry scripts in darkstar.esm [{string.Join(", ", carrierTypes)}]; the searches look at [{string.Join(", ", report.ScriptRecordTypes.Order())}]");
+        later.Add($"the raw searches by script name look at the {report.ScriptRecordTypes.Count} record types with a script block; darkstar.esm's records with scripts are of {carrierTypes.Count} of them ({string.Join(", ", carrierTypes.Order())})");
+        later.AddRange(OtherPlugins(ctx, report));
         partA += $"; {onProperty.Count} AddItem/PlaceAtMe/AddPerk … on a script property, each with the record per record that attaches the script ({heldAgainst} values held against Mutagen's own script properties; a placed reference's value from its base object); " +
             $"a parameter followed to its function's calls (DarkStar:RemoteWorkbench.ActivateRemote gets property TargetBench of ActivateBenchRemotely on {remote.Targets.Count} activators; CheckForESM gets 5 plugin names from CheckAll)";
         // With Champollion: one call for each line of the decompiled source that calls GetFormFromFile, in the same script, with the same FormID and plugin
@@ -443,7 +500,288 @@ static class ScriptsTests
             parts.Add($"{Library}: the {u.UsedLookedFor} scripts its scripts use that aren't its own (the game's, in Starfield - Misc.ba2) are all found: none missing");
         }
         parts.Add(MissingUsed(ctx));
+        parts.Add(Dependents(ctx));
         return string.Join(". ", parts) + ".";
+    }
+
+    /// <summary>
+    /// J9 (S9a) on a Data folder made for the test (in the work folder), with a Starfield.ccc beside it that loads
+    /// sfs_j9_lib.esm, then sfs_j9_patch.esm (which has it as a master). The library's script sfs_j9_lib:Lib has a
+    /// property Reward and three functions: Give(akItem) hands out its parameter and no script of the library calls it
+    /// (the patch's script sfs_j9_patch:Caller does, with its own property Item); GiveReward hands out Reward; GivePicked
+    /// hands out what its own function Pick returns (Reward). The library's activator attaches Lib with Reward = its
+    /// MISC; the patch overrides that activator with Reward = the patch's first MISC, and has an activator of its own
+    /// that attaches Lib (Reward = its second MISC) and Caller (Item = its first MISC).
+    /// </summary>
+    static string Dependents(Ctx ctx)
+    {
+        const string Lib = "sfs_j9_lib.esm", Patch = "sfs_j9_patch.esm";
+        string root = ctx.Folder("scripts-j9"), data = Path.Combine(root, "Data");
+        Directory.CreateDirectory(data);
+        ctx.MustBeInWork(Path.Combine(data, Lib));
+        File.WriteAllText(Path.Combine(root, "Starfield.ccc"), Lib + "\r\n" + Patch + "\r\n");
+        static ScriptObjectProperty Obj(string name, Mutagen.Bethesda.Plugins.FormKey key) { var p = new ScriptObjectProperty { Name = name }; p.Object.SetTo(key); return p; }
+
+        var lib = Made.New(Lib);
+        var rewardA = new MiscItem(lib.GetNextFormKey(), StarfieldRelease.Starfield) { EditorID = "sfsJ9RewardLib" };
+        lib.MiscItems.Add(rewardA);
+        var actA = new Mutagen.Bethesda.Starfield.Activator(lib.GetNextFormKey(), StarfieldRelease.Starfield) { EditorID = "sfsJ9LibActivator" };
+        actA.VirtualMachineAdapter = new VirtualMachineAdapter();
+        actA.VirtualMachineAdapter.Scripts.Add(new ScriptEntry { Name = "sfs_j9_lib:Lib", Properties = { Obj("Reward", rewardA.FormKey) } });
+        lib.Activators.Add(actA);
+        string libPath = Made.Write(ctx, lib, Path.Combine("scripts-j9", "Data"));
+
+        var patch = Made.New(Patch);
+        var rewardB = new MiscItem(patch.GetNextFormKey(), StarfieldRelease.Starfield) { EditorID = "sfsJ9RewardPatch" };
+        var rewardB2 = new MiscItem(patch.GetNextFormKey(), StarfieldRelease.Starfield) { EditorID = "sfsJ9RewardPatchOwn" };
+        patch.MiscItems.Add(rewardB); patch.MiscItems.Add(rewardB2);
+        var over = actA.DeepCopy();
+        over.VirtualMachineAdapter = new VirtualMachineAdapter();
+        over.VirtualMachineAdapter.Scripts.Add(new ScriptEntry { Name = "sfs_j9_lib:Lib", Properties = { Obj("Reward", rewardB.FormKey) } });
+        patch.Activators.Add(over);
+        var actB = new Mutagen.Bethesda.Starfield.Activator(patch.GetNextFormKey(), StarfieldRelease.Starfield) { EditorID = "sfsJ9PatchActivator" };
+        actB.VirtualMachineAdapter = new VirtualMachineAdapter();
+        actB.VirtualMachineAdapter.Scripts.Add(new ScriptEntry { Name = "sfs_j9_lib:Lib", Properties = { Obj("Reward", rewardB2.FormKey) } });
+        actB.VirtualMachineAdapter.Scripts.Add(new ScriptEntry { Name = "sfs_j9_patch:Caller", Properties = { Obj("Item", rewardB.FormKey) } });
+        patch.Activators.Add(actB);
+        Made.Write(ctx, patch, Path.Combine("scripts-j9", "Data"), extraMaster: Lib);
+
+        // The compiled scripts, loose under Data\Scripts with each plugin's name in their path
+        var I = PexValue.Identifier;
+        PexValue Id(string n) => new(I, n, 0, 0, false);
+        var none = Id("::nonevar");
+        var libPex = new MadeScript("sfs_j9_lib:Lib", "ObjectReference");
+        libPex.Property("Reward", "Form", "::Reward_var");
+        libPex.Function("Give", "none", new[] { ("akItem", "Form") }, new[] { ("::nonevar", "none") },
+            (PexFile.OpCallMethod, new[] { Id("AddItem"), Id("self"), none }, new[] { Id("akItem") }));
+        libPex.Function("GiveReward", "none", Array.Empty<(string, string)>(), new[] { ("::nonevar", "none") },
+            (PexFile.OpCallMethod, new[] { Id("AddItem"), Id("self"), none }, new[] { Id("::Reward_var") }));
+        libPex.Function("Pick", "Form", Array.Empty<(string, string)>(), Array.Empty<(string, string)>(),
+            (PexFile.OpReturn, new[] { Id("::Reward_var") }, null));
+        libPex.Function("GivePicked", "none", Array.Empty<(string, string)>(), new[] { ("::nonevar", "none"), ("::temp0", "Form") },
+            (PexFile.OpCallMethod, new[] { Id("Pick"), Id("self"), Id("::temp0") }, Array.Empty<PexValue>()),
+            (PexFile.OpCallMethod, new[] { Id("AddItem"), Id("self"), none }, new[] { Id("::temp0") }));
+        var callerPex = new MadeScript("sfs_j9_patch:Caller", "ObjectReference");
+        callerPex.Property("Item", "Form", "::Item_var");
+        callerPex.Variable("::lib_var", "sfs_j9_lib:Lib");
+        callerPex.Function("Run", "none", Array.Empty<(string, string)>(), new[] { ("::nonevar", "none") },
+            (PexFile.OpCallMethod, new[] { Id("Give"), Id("::lib_var"), none }, new[] { Id("::Item_var") }));
+        Directory.CreateDirectory(Path.Combine(data, "Scripts", "sfs_j9_lib"));
+        Directory.CreateDirectory(Path.Combine(data, "Scripts", "sfs_j9_patch"));
+        File.WriteAllBytes(Path.Combine(data, "Scripts", "sfs_j9_lib", "Lib.pex"), libPex.Bytes());
+        File.WriteAllBytes(Path.Combine(data, "Scripts", "sfs_j9_patch", "Caller.pex"), callerPex.Bytes());
+
+        using var session = new ReportSession(data, Path.Combine(ctx.Work, "scratch-j9"), ctx.Schema, "sfsreport-tests") { KeptFolder = Path.Combine(ctx.Work, "kept"), Champollion = ctx.Champollion };
+        var a = new ScriptsReport(session).Scripts(Lib, new ScriptsOptions { Calls = true });
+        ctx.WriteReport("scripts-j9-dependents.txt", a.ToText(new ReportTextOptions { Detail = true, MaxChars = int.MaxValue }));
+        ScriptCall One(string function) => a.Calls.FirstOrDefault(c => c.Script == "sfs_j9_lib:Lib" && c.Function == function) ?? throw new TestFailed($"no call in Lib.{function}:\n{a.ToText()}");
+        string B(MiscItem m) => $"{m.EditorID} ({m.FormKey.ID:X6}:{Patch})";
+        // The patch's script calls the library's Give with its property Item: the patch's record gives it
+        var give = One("Give");
+        Check(give.Via != null && give.Via.Contains($"akItem of Give is given by Caller.Run ({Patch})", StringComparison.Ordinal)
+            && give.Targets.Count == 1 && give.Targets[0].Record == B(rewardB) && give.Targets[0].CarrierFormKey == $"{actB.FormKey.ID:X6}:{Patch}",
+            $"Lib.Give: {ScriptsAnswer.Names(give)}\n{a.ToText()}");
+        // Reward: on the library's activator as the patch's override sets it, and on the patch's own activator
+        foreach (var call in new[] { One("GiveReward"), One("GivePicked") })
+        {
+            var onA = call.Targets.FirstOrDefault(t => t.CarrierFormKey == $"{actA.FormKey.ID:X6}:{Lib}");
+            var onB = call.Targets.FirstOrDefault(t => t.CarrierFormKey == $"{actB.FormKey.ID:X6}:{Patch}");
+            Check(call.Targets.Count == 2 && onA?.Record == B(rewardB) && onA.Carrier!.Contains($"as {Patch} sets it", StringComparison.Ordinal) && onB?.Record == B(rewardB2),
+                $"Lib.{call.Function}: {ScriptsAnswer.Names(call)}");
+        }
+        Check(One("GivePicked").Via!.Contains("what Lib.Pick() returns is read from its code", StringComparison.Ordinal), $"Lib.GivePicked: {One("GivePicked").Via}");
+        return $"a Data folder made for the test ({Lib}, and {Patch} that has it as a master, loaded by a Starfield.ccc beside it): Lib.Give's parameter is given by the patch's script Caller.Run (its property Item, on the patch's activator); Lib's property Reward is read on the library's activator as the patch's override sets it and on the patch's own activator; GivePicked hands out what Lib.Pick returns (Reward), with the same two values";
+    }
+
+    /// <summary>
+    /// GAPS S57: scripts2 --calls on a plugin that ships a copy of a game script reads the game's side faster by reading
+    /// less. (1) A compiled script is read for its code only when its string table names the function looked for: the
+    /// table check (PexFile.StringTableHolds) is held against the whole read on every compiled script of Starfield -
+    /// Misc.ba2, for its own name, names it calls and a name no script has. (2) Aurie_TheGangsAllHere.esm --calls, each
+    /// call in a new report session as the service makes one: the same answer as the first, and the warm call well under
+    /// the 5 to 7.6 s it took before (the game's archives' file lists aren't read when their name tables hold no script,
+    /// Starfield.esm's records are looked in only of the types that can attach the scripts: QUST, NPC_).
+    /// </summary>
+    public static string Speed(Ctx ctx)
+    {
+        var s = ctx.Session;
+        string misc = Path.Combine(ctx.Data, "Starfield - Misc.ba2");
+        var archive = s.Archives.Open(misc);
+        int scripts = 0, checks = 0;
+        foreach (var f in archive.Files.Where(f => f.Extension == ".pex"))
+        {
+            var bytes = f.Bytes();
+            var file = PexFile.Read(bytes);
+            scripts++;
+            var names = new[] { file.Objects.FirstOrDefault()?.Name ?? "", "LockInCompanion", "AddItem", "GetFormFromFile", "SFSearchNoSuchName" };
+            foreach (var n in names.Where(n => n.Length > 0))
+            {
+                checks++;
+                bool want = file.Strings.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                Check(PexFile.StringTableHolds(bytes, new[] { Encoding.ASCII.GetBytes(n.ToLowerInvariant()) }) == want, $"{f.Path}: the string table check says {!want} for {n}, the whole read {want}");
+            }
+        }
+        Check(scripts > 4000, $"{misc}: {scripts} compiled scripts");
+        string part2 = "Aurie_TheGangsAllHere.esm not in Data, skipped";
+        const string Aurie = "Aurie_TheGangsAllHere.esm";
+        if (File.Exists(Path.Combine(ctx.Data, Aurie)))
+        {
+            ScriptsAnswer Run(int n)
+            {
+                using var session = new ReportSession(ctx.Data, Path.Combine(ctx.Work, $"scratch-speed{n}"), ctx.Schema, "sfsreport-tests") { KeptFolder = Path.Combine(ctx.Work, "kept"), Champollion = ctx.Champollion };
+                return new ScriptsReport(session).Scripts(Aurie, new ScriptsOptions { Calls = true });
+            }
+            var first = Run(1);
+            var second = Run(2);
+            string Calls(ScriptsAnswer x) => string.Join("\n", x.Calls.Select(c => ScriptsAnswer.Names(c, true)));
+            Check(Calls(first) == Calls(second), $"{Aurie}: the second call's answer differs from the first");
+            Check(first.Calls.Any(c => c.Function == "LockInCompanion" && c.Targets.Count >= 10), $"{Aurie}: LockInCompanion's values from the game's fragments are gone");
+            Check(second.Seconds < 3.0, $"{Aurie} --calls took {second.Seconds:0.00} s warm (5 to 7.6 s before S57)");
+            part2 = $"{Aurie} --calls in a new session: {first.Seconds:0.00} s the first time in this process, {second.Seconds:0.00} s the second (5 to 7.6 s before), the same answer ({first.Calls.Count} calls)";
+        }
+        return $"the string table check held against the whole read of {scripts:N0} compiled scripts of Starfield - Misc.ba2 ({checks:N0} names); {part2}";
+    }
+
+    /// <summary>A compiled script (Starfield's 3.12, game 4) made for the tests: one object, its variables, auto
+    /// properties and functions in the empty state.</summary>
+    internal sealed class MadeScript(string name, string parent)
+    {
+        readonly List<string> _strings = new();
+        readonly List<(string Name, string Type)> _vars = new();
+        readonly List<(string Name, string Type, string Auto)> _props = new();
+        readonly List<(string Name, string Returns, (string, string)[] Params, (string, string)[] Locals, (byte Op, PexValue[] Args, PexValue[]? More)[] Code)> _functions = new();
+        public void Variable(string n, string type) => _vars.Add((n, type));
+        public void Property(string n, string type, string auto) { _props.Add((n, type, auto)); _vars.Add((auto, type)); }
+        public void Function(string n, string returns, (string, string)[] parameters, (string, string)[] locals, params (byte, PexValue[], PexValue[]?)[] code) => _functions.Add((n, returns, parameters, locals, code));
+
+        ushort S(string s) { int i = _strings.IndexOf(s); if (i < 0) { _strings.Add(s); i = _strings.Count - 1; } return (ushort)i; }
+        void Value(BinaryWriter w, PexValue v)
+        {
+            w.Write(v.Kind);
+            switch (v.Kind)
+            {
+                case PexValue.Identifier: case PexValue.String: w.Write(S(v.Text ?? "")); break;
+                case PexValue.Integer: w.Write(v.Int); break;
+                case PexValue.FloatKind: w.Write(v.Float); break;
+                case PexValue.BoolKind: w.Write((byte)(v.Bool ? 1 : 0)); break;
+            }
+        }
+
+        public byte[] Bytes()
+        {
+            ushort nameIndex = S(name);
+            var obj = new MemoryStream();
+            var o = new BinaryWriter(obj);
+            o.Write(S(parent)); o.Write(S("")); o.Write((byte)0); o.Write(0u); o.Write(S(""));
+            o.Write((ushort)0);
+            o.Write((ushort)_vars.Count);
+            foreach (var (vn, vt) in _vars) { o.Write(S(vn)); o.Write(S(vt)); o.Write(0u); o.Write(PexValue.None); o.Write((byte)0); }
+            o.Write((ushort)0);
+            o.Write((ushort)_props.Count);
+            foreach (var (pn, pt, auto) in _props) { o.Write(S(pn)); o.Write(S(pt)); o.Write(S("")); o.Write(0u); o.Write((byte)7); o.Write(S(auto)); }
+            o.Write((ushort)1); o.Write(S(""));
+            o.Write((ushort)_functions.Count);
+            foreach (var (fn, returns, ps, ls, code) in _functions)
+            {
+                o.Write(S(fn)); o.Write(S(returns)); o.Write(S("")); o.Write(0u); o.Write((byte)0);
+                o.Write((ushort)ps.Length); foreach (var (n, t) in ps) { o.Write(S(n)); o.Write(S(t)); }
+                o.Write((ushort)ls.Length); foreach (var (n, t) in ls) { o.Write(S(n)); o.Write(S(t)); }
+                o.Write((ushort)code.Length);
+                foreach (var (op, args, more) in code)
+                {
+                    o.Write(op);
+                    foreach (var v in args) Value(o, v);
+                    if (more != null) { Value(o, new PexValue(PexValue.Integer, null, more.Length, 0, false)); foreach (var v in more) Value(o, v); }
+                }
+            }
+            o.Flush();
+            var file = new MemoryStream();
+            var w = new BinaryWriter(file);
+            void WStr(string s) { var b = Encoding.UTF8.GetBytes(s); w.Write((ushort)b.Length); w.Write(b); }
+            w.Write(PexFile.Magic); w.Write((byte)3); w.Write((byte)12); w.Write((ushort)4); w.Write(0UL);
+            WStr(name.Replace(':', '_') + ".psc"); WStr("sfsreport-tests"); WStr("test");
+            w.Write((ushort)_strings.Count);
+            foreach (var s in _strings) WStr(s);
+            w.Write((byte)0);
+            w.Write((ushort)0);
+            w.Write((ushort)1);
+            w.Write(nameIndex);
+            w.Write((uint)(obj.Length + 4));
+            w.Write(obj.ToArray());
+            w.Flush();
+            return file.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// J9 (S9a) on real plugins: what a function of the plugin returns, a copy of a game script whose callers and
+    /// property values are in Starfield.esm, winning overrides, placed references of a plugin of more than 100,000
+    /// records, a struct member set in an array of structs, a plugin name with spaces, many values in one argument.
+    /// Each part is left out when its plugin isn't in Data.
+    /// </summary>
+    static IEnumerable<string> OtherPlugins(Ctx ctx, ScriptsReport report)
+    {
+        var s = ctx.Session;
+        bool Has(string plugin) => File.Exists(Path.Combine(ctx.Data, plugin));
+        static ScriptCall One(ScriptsAnswer x, string script, string function, string call) =>
+            x.Calls.FirstOrDefault(c => c.Script == script && c.Function == function && c.Shown.StartsWith(call, StringComparison.Ordinal)) ?? throw new TestFailed($"no call {call} in {script}.{function}");
+        const string Fuel = "realfuel_creations.esm";
+        if (Has(Fuel))
+        {
+            // A script variable another function sets, and what the plugin's own function returns
+            var r = report.Scripts(Fuel, new ScriptsOptions { Calls = true });
+            var spawn = One(r, "RF:SpawnItemScript", "DoCargoHoldSpawn", "AddItem(");
+            Check(spawn.Via != null && spawn.Via.Contains("what SpawnItemScript.GetRandomFuelItem() returns is read from its code", StringComparison.Ordinal)
+                && spawn.Targets.Any(t => t.Record == "_RF_LIST_FuelItems (0008EA:realfuel_creations.esm)" && t.Signature == "FLST"), $"{Fuel} DoCargoHoldSpawn: {spawn.Shown}: {ScriptsAnswer.Names(spawn)}");
+            yield return $"{Fuel}: AddItem(GetRandomFuelItem()) follows what the function returns (an element of the script variable another function sets from property _RF_LIST_FuelItems) to _RF_LIST_FuelItems (0008EA) FLST on the quest that attaches it";
+        }
+        const string Aurie = "Aurie_TheGangsAllHere.esm";
+        if (Has(Aurie))
+        {
+            // A copy of the game's SQ_CompanionsScript: its callers are the game's quest fragments, their properties on Starfield.esm's quests
+            var r = report.Scripts(Aurie, new ScriptsOptions { Calls = true });
+            var lockIn = One(r, "SQ_CompanionsScript", "LockInCompanion", "PlaceAtMe(");
+            Check(lockIn.Via != null && lockIn.Via.Contains("TextReplaceActivator of LockInCompanion is given by QF_", StringComparison.Ordinal) && lockIn.Via.Contains("(Starfield.esm)", StringComparison.Ordinal)
+                && lockIn.Targets.Count >= 10 && lockIn.Targets.All(t => t.CarrierFormKey!.EndsWith(":Starfield.esm", StringComparison.Ordinal)), $"{Aurie} LockInCompanion: {lockIn.Targets.Count} targets, via {lockIn.Via}");
+            int held = 0;
+            foreach (var t in lockIn.Targets.Where(t => t.ItemFormKey != null)) held += HeldAgainstMutagen(s, lockIn, t);
+            // Records of the game whose winning override is another mod's: the values the game uses
+            var give = One(r, "COM_CREW_GiveItemActorScript", "GiveItems", "AddItem(");
+            var won = give.Targets.Where(t => t.Carrier!.Contains("sets it, the version the game uses", StringComparison.Ordinal)).ToList();
+            Check(won.Count >= 5 && give.Targets.Count >= 10, $"{Aurie} GiveItems: {give.Targets.Count} targets, {won.Count} from a winning override");
+            foreach (var t in give.Targets.Where(t => t.ItemFormKey != null)) held += HeldAgainstMutagen(s, give, t);
+            yield return $"{Aurie}: its copy of the game's SQ_CompanionsScript: LockInCompanion's parameter is given by the game's quest fragments (Starfield - Misc.ba2), their properties read on {lockIn.Targets.Count} of Starfield.esm's quests; COM_CREW_GiveItemActorScript's GiveItemList on {give.Targets.Count} NPCs of Starfield.esm, {won.Count} as a later mod's winning override sets it ({held} values held against Mutagen on the version the game uses)";
+        }
+        const string Kgc = "kinggathcreations_spaceship.esm";
+        if (Has(Kgc))
+        {
+            // Placed references (world data) of a plugin of 371,811 records attach the script; a member no element sets
+            var r = report.Scripts(Kgc, new ScriptsOptions { Calls = true });
+            var check = One(r, "kgcShip:ObjectReference:EnableOnLoadWhenRequirementsMet", "CheckRequirements", "Game.IsPluginInstalled(ConditionPlugin");
+            var board = check.Targets.FirstOrDefault(t => t.CarrierFormKey == "0CB076:" + Kgc);
+            var hit = s.Winner("0CB076:" + Kgc);
+            var member = hit is { } h ? MutagenMember(h.Engine.Load(h.Ref).Record, "ConditionRequirements", "ConditionPlugin") : "no record";
+            Check(board != null && board.NotFound == "no plugin named (the check is false)" && board.Via.Contains("isn't set in any element", StringComparison.Ordinal) && member == null && check.Targets.Count >= 6,
+                $"{Kgc} CheckRequirements: {ScriptsAnswer.Names(check)}; Mutagen's ConditionPlugin on 0CB076: {member}");
+            yield return $"{Kgc}: its placed references (world data) are looked in for the scripts no other record attaches: EnableOnLoadWhenRequirementsMet on {check.Targets.Select(t => t.CarrierFormKey).Distinct().Count()} mission boards (REFR), where no element of ConditionRequirements sets ConditionPlugin (as Mutagen reads it)";
+        }
+        const string Astra = "astra-19 sidearm.esm";
+        if (Has(Astra))
+        {
+            var r = report.Scripts(Astra, new ScriptsOptions { Calls = true });
+            var add = One(r, "LLInjectionAstra19", "InjectList5", "AddForm(");
+            Check(add.Targets.Count == 1 && add.Targets[0].Record == "Astra19 (000808:astra-19 sidearm.esm)" && add.Targets[0].Signature == "WEAP", $"{Astra} InjectList5: {ScriptsAnswer.Names(add)}");
+            yield return $"{Astra}: a struct member that names a record of a plugin whose name has a space: Custom_5 = Astra19 (000808) WEAP (was \"decided at run time\")";
+        }
+        const string Apc = "apc_galaxysmartcontainers.esm";
+        if (Has(Apc))
+        {
+            var r = report.Scripts(Apc, new ScriptsOptions { Calls = true });
+            var v = One(r, "APCG_SC_RSBox_Resources", "V", "Game.GetFormFromFile(");
+            Check(!v.Args[0].Contains("one of several", StringComparison.Ordinal) && v.Targets.Count >= 100, $"{Apc} V: {v.Targets.Count} targets, {v.Shown[..Math.Min(200, v.Shown.Length)]}");
+            Check(!r.Calls.Any(c => c.Args.Any(x => x.Contains("one of several", StringComparison.Ordinal))), $"{Apc}: an argument is still \"one of several values\"");
+            yield return $"{Apc}: GetFormFromFile(fid) in V gets {v.Targets.Count} FormIDs from FillList (was \"one of several values\" past 64)";
+        }
     }
 
     /// <summary>

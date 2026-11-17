@@ -1,0 +1,213 @@
+{
+  "about": "The polish cases of the three answers at every permission point (fix-j33-three-answers, 2026-11-15), in the shape of polish.json: one per point's text. Where an index would make the question fast (the world link index) the answer offers it with its size, build time and later time; where none would, it says so. In a file of their own so that other fixes' cases don't collide with them. They expect no world link index in the test home (the world index of every plugin with world data); case 134 makes and drops one of kgcdoom.esm only.",
+  "cases": [
+    {
+      "n": 135,
+      "title": "refs: world data left out by default offers world true and world \"save_index\", each with its cost (fix-j33-three-answers)",
+      "before": "The line said only \"Add world: true (command line: --world) to include it: about 4 s more\"; nothing said that an index would answer it in a fraction of a second.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_refs", "params": { "record": "00003B:Starfield.esm", "limit": 2 }, "via": "mcp" }
+        ],
+        "pass_if": [
+          {
+            "name": "run now with its time, save the world link index with its size, build time and later time, or leave it out",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^World data wasn't searched \\(left out by default: more than 256 MB of it\\): [\\d,]+ records .* Add world: true \\(command line: --world\\) to include it: about \\d+ s more" },
+              { "call": 1, "part": "out", "matches": "(?m)^Or world: \"save_index\" \\(command line: --world=save-index\\) to search it now and then save the world link index of [\\d,]+ plugins \\(about [\\d,.]+ (MB|GB) on disk, made in about \\d+ s in the background after the answer\\): refs into world data then answers in about 0\\.2 s, from the index\\. Or leave it out, as this answer did\\.$" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 136,
+      "title": "refs: world true searched by its bytes says what world \"save_index\" would save next time (fix-j33-three-answers)",
+      "before": "Nothing said that the seconds of a world byte search could be a fraction of a second with the world link index.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_refs", "params": { "record": "003321:Starfield.esm", "world": true, "limit": 2 } }
+        ],
+        "pass_if": [
+          {
+            "name": "the note names the bytes searched and the third answer with its cost",
+            "all": [
+              { "call": 1, "part": "out", "matches": "by its bytes: [\\d,]+ records of [\\d,]+ plugins" },
+              { "call": 1, "part": "notes", "matches": "World data was searched by its bytes \\([\\d.]+ GB in [\\d,]+ plugins\\)\\. To make this fast next time, call with world: \"save_index\" \\(command line: --world=save-index\\) to search it the same way and then save the world link index of [\\d,]+ plugins \\(about [\\d,.]+ (MB|GB) on disk, made in about \\d+ s" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 137,
+      "title": "query2: world types left out of Links WHERE ToKey offer the world link index (fix-j33-three-answers)",
+      "before": "The note said only \"name one (WHERE FromType = '…') to have it read, with its cost said first\".",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "sql": "SELECT FromType, count(*) AS N FROM Links WHERE ToKey = '003321:Starfield.esm' GROUP BY FromType;" } }
+        ],
+        "pass_if": [
+          {
+            "name": "the types left out, how to read one, and allow_heavy=\"save_index\" with the index's cost",
+            "all": [
+              { "call": 1, "part": "notes", "matches": "Not read for Links, because each is over the cost limit by itself: [^\\n]*PlacedObject \\([\\d,]+ records\\)[^\\n]* Or allow_heavy=\"save_index\" \\(command line: --allow-heavy=save-index\\) to get this answer as it is and then save the world link index of [\\d,]+ plugins \\(about [\\d,.]+ (MB|GB) on disk, made in about \\d+ s in the background after the answer\\): Links WHERE ToKey = '…' then finds the world records that link to a record in about 0\\.1 s and reads only those" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 138,
+      "title": "query2: \"Not run\" of a world type named with a ToKey gives the three answers, and its JSON gains saveIndex (fix-j33-three-answers)",
+      "before": "\"Not run. … Call again with allow_heavy=true (command line: --allow-heavy).\" and the JSON's heavy object had no index.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "sql": "SELECT FromType, Field, count(*) AS N FROM Links WHERE ToKey = '003321:Starfield.esm' AND FromType = 'PlacedObject' GROUP BY Field;" }, "via": "mcp" },
+          { "tool": "sfs_query", "params": { "sql": "SELECT FromType, Field, count(*) AS N FROM Links WHERE ToKey = '003321:Starfield.esm' AND FromType = 'PlacedObject' GROUP BY Field;", "format": "json" }, "via": "mcp" }
+        ],
+        "pass_if": [
+          {
+            "name": "run now (time and memory), save the index (size, build time, later time), leave it; the JSON's saveIndex",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^Not run\\. PlacedObject in [\\d,]+ plugins is [\\d,]+ records .*: about \\d+ s and about [\\d.]+ GB to read.* Call again with allow_heavy=true \\(command line: --allow-heavy\\) to run it now\\. Or allow_heavy=\"save_index\" \\(command line: --allow-heavy=save-index\\) to run it now and then save the world link index of [\\d,]+ plugins \\(about [\\d,.]+ (MB|GB) on disk, made in about \\d+ s in the background after the answer\\): .* Or leave it: nothing more is read and nothing is saved\\.$" },
+              { "call": 2, "part": "out", "matches": "\"heavy\":\\{\"estimateMB\":\\d+,\"what\":.*\"reason\":\"not_allowed\",\"availableMB\":\\d+,\"saveIndex\":\\{\"index\":\"world\",\"what\":\"the world link index of [\\d,]+ plugins\",\"plugins\":\\d+,\"sizeMB\":\\d+,\"buildSeconds\":[\\d.]+,\"laterSeconds\":0\\.1,\"savesSeconds\":[\\d.]+,\"answer\":\"allow_heavy=\\\\\"save_index\\\\\"\"\\}" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 139,
+      "title": "query2: \"Not run\" where no index would help says so, and its JSON's saveIndex is null (fix-j33-three-answers)",
+      "before": "\"Not run. … Call again with allow_heavy=true (command line: --allow-heavy).\": nothing said whether an index would help.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "sql": "SELECT EditorID, Json FROM Cell LIMIT 2;", "plugins": "Starfield.esm" } },
+          { "tool": "sfs_query", "params": { "sql": "SELECT EditorID, Json FROM Cell LIMIT 2;", "plugins": "Starfield.esm", "format": "json" }, "via": "mcp" }
+        ],
+        "pass_if": [
+          {
+            "name": "run now, or leave it; no index helps, and why",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^Not run\\. Cell in Starfield\\.esm is [\\d,]+ records .* Call again with allow_heavy=true \\(command line: --allow-heavy\\) to run it now\\. No saved index would make this faster: SFSearch keeps indexes of where links are, not of the fields this query reads" },
+              { "call": 1, "part": "out", "not_matches": "save_index" },
+              { "call": 2, "part": "out", "matches": "\"reason\":\"not_allowed\",\"availableMB\":\\d+,\"saveIndex\":null" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 140,
+      "title": "profile: \"Not run\" says no index would make it faster (fix-j33-three-answers; a value field since a link field's profile is read from the bytes and runs unasked)",
+      "before": "\"Not run. The profile of 1 field reads 3,291,860 records … Call again with allow_heavy=true (command line: --allow-heavy).\"",
+      "form": {
+        "calls": [
+          { "tool": "sfs_run", "params": { "args": [ "profile", "PlacedObject.Scale", "--in", "Starfield.esm" ] } }
+        ],
+        "pass_if": [
+          {
+            "name": "run now, or leave it; no index helps a profile",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^Not run\\. The profile of 1 field reads [\\d,]+ records .* Call again with allow_heavy=true \\(command line: --allow-heavy\\) to run it now\\. No saved index would make this faster: a profile counts the values it reads from the records themselves\\.$" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 141,
+      "title": "sources2: a plugin of over 300,000 placed references without a world link index is searched by its bytes by default, says so and offers the index; the answer is allow_heavy's (fix-j63-scope-reads, GAPS S100; was fix-j33-three-answers, GAPS S96)",
+      "before": "\"Starfield.esm has more than 300,000 placed references (…): they weren't searched for placed copies, so an item placed in it isn't listed as one. Call again with allow_heavy=true …\" (the three answers; by default they were left out).",
+      "form": {
+        "calls": [
+          { "tool": "sfs_run", "params": { "args": ["sources2", "Starfield.esm", "--item", "0476C4:Starfield.esm", "--only"] } },
+          { "tool": "sfs_run", "params": { "args": ["sources2", "Starfield.esm", "--item", "0476C4:Starfield.esm", "--only"], "allow_heavy": true } }
+        ],
+        "pass_if": [
+          {
+            "name": "searched by its bytes by default, how long it took, save the world link index of Starfield.esm next time; the same answer as allow_heavy",
+            "all": [
+              { "call": 1, "part": "notes", "matches": "Starfield\\.esm has more than 300,000 placed references \\([\\d,]+, [\\d.]+ MB\\) and no world link index: their bytes were searched for placed copies with the other plugins' \\([\\d,]+ pass(es)? over [\\d,]+ placed references, [\\d.]+ s\\)\\. To make this faster next time, call again with allow_heavy=\\\"save_index\\\" \\(command line: --allow-heavy=save-index\\) to search them the same way and then save the world link index of Starfield\\.esm \\(about [\\d,]+ MB on disk, made in about \\d+ s in the background after the answer\\): placed copies of an item then come from it in a fraction of a second", "not_matches": "weren.t searched" },
+              { "call": 1, "part": "out", "same_as_call": 2 }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 142,
+      "title": "check2: the round trip's \"Not run\" says no index would make it faster (fix-j33-three-answers)",
+      "before": "\"Not run. The round trip of … Call again with allow_heavy=true (command line: --allow-heavy).\"",
+      "form": {
+        "calls": [
+          { "tool": "sfs_check", "params": { "plugin": "BlueprintShips-Starfield.esm", "what": "roundtrip" } }
+        ],
+        "pass_if": [
+          {
+            "name": "run now, or leave it; no index helps a round trip",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^Not run\\. The round trip of BlueprintShips-Starfield\\.esm .* Call again with allow_heavy=true \\(command line: --allow-heavy\\) to run it now\\. No saved index would make this faster: a round trip reads and writes the whole plugin\\.$" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 143,
+      "title": "allow_heavy \"save_index\" where no index would help: it runs as a yes and says none is made (fix-j33-three-answers)",
+      "before": "allow_heavy took only true or false.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "sql": "SELECT count(*) AS N FROM Weapon;", "plugins": "darkstar.esm", "allow_heavy": "save_index" }, "via": "mcp" }
+        ],
+        "pass_if": [
+          {
+            "name": "the rows, and the note that no index is saved",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^\\| \\d+ \\|$" },
+              { "call": 1, "part": "notes", "matches": "save_index was asked, but no saved index would make this question faster \\(.*\\), so none is made: it ran as with allow_heavy=true\\." }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 144,
+      "title": "archive2 grep: \"Not run\" says no index would make it faster (fix-j33-three-answers)",
+      "before": "\"Not run. … Call again with allow_heavy=true (command line: --allow-heavy).\"",
+      "form": {
+        "calls": [
+          { "tool": "sfs_run", "params": { "args": [ "archive2", "all", "grep", "zzqqj33", "--ext", "*" ] } }
+        ],
+        "pass_if": [
+          {
+            "name": "run now, or leave it; no index helps a search of the archives",
+            "all": [
+              { "call": 1, "part": "out", "matches": "(?m)^Not run\\. .* Call again with allow_heavy=true \\(command line: --allow-heavy\\) to run it now\\. No saved index would make this faster: it reads the archives' files, and SFSearch indexes plugins, not archives\\.$" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 145,
+      "title": "check2: world data left out of the checks says no index would make it faster (fix-j33-three-answers)",
+      "before": "\"World data was left out of the link and ITM checks: … Add world: true (command line: --world) to include it: about N s more.\"",
+      "form": {
+        "calls": [
+          { "tool": "sfs_check", "params": { "plugin": "kgcdoom.esm" } }
+        ],
+        "pass_if": [
+          {
+            "name": "world: true with its time, and why no index helps",
+            "all": [
+              { "call": 1, "part": "all", "matches": "World data was left out of the (link and ITM checks|ITM check): [\\d,]+ records .* Add world: true \\(command line: --world\\) to include it: about \\d+ s more\\. No saved index would make that faster: the checks read each record\\." }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

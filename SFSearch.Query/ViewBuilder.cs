@@ -31,6 +31,25 @@ public sealed class ColumnSpec
     internal List<(string ObjPath, HashSet<string> Variants)> VariantGuards = new();
     internal string? NullGuard;
     internal bool FromBase;
+    /// <summary>Another kind of the entry holds a list or an object under the same name (a script property's Data: a
+    /// number on ScriptIntProperty, a list on ScriptIntListProperty), which the JSON gives as its JSON text: the column is
+    /// read from the JSON, never straight from Mutagen's object or its bytes.</summary>
+    internal bool ShapeVaries;
+    /// <summary>The object <see cref="NullGuard"/> names is one the record always has (not nullable), absent from the JSON
+    /// only when the serializer has nothing in it to write (every field at its default, every list empty: its
+    /// HasSerializationItems): a dialogue scene action's Headtracking with no aliases and neither flag.</summary>
+    internal bool GuardOmittable;
+    /// <summary>The schema's row of the field (one record type's): where its bytes sit, for a column read from the
+    /// record's own bytes (RawColumn, J30). Null for a column of several types or kinds.</summary>
+    internal FieldRow? Row;
+    /// <summary>For an ObjectType column: the path of the object whose kind it gives, relative to the record or the
+    /// list entry ("" for the entry itself).</summary>
+    internal string? ObjectPath;
+    /// <summary>The schema's enum of an enum or flags column (its name in schema.Enums); null when the column is of
+    /// several enums (one name reached through kinds of object or record types that differ).</summary>
+    internal string? Enum;
+    /// <summary>The schema's first row of the field, kept when <see cref="Row"/> is cleared for a column of several types.</summary>
+    internal FieldRow? FirstRow;
 }
 
 /// <summary>A field of a record type that is not a column of the view asked: where it can be read instead.</summary>
@@ -189,8 +208,10 @@ public sealed class ViewBuilder
         var views = new Dictionary<string, ViewSpec>(StringComparer.Ordinal) { [""] = typed };
         var listKind = new Dictionary<string, string>(StringComparer.Ordinal);       // scope key + "|" + rest -> kind of that list
         var objNullable = new Dictionary<string, bool>(StringComparer.Ordinal);      // scope key + "|" + object path -> may be absent
+        var objAlways = new HashSet<string>(StringComparer.Ordinal);                 // … an object the record always has (not nullable)
         var cutObjects = new HashSet<string>(StringComparer.Ordinal);
         var hinted = new HashSet<string>(StringComparer.Ordinal);
+        var heldHinted = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (string type in types)
         {
@@ -202,6 +223,17 @@ public sealed class ViewBuilder
                 string scopeKey = string.Join("|", p.Lists);
                 string kind = def.Kind;
                 if (p.Lists.Count == 0 && p.Rest is "FormKey" or "EditorID") continue;
+                // A record held in this one (a cell's navmeshes, a worldspace's top cell, a topic's responses) is a record
+                // of its own: the holder's JSON keeps only a marker for it (RecordSplit), so a column or list view of it
+                // here would give no value. Its fields are in its own type's view; Forms.Parent names its holder.
+                if (HoldsRecords(row.Sig, row.PlainPath))
+                {
+                    string top = TopField(row.PlainPath);
+                    if (heldHinted.Add(top))
+                        cat.Hints.Add(new FieldHint(top, top, def.Kind, def.Readable, null, row.Subrecord,
+                            $"records held in this one, each a record of its own: read them in their own type's view (Forms.Parent is the record that holds each one, e.g. SELECT … FROM Forms WHERE Parent = '<FormKey>')"));
+                    continue;
+                }
 
                 bool isContainer = kind is "List" or "Array" or "Array2D" or "Dictionary";
                 if (kind is "Group" or "CustomLogic" or "Break" or "Marker") continue;
@@ -222,6 +254,9 @@ public sealed class ViewBuilder
                 {
                     if (p.Rest.Length == 0) { EnsureList(cat, views, root, types, union, p, listKind, scalar: false); continue; }
                     objNullable[scopeKey + "|" + p.Rest] = def.Nullable || p.Guards.Count > 0;
+                    // (an object of several kinds is never left out of the JSON: it always holds its kind, as a condition's
+                    // Data does, {"MutagenObjectType":"IsActorConditionData"}, so its fields read their defaults: GAPS S166)
+                    if (!def.Nullable && !(def.RefObject is { } always && _schema.IsPolymorphic(always))) objAlways.Add(scopeKey + "|" + p.Rest);
                     if (IsUnder(cutObjects, scopeKey, p.Rest)) continue;
                     // An object too deep for columns of its own becomes one column holding its JSON
                     if (p.Rest.Count(ch => ch == '.') + 1 >= MaxObjectDepth && GetView(cat, views, root, types, union, p, listKind) is { } owner)
@@ -238,7 +273,7 @@ public sealed class ViewBuilder
                     : GetView(cat, views, root, types, union, p, listKind);
                 if (view == null) continue;
                 var (expr, dflt) = Expression(def, row.Enum, p.Rest);
-                AddColumn(cat, view, row, p, kind, expr, dflt, objNullable, scopeKey);
+                AddColumn(cat, view, row, p, kind, expr, dflt, objNullable, scopeKey, objAlways: objAlways);
             }
         }
 
@@ -256,9 +291,51 @@ public sealed class ViewBuilder
             cat.Lists[name] = v;
         }
 
+        // Each flags column also as its number, right after it: EntryTypes, EntryTypesRaw (GAPS S168)
+        foreach (var v in cat.AllViews)
+            for (int i = v.Columns.Count - 1; i >= 0; i--)
+                if (FlagsNumber(cat, v, v.Columns[i]) is { } raw) { v.Columns.Insert(i + 1, raw); v.ByName[raw.Name] = raw; }
+
+        // A column whose name is a list or an object in another kind of the same entry (ShapeVaries)
+        foreach (var v in cat.AllViews)
+            foreach (var c in v.Columns)
+                if (c.RelPath is { Length: > 0 } rel && (listKind.ContainsKey(v.Key + "|" + rel) || objNullable.ContainsKey(v.Key + "|" + rel))) c.ShapeVaries = true;
+
         foreach (var v in cat.AllViews)
             foreach (var c in v.Columns) c.Expr = Guarded(c);
         return cat;
+    }
+
+    /// <summary>
+    /// The number column of a flags column (<c>EntryTypesRaw</c> beside <c>EntryTypes</c>, GAPS S168): the same flags as
+    /// one integer, so a bit is tested by its number, <c>(EntryTypesRaw &amp; 0x80000000) &lt;&gt; 0</c>. The same field,
+    /// guards, NULLs and default as the flags column; its value from the JSON is the names' bits (sfs_flagbits), from
+    /// Mutagen's object and the bytes the enum's value (FlagsRaw.cs). None for a column of several enums, for a name the
+    /// view has already, and for the record header's flags, which the view has as a number already
+    /// (MajorRecordFlagsRaw; Forms.Flags too).
+    /// </summary>
+    ColumnSpec? FlagsNumber(TypeCatalog cat, ViewSpec v, ColumnSpec c)
+    {
+        if (c.Kind != "Flags" || c.Enum is not { } enumName || FlagsRaw.EnumOf(enumName) == null) return null;
+        string name = c.Name + FlagsRaw.Suffix;
+        if (Reserved.Contains(name) || v.FixedColumns.Contains(name, StringComparer.OrdinalIgnoreCase) || v.ByName.ContainsKey(name)) return null;
+        if (c.FirstRow is { } fr && fr.Def.Subrecord == null && HandLayouts.HeaderPlace(_schema.Model, fr.Def) is { Bit: 0 } at
+            && v.Columns.Any(o => o != c && o.Kind is "Int32" or "UInt32" && o.FirstRow is { } or && or.Def.Subrecord == null && HandLayouts.HeaderPlace(_schema.Model, or.Def) is { Bit: 0 } oat && oat.Offset == at.Offset && oat.Size == at.Size))
+            return null;
+        if (v.Columns.Count + v.FixedColumns.Count + 4 >= MaxColumns) { cat.ColumnsCut++; return null; }
+        string? dflt = null;
+        if (c.DefaultSql != null)
+        {
+            if (!DirectColumn.TryLiteral(c.DefaultSql, out var d) || d is not string list) return null;
+            dflt = FlagsRaw.FromNames(list, enumName)?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+        return new ColumnSpec
+        {
+            Name = name, Expr = $"sfs_flagbits({c.Expr}, {SqlText.Literal(enumName)})", Kind = FlagsRaw.Kind, SchemaPath = c.SchemaPath,
+            Readable = c.Readable, XEdit = c.XEdit, Subrecord = c.Subrecord, DefaultSql = dflt, RelPath = c.RelPath, Nullable = c.Nullable,
+            VariantGuards = c.VariantGuards.Select(g => (g.ObjPath, new HashSet<string>(g.Variants, StringComparer.Ordinal))).ToList(),
+            NullGuard = c.NullGuard, GuardOmittable = c.GuardOmittable, FromBase = c.FromBase, Row = c.Row, FirstRow = c.FirstRow, Enum = enumName,
+        };
     }
 
     /// <summary>The list level that is a grid, or -1.</summary>
@@ -310,7 +387,7 @@ public sealed class ViewBuilder
     static readonly HashSet<string> Reserved = new(StringComparer.OrdinalIgnoreCase) { "Json", "LoadOrder", "IsWinner", "rowid" };
 
     void AddColumn(TypeCatalog cat, ViewSpec view, FieldRow row, Parsed p, string kind, string expr, string? dflt,
-        Dictionary<string, bool> objNullable, string scopeKey, string? name = null)
+        Dictionary<string, bool> objNullable, string scopeKey, string? name = null, HashSet<string>? objAlways = null)
     {
         var def = row.Def;
         name ??= p.Rest.Length == 0 ? "Value" : p.Rest.Replace('.', '_');
@@ -318,8 +395,12 @@ public sealed class ViewBuilder
         if (Reserved.Contains(name) || view.FixedColumns.Contains(name, StringComparer.OrdinalIgnoreCase)) name += "_";
         if (view.ByName.TryGetValue(name, out var have))
         {
+            if (have.Enum != row.Enum) have.Enum = null;
+            // A text translated in one kind and not in another (a perk effect's Text): the JSON's text of each (ShapeVaries)
+            if (have.FirstRow is { } firstRow && firstRow.Def.Translated != def.Translated) have.ShapeVaries = true;
             // The same field reached through another kind of object: both kinds read it
             if (have.FromBase) return;
+            have.Row = null;
             if (p.Guards.Count == 0) { have.FromBase = true; have.VariantGuards.Clear(); return; }
             foreach (var g in p.Guards)
             {
@@ -341,6 +422,8 @@ public sealed class ViewBuilder
             IsLink = kind == "FormLink", LinkTo = def.LinkTo, Readable = def.Readable,
             XEdit = _schema.XEditPath(row.Sig, row.PlainPath) ?? def.XEdit, Subrecord = row.Subrecord,
             DefaultSql = dflt, RelPath = p.Rest, Nullable = def.Nullable, NullGuard = nullGuard, FromBase = p.Guards.Count == 0,
+            GuardOmittable = nullGuard != null && objAlways != null && objAlways.Contains(scopeKey + "|" + nullGuard),
+            Row = row, FirstRow = row, Enum = row.Enum,
         };
         foreach (var g in p.Guards)
         {
@@ -349,12 +432,30 @@ public sealed class ViewBuilder
             string typeCol = g.ObjPath.Length == 0 ? "ObjectType" : g.ObjPath.Replace('.', '_') + "_ObjectType";
             if (!view.ByName.ContainsKey(typeCol) && view.Columns.Count + view.FixedColumns.Count + 4 < MaxColumns)
             {
-                var tc = new ColumnSpec { Name = typeCol, Expr = $"{{J}} ->> '{JsonPath(g.ObjPath)}.MutagenObjectType'", Kind = "ObjectType", SchemaPath = row.PlainPath, FromBase = true, Nullable = true };
+                var tc = new ColumnSpec { Name = typeCol, Expr = $"{{J}} ->> '{JsonPath(g.ObjPath)}.MutagenObjectType'", Kind = "ObjectType", SchemaPath = row.PlainPath, FromBase = true, Nullable = true, ObjectPath = g.ObjPath };
                 view.Columns.Add(tc); view.ByName[typeCol] = tc;
             }
         }
         view.Columns.Add(col);
         view.ByName[name] = col;
+    }
+
+    readonly Dictionary<(string, string), bool> _holds = new();
+
+    /// <summary>True when the record type's top-level field on this path can hold records of its own (RecordSchema.FieldHoldsRecords).</summary>
+    static string TopField(string path)
+    {
+        int end = path.IndexOfAny(new[] { '.', '[', '{' });
+        return end < 0 ? path : path[..end];
+    }
+
+    bool HoldsRecords(string sig, string path)
+    {
+        string field = TopField(path);
+        var types = _schema.TypesOf(sig);
+        if (types.Count == 0) return false;
+        if (!_holds.TryGetValue((sig, field), out bool holds)) _holds[(sig, field)] = holds = types.Any(t => _schema.HoldsRecords(t) && _schema.FieldHoldsRecords(t, field));
+        return holds;
     }
 
     void AddHint(TypeCatalog cat, HashSet<string> hinted, FieldRow row, Parsed p, string where)
@@ -410,7 +511,8 @@ public sealed class ViewBuilder
     {
         // No default to give: an absent value reads as NULL whatever the reason
         if (c.DefaultSql == null || c.Nullable || c.Kind is "ObjectType" or "Array2DRow" or "Json") return c.Expr;
-        string expr = $"coalesce({c.Expr}, {c.DefaultSql})";
+        // A JSON value's default is JSON too ('[]' for flags), so that the column gives JSON either way (GAPS S80)
+        string expr = $"coalesce({c.Expr}, {(IsJson(c) ? $"json({c.DefaultSql})" : c.DefaultSql)})";
         var conds = new List<string>();
         if (c.NullGuard != null) conds.Add($"json_type({{J}}, '{JsonPath(c.NullGuard)}') IS NOT NULL");
         if (!c.FromBase)
@@ -468,21 +570,24 @@ public sealed class ViewBuilder
                 e = $"e{k}";
                 j = dict ? $"(e{k}.value -> '$.Value')" : $"e{k}.value";
             }
+            var json = new JsonJoins();
             foreach (var c in v.Columns)
             {
                 if (onlyColumns != null && !onlyColumns.Contains(c.Name)) continue;
-                string expr = v.IsList && v.Lists[^1].Kind == "Dictionary" ? c.Expr.Replace("{E}.value", $"({e}.value ->> '$.Value')") : c.Expr;
-                sb.Append(", ").Append(Fill(expr, j, e, lang)).Append(" AS ").Append(SqlText.Name(c.Name));
+                string expr = Fill(v.IsList && v.Lists[^1].Kind == "Dictionary" ? c.Expr.Replace("{E}.value", $"({e}.value ->> '$.Value')") : c.Expr, j, e, lang);
+                sb.Append(", ").Append(IsJson(c) ? json.Column(expr, c.Name) : expr + " AS " + SqlText.Name(c.Name));
             }
-            if (!v.IsList) { if (withJson) sb.Append(", json(r.Json) AS Json"); }
-            else if (!v.ScalarEntries && withJson) sb.Append(", ").Append(j).Append(" AS Json");
+            if (!v.IsList) { if (withJson) sb.Append(", ").Append(json.Column("r.Json", "Json")); }
+            else if (!v.ScalarEntries && withJson) sb.Append(", ").Append(json.Column(j, "Json"));
             sb.Append(" FROM ").Append(mem.Table ?? mem.Db + ".Rec").Append(" r");
             for (int i = 0; i < v.Lists.Count; i++)
             {
                 string src = i == 0 ? "r.Json" : v.Lists[i - 1].Kind == "Dictionary" ? $"(e{i}.value -> '$.Value')" : $"e{i}.value";
                 sb.Append($", json_each({src}, '{JsonPath(v.Lists[i].Path)}') e{i + 1}");
             }
+            sb.Append(json.From);
             sb.Append(" WHERE r.Type IN (").Append(types).Append(')');
+            sb.Append(ListsOnly(v.Lists.Count, " AND "));
             if (mem.Where != null) sb.Append(" AND ").Append(mem.Where);
         }
         return sb.ToString();
@@ -494,6 +599,108 @@ public sealed class ViewBuilder
         string lang = SqlText.Literal(language);
         return columns.Select(n => Fill(v.ByName[n].Expr, "Json", "Json", lang)).ToList();
     }
+
+    /// <summary>The column of a list projection read through the records' JSON that holds each entry (GAPS S58).</summary>
+    public const string EntryColumn = "sfs_entry";
+
+    /// <summary>
+    /// The statement that gives one record's rows of a list view from its JSON (GAPS S58): over one value named Json
+    /// (the record's JSONB, <see cref="JsonbMaker.ProjectRows"/>), the list places (Idx, Idx2, …), the named plain
+    /// columns with the view's own expressions, then the entry itself as JSONB (a one-item array of it, which keeps a
+    /// plain value plain). The view gives every other column from that entry with its own expressions over json_each,
+    /// as <see cref="SelectSql"/> does over the record (<see cref="ListEntrySql"/>): the same values, JSON as JSON.
+    /// </summary>
+    public static string ListProjectSql(ViewSpec v, IReadOnlyList<string> plain, string language)
+    {
+        string lang = SqlText.Literal(language);
+        int k = v.Lists.Count;
+        bool dict = v.Lists[^1].Kind == "Dictionary";
+        string e = $"e{k}", j = dict ? $"(e{k}.value -> '$.Value')" : $"e{k}.value";
+        var parts = new List<string>();
+        for (int i = 0; i < k; i++) parts.Add($"e{i + 1}.key");
+        foreach (string name in plain)
+            parts.Add(Fill(dict ? v.ByName[name].Expr.Replace("{E}.value", $"({e}.value ->> '$.Value')") : v.ByName[name].Expr, j, e, lang));
+        parts.Add($"jsonb(json_array({e}.value))");
+        var sb = new StringBuilder("SELECT ").Append(string.Join(", ", parts)).Append(" FROM (SELECT $j AS Json) r");
+        for (int i = 0; i < k; i++)
+        {
+            string src = i == 0 ? "r.Json" : v.Lists[i - 1].Kind == "Dictionary" ? $"(e{i}.value -> '$.Value')" : $"e{i}.value";
+            sb.Append($", json_each({src}, '{JsonPath(v.Lists[i].Path)}') e{i + 1}");
+        }
+        sb.Append(ListsOnly(k, " WHERE "));
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Only a list's own entries: every list is a JSON array, whose entries json_each numbers 0, 1, … A field of the
+    /// same name that is a plain value or an object in another kind of entry (a script property's Data is a list in a
+    /// ScriptFloatListProperty and one number in a ScriptIntProperty) would give json_each one row with no number, or a
+    /// row for each of the object's fields: not entries of the list (fix-s4s5-world-reads).
+    /// </summary>
+    static string ListsOnly(int levels, string lead) =>
+        levels == 0 ? "" : lead + string.Join(" AND ", Enumerable.Range(1, levels).Select(i => $"typeof(e{i}.key) = 'integer'"));
+
+    /// <summary>
+    /// A list view's columns over a list projection (alias <c>x</c>): a column the table holds as it is, any other
+    /// from the entry it holds (<see cref="EntryColumn"/>), with the view's own expressions over json_each of it, as
+    /// <see cref="SelectSql"/> gives them over the record. Each item is "expression AS name"; <c>From</c> follows the table.
+    /// </summary>
+    public static (List<string> Columns, string From) ListEntrySql(ViewSpec v, IEnumerable<string> columns, ISet<string> stored, string language)
+    {
+        string lang = SqlText.Literal(language);
+        bool dict = v.Lists[^1].Kind == "Dictionary";
+        const string e = "sfs_e";
+        string j = dict ? $"({e}.value -> '$.Value')" : $"{e}.value";
+        var list = new List<string>();
+        var json = new JsonJoins();
+        bool entry = false;
+        foreach (string name in columns)
+        {
+            string expr;
+            bool isJson = name.Equals("Json", StringComparison.OrdinalIgnoreCase) && !v.ByName.ContainsKey(name) || v.ByName.TryGetValue(name, out var spec) && IsJson(spec);
+            if (stored.Contains(name)) expr = isJson ? $"json(x.{SqlText.Name(name)})" : $"x.{SqlText.Name(name)}";
+            else
+            {
+                entry = true;
+                if (IsListKey(v, name)) expr = $"{e}.value ->> '$.Key'";
+                else if (name.Equals("Json", StringComparison.OrdinalIgnoreCase)) expr = j;
+                else expr = Fill(dict ? v.ByName[name].Expr.Replace("{E}.value", $"({e}.value ->> '$.Value')") : v.ByName[name].Expr, j, e, lang);
+            }
+            list.Add(isJson ? json.Column(expr, name) : $"{expr} AS {SqlText.Name(name)}");
+        }
+        return (list, (entry ? $", json_each(x.{EntryColumn}) {e}" : "") + json.From);
+    }
+
+    /// <summary>A column whose values are JSON (a flags list, an object too deep for columns of its own).</summary>
+    public static bool IsJson(ColumnSpec c) => c.Kind is "Flags" or "Json";
+
+    /// <summary>
+    /// A view's JSON columns given so that they stay JSON inside SQLite's JSON functions (GAPS S80). A value leaving a
+    /// view loses SQLite's JSON mark when the view's column is a function (json(r.Json), r.Json -> '$.Flags', a
+    /// coalesce or CASE around one): json_object('j', Json) over Quest embedded a string, not an object. A column of
+    /// json_each keeps it, so each JSON column is the value of json_each over a one-item array of it, which gives
+    /// exactly one row: the same text, the mark kept (SQLite 3.53.3, tested in views-all).
+    /// </summary>
+    public sealed class JsonJoins
+    {
+        readonly StringBuilder _from = new();
+        int _n;
+
+        /// <summary>The column "sfs_jN.value AS name" for the expression; its join goes into <see cref="From"/>.</summary>
+        public string Column(string expr, string name)
+        {
+            _n++;
+            _from.Append($", json_each(json_array({expr})) sfs_j{_n}");
+            return $"sfs_j{_n}.value AS {SqlText.Name(name)}";
+        }
+
+        /// <summary>The joins, each ", json_each(…) sfs_jN", to follow the view's tables.</summary>
+        public string From => _from.ToString();
+    }
+
+    /// <summary>True for a dictionary list view's own Key column (not a field named Key).</summary>
+    public static bool IsListKey(ViewSpec v, string name) =>
+        v.IsList && v.Lists[^1].Kind == "Dictionary" && name.Equals("Key", StringComparison.OrdinalIgnoreCase) && !v.ByName.ContainsKey(name);
 
     /// <summary>A table with the view's columns and no rows: what a statement is prepared against to learn which
     /// views and columns it reads.</summary>

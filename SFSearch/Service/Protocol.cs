@@ -51,8 +51,6 @@ namespace SFSearch.Service
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool AllowHeavy { get; set; }
         /// <summary>The caller already knows this is heavy: the estimate in MB. It goes through the heavy lane from the start.</summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public int HeavyMB { get; set; }
-        /// <summary>"index" puts the job in the indexer lane: it runs when no agent is waiting and gives way when one arrives.</summary>
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Lane { get; set; }
         /// <summary>A name the caller picks for this call, so it can cancel it before it has been told the job number.</summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Key { get; set; }
 
@@ -147,6 +145,32 @@ namespace SFSearch.Service
         public string Reason { get; set; } = "";
         /// <summary>What Windows had available when the service decided, in MB.</summary>
         public long AvailableMB { get; set; }
+        /// <summary>not_allowed: the index that would make the question fast, offered as the third answer (J33:
+        /// allow_heavy="save_index"), as the JSON answer's saveIndex; null when none would (the answer says why).</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SaveIndexInfo? SaveIndex { get; set; }
+    }
+
+    /// <summary>An index offered as the third answer at a permission point (J33; SFSearch.Records.IndexOffer on the wire, made by Engine.IndexOffers.Info).</summary>
+    public sealed class SaveIndexInfo
+    {
+        /// <summary>The index's name as the indexes verb names it: world.</summary>
+        public string Index { get; set; } = "";
+        public string What { get; set; } = "";
+        public int Plugins { get; set; }
+        public long SizeMB { get; set; }
+        public double BuildSeconds { get; set; }
+        /// <summary>About how long the same kind of question takes with the index.</summary>
+        public double LaterSeconds { get; set; }
+        /// <summary>About how much of the time now that saves.</summary>
+        public double SavesSeconds { get; set; }
+        /// <summary>The argument that takes this answer: allow_heavy="save_index", or world: "save_index" for refs.</summary>
+        public string Answer { get; set; } = "";
+
+        public System.Text.Json.Nodes.JsonObject ToJson() => new()
+        {
+            ["index"] = Index, ["what"] = What, ["plugins"] = Plugins, ["sizeMB"] = SizeMB, ["buildSeconds"] = BuildSeconds,
+            ["laterSeconds"] = LaterSeconds, ["savesSeconds"] = SavesSeconds, ["answer"] = Answer,
+        };
     }
 
     /// <summary>From the coordinator to a worker: run this command (or, mid-command: grant, deny, yield).</summary>
@@ -167,6 +191,11 @@ namespace SFSearch.Service
         public long AvailableMB { get; set; }
         /// <summary>deny, no_memory: what the job needed with the spare the service keeps free, in MB.</summary>
         public long NeedMB { get; set; }
+        /// <summary>
+        /// run and grant: what the coordinator lets this job hold before it stops it (MB: workerMaxMB, a heavy command's
+        /// allowance, the indexer's). The worker holds .NET's heap under it (J57).
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long LimitMB { get; set; }
     }
 
     /// <summary>From a worker to the coordinator.</summary>
@@ -195,6 +224,14 @@ namespace SFSearch.Service
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MoreInfo? More { get; set; }
         /// <summary>An indexer job that stopped early to let an agent through: it is queued again.</summary>
         public bool Yielded { get; set; }
+        /// <summary>done: the caller answered "save_index" (J33): the index to make in the indexer lane now that the answer
+        /// is given ("world": the world link index of the plugins WorldLinks.Want recorded).</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? IndexAfter { get; set; }
+        /// <summary>
+        /// done: the job didn't run its work here and asks to be run again on a worker with .NET's workstation garbage
+        /// collector (J58, GAPS S85: the link walk of many plugins is faster there).
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool Workstation { get; set; }
         /// <summary>done: how many plugins this worker holds open as Mutagen overlays (the new tools' record layer).</summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public int OpenPlugins { get; set; }
     }
@@ -294,7 +331,7 @@ namespace SFSearch.Service
             }
             if (r.Failure != null) o["error"] = new System.Text.Json.Nodes.JsonObject { ["message"] = r.Failure.Message, ["fix"] = r.Failure.Fix };
             else if (r.Error != null) o["error"] = new System.Text.Json.Nodes.JsonObject { ["message"] = r.Error };
-            if (r.Heavy != null) o["heavy"] = new System.Text.Json.Nodes.JsonObject { ["estimateMB"] = r.Heavy.EstimateMB, ["what"] = r.Heavy.What, ["reason"] = r.Heavy.Reason, ["availableMB"] = r.Heavy.AvailableMB };
+            if (r.Heavy != null) o["heavy"] = new System.Text.Json.Nodes.JsonObject { ["estimateMB"] = r.Heavy.EstimateMB, ["what"] = r.Heavy.What, ["reason"] = r.Heavy.Reason, ["availableMB"] = r.Heavy.AvailableMB, ["saveIndex"] = r.Heavy.SaveIndex?.ToJson() };
             if (r.More is { } m) o["more"] = new System.Text.Json.Nodes.JsonObject { ["from"] = m.From, ["shown"] = m.Shown, ["total"] = m.Total, ["unit"] = m.Unit, ["cursor"] = m.Cursor };
             o["notes"] = new System.Text.Json.Nodes.JsonArray((r.Notes ?? Array.Empty<string>()).Select(n => (System.Text.Json.Nodes.JsonNode?)n).ToArray());
             o["source"] = new System.Text.Json.Nodes.JsonArray((r.Source ?? Array.Empty<SourceInfo>()).Select(x => (System.Text.Json.Nodes.JsonNode?)(x.Text != null && x.Bytes == 0 && x.Key.Length == 0

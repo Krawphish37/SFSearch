@@ -6,10 +6,14 @@ namespace SFSearch.SchemaGen;
 public sealed class PairStats
 {
     public int Rows, DistinctPaths, Matched, MatchedDistinct, Exact, Flag, Component, Bytes, Count, BySubrecord, WholeValue;
-    /// <summary>Pairs made on a name Mutagen has since changed, matched under the new one (PairMatcher.Renamed).</summary>
-    public int Renamed;
     public int SubrecordCompared, SubrecordAgree, SignaturesFilled;
     public int FieldsNamed, EnumMembersNamed;
+    /// <summary>Sets of flags named after the xEdit element their flags sit in (FieldsNamed counts them too).</summary>
+    public int FlagFieldsNamed;
+    /// <summary>Objects and lists of record types named after the xEdit element their paired fields sit in (GAPS S98), and
+    /// how many container fields (once each, in ObjectFields) took a name that way.</summary>
+    public List<PairMatcher.ContainerName> Containers = new();
+    public int ContainerFieldsNamed;
     /// <summary>Unmatched pairs, by reason. Every pair is matched, not data, or here.</summary>
     public Dictionary<string, int> Reasons = new(StringComparer.Ordinal);
     /// <summary>Pairs whose Mutagen side is Mutagen's own bookkeeping, not data in the file (Match "not data"), by reason.</summary>
@@ -35,7 +39,24 @@ public static class PairMatcher
     {
         ["RecordType"] = new[] { "Type", "TypeInt" },
         ["AssetLink"] = new[] { "DataRelativePath.Path", "GivenPath", "RawPath" },
+        // A plugin header's master (MasterReference.Master, compiled type ModKey): its file name is the whole MAST
+        ["ModKey"] = new[] { "FileName.String", "FileName" },
     };
+
+    /// <summary>
+    /// The xEdit path of the field a flag pair's flag belongs to: the pair's xEdit path without its last part
+    /// ("\Record Header\Record Flags\Small" gives "\Record Header\Record Flags"). Null for a pair that isn't a flag's,
+    /// or one held up by position alone.
+    /// </summary>
+    public static string? FlagParent(PairRow p)
+    {
+        if (p.Match != "flag" || p.Part == null || Weight(p) < 1000) return null;
+        int cut = p.XEditPath.LastIndexOf('\\');
+        return cut > 0 ? p.XEditPath[..cut] : null;
+    }
+
+    /// <summary>The field a flag pair names one flag of ("Flags.Light" gives "Flags").</summary>
+    public static string FlagField(PairRow p) => p.MutagenPath[..^(p.Part!.Length + 1)];
 
     /// <summary>
     /// xEdit's subrecord can be held against the schema's: the pair names a field (not a count, not one matched by its
@@ -56,6 +77,49 @@ public static class PairMatcher
 
     public static string SpacedOut(string name)
         => Regex.Replace(name, "(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
+
+    static readonly Regex NumberedNonName = new(@"^(unknown|unused)\s*#?\s*(\d+|\*)$|^unused$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    // A subrecord's signature ("CTDA", "NAM4"), or a list of them as Mutagen names it ("QDUPs", "XCLAs")
+    static readonly Regex SignatureName = new(@"^[A-Z][A-Z0-9_]{3}s?$", RegexOptions.Compiled);
+
+    static string WithoutSignature(string name)
+    {
+        name = name.Trim();
+        return SigPrefix.Match(name) is { Success: true } m ? m.Groups[1].Value.Trim() : name;
+    }
+
+    /// <summary>
+    /// xEdit's name for a field is "Unknown": in any case, with or without the element's signature before it
+    /// ("RECF - Unknown"). Such a name says xEdit doesn't know the field; it is no name to show.
+    /// </summary>
+    public static bool IsUnknownName(string xeditName)
+        => WithoutSignature(xeditName).Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// How much a name says about its field: 0 for "Unknown" (IsUnknownName), 1 for another non-name (a numbered
+    /// "Unknown #2", "Unknown #*", "Unknown2"; "Unused" and "Unused 2"; only a subrecord's signature, "CTDA", or a list of
+    /// them, "QDUPs"), 2 for a real name ("First Parameter", "Unknown Strings", "Sprint"). A list item's placeholder
+    /// ("Keyword #*") is a real name: it names the item.
+    /// </summary>
+    public static int NameStrength(string name)
+    {
+        string n = WithoutSignature(name);
+        if (n.Equals("Unknown", StringComparison.OrdinalIgnoreCase)) return 0;
+        return NumberedNonName.IsMatch(n) || SignatureName.IsMatch(n) ? 1 : 2;
+    }
+
+    /// <summary>A name that says nothing about its field: "Unknown", numbered "Unknown #n", "Unused", or only a signature.</summary>
+    public static bool IsNonName(string name) => NameStrength(name) < 2;
+
+    /// <summary>
+    /// The readable name a field takes from xEdit's name: xEdit's, except where xEdit's is a non-name (IsNonName) and
+    /// SFSearch's own, the Mutagen name spaced out, says more (NameStrength): there SFSearch keeps its own, and xEdit's
+    /// stays in the field's xEdit name. Where the own name is no better (Mutagen's "Unknown" beside xEdit's "Unused",
+    /// "NAM4" beside "Unknown #*"), xEdit's is kept. The user's decisions, 2026-11-15: "Keep SFSearch's name where
+    /// xEdit's is Unknown", then "Yes, as recommended" (the same for every non-name).
+    /// </summary>
+    public static string ReadableName(string xeditName, string mutagenName)
+        => NameStrength(mutagenName) > NameStrength(xeditName) ? SpacedOut(mutagenName) : xeditName;
 
     static int Weight(PairRow p) => p.Method.StartsWith("order only", StringComparison.Ordinal) ? 1 : 1000;
 
@@ -134,88 +198,24 @@ public static class PairMatcher
             foreach (var same in model.Objects[def.Object].Fields.Where(x => x.Name == def.Name && x.Subrecord == null && (x == def || x.Path.StartsWith(def.Name, StringComparison.Ordinal))))
             {
                 same.Subrecord = sig;
-                same.Note = (same.Note == null ? "" : same.Note + "; ") + "signature from xEdit's pairs (the XML doesn't give one)";
+                // A field Mutagen's hand-written code fills: Mutagen's files name its subrecords on that step or in HandReadLayouts.xml (GAPS S38), not on the field
+                string said = same.CustomSubrecords == null ? "signature from xEdit's pairs (the XML doesn't give one)"
+                    : same.CustomSubrecordList.Contains(sig) ? $"signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, {same.FilledBy})"
+                    : $"signature from xEdit's pairs (Mutagen's files name {string.Join(", ", same.CustomSubrecordList)} for the hand-written code that fills the field, {same.FilledBy})";
+                same.Note = (same.Note == null ? "" : same.Note + "; ") + said;
             }
             filled++;
         }
         return filled;
     }
 
-    /// <summary>
-    /// Fields Mutagen renamed after the pairs were made: (object, old name, new name, Mutagen's item). The pairing tool
-    /// (xecmp) wrote its pairs on the names of its Mutagen build; until it runs again on current names, a pair naming
-    /// one of these is matched under the new name (<see cref="ApplyRenames"/>). An old name is replaced only where the
-    /// pair's path no longer leads anywhere and the new name is a field of that object at that place.
-    /// </summary>
-    public static readonly (string Object, string Old, string New, string Item)[] Renamed =
-    {
-        ("SoundReference", "Start", "StartEvent", "C218"),
-        ("SoundReference", "Stop", "StopEvent", "C218"),
-        ("SoundReference", "Condition", "ConditionForm", "C218"),
-        ("SoundReference", "EventMapping", "EventForm", "C218"),
-        ("PlayerDialogueSceneAction", "WED0", "Sound", "C218"),
-        ("PlacedObjectSpline", "Thickness", "SplineRadius", "C220"),
-        ("ActorValueModulation", "TNAM", "Name", "C207"),
-        ("Worldspace", "GNAM", "GravityScale", "C207"),
-    };
-
-    /// <summary>
-    /// A pair made on a name Mutagen has since changed (<see cref="Renamed"/>) gets the new path: its MutagenPath is
-    /// rewritten, RenamedFrom keeps the old one, and Detail says so. Returns how many pairs were renamed.
-    /// </summary>
-    public static int ApplyRenames(SchemaModel model, List<PairRow> pairs)
-    {
-        var typesBySig = model.RecordTypes.GroupBy(r => r.Sig!, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Select(o => o.Name).ToList(), StringComparer.Ordinal);
-        bool Any(string sig, string path, Func<SchemaModel.Found, bool> ok)
-            => typesBySig.TryGetValue(sig, out var types) && types.Any(t => model.Resolve(t, path).Found.Any(ok));
-        var done = new Dictionary<(string, string), (string Path, List<string> Items)?>();
-        int n = 0;
-        foreach (var p in pairs)
-        {
-            if (!done.TryGetValue((p.Sig, p.MutagenPath), out var hit))
-            {
-                hit = null;
-                // The part Resolve takes as a part of a field (a byte slice, a count, an enum's number) stays as it is
-                string path = p.MutagenPath, suffix = "";
-                int cut = path.IndexOfAny(new[] { '@', '#' });
-                if (cut > 0) { suffix = path[cut..]; path = path[..cut]; }
-                if (Renamed.Any(r => path.Contains(r.Old, StringComparison.Ordinal)) && !Any(p.Sig, p.MutagenPath, _ => true))
-                {
-                    var segs = path.Split('.');
-                    var items = new List<string>();
-                    for (int i = 0; i < segs.Length; i++)
-                    {
-                        string bare = segs[i].Replace("[*]", "");
-                        foreach (var r in Renamed.Where(r => r.Old == bare))
-                        {
-                            string seg = r.New + segs[i][bare.Length..];
-                            string prefix = string.Join('.', segs.Take(i).Append(seg));
-                            if (!Any(p.Sig, prefix, f => f.Row.Def.Object == r.Object && f.Row.Def.Name == r.New)) continue;
-                            segs[i] = seg; items.Add($"{r.Object}.{r.Old} is {r.New} ({r.Item})");
-                            break;
-                        }
-                    }
-                    string renamed = string.Join('.', segs) + suffix;
-                    if (items.Count > 0 && Any(p.Sig, renamed, _ => true)) hit = (renamed, items);
-                }
-                done[(p.Sig, p.MutagenPath)] = hit;
-            }
-            if (hit is not { } h) continue;
-            p.RenamedFrom = p.MutagenPath;
-            p.MutagenPath = h.Path;
-            p.Detail = $"Made on Mutagen's old name {p.RenamedFrom}: {string.Join(" and ", h.Items)} since. Matched under the new name.";
-            n++;
-        }
-        return n;
-    }
-
     public static PairStats Match(SchemaModel model, List<PairRow> pairs)
     {
-        int renamed = ApplyRenames(model, pairs);
-        var st = new PairStats { Rows = pairs.Count, DistinctPaths = pairs.Select(p => (p.Sig, p.MutagenPath)).Distinct().Count(), Renamed = renamed };
+        var st = new PairStats { Rows = pairs.Count, DistinctPaths = pairs.Select(p => (p.Sig, p.MutagenPath)).Distinct().Count() };
         st.SignaturesFilled = FillSignatures(model, pairs);
         var resolver = new Resolver(model);
         var names = new Dictionary<FieldDef, Dictionary<string, int>>();
+        var flagNames = new Dictionary<FieldDef, Dictionary<string, int>>();
         var memberNames = new Dictionary<(string Enum, string Member), Dictionary<string, int>>();
         var bySub = new Dictionary<string, Dictionary<string, List<FieldRow>>>(StringComparer.Ordinal);
 
@@ -338,17 +338,57 @@ public static class PairMatcher
                                 Tally(memberNames, (en!, m.Groups[2].Value), m.Groups[1].Value);
         }
 
+        // A set of flags no pair names as a whole takes the name of the xEdit element its flags sit in, when every flag
+        // pair of the field (in one record type) sits in the same one: "\Record Header\Record Flags\Small" and
+        // "\Record Header\Record Flags\Master" name TES4's Flags "Record Flags" (GAPS S90)
+        foreach (var g in pairs.Where(p => FlagParent(p) != null && p.Type != null).GroupBy(p => (p.Sig, Field: FlagField(p))))
+        {
+            var parents = g.Select(p => FlagParent(p)!).Distinct(StringComparer.Ordinal).ToList();
+            if (parents.Count != 1) continue;
+            var defs = Resolver.Pick(g.First(), model.Resolve(g.First().Type!, g.Key.Field).Found).Where(f => f.Match == "exact").Select(f => f.Row.Def).Distinct().ToList();
+            foreach (var def in defs.Where(d => !names.ContainsKey(d)))
+            {
+                if (!flagNames.TryGetValue(def, out var t)) flagNames[def] = t = new(StringComparer.Ordinal);
+                t[LastName(parents[0])] = t.GetValueOrDefault(LastName(parents[0])) + g.Count();
+            }
+        }
+        foreach (var (def, tally) in flagNames) names[def] = tally.ToDictionary(t => t.Key, t => t.Value * 1000, StringComparer.Ordinal);
+        st.FlagFieldsNamed = flagNames.Count;
+
         foreach (var (def, tally) in names)
         {
             var bestName = tally.OrderByDescending(t => t.Value).ThenBy(t => t.Key, StringComparer.Ordinal).First().Key;
-            def.XEdit = bestName; def.Readable = bestName; def.XEditPairs = tally.Values.Sum(v => v / 1000 + v % 1000);
+            def.XEdit = bestName; def.Readable = ReadableName(bestName, def.Name); def.XEditPairs = tally.Values.Sum(v => v / 1000 + v % 1000);
             st.FieldsNamed++;
         }
+        // The record header's flags every record type shares (StarfieldMajorRecordFlags): xEdit names a bit after what it
+        // means in each type (bit 2 is REFR's "Minimal Use Door", STAT's "Heading Marker"), so a member whose pairs give
+        // more than one name takes none (GAPS S97)
+        var headerFlagEnums = pairs.Where(p => p.Match == "flag" && p.Object != null && p.XEditPath.StartsWith(@"\Record Header\Record Flags\", StringComparison.Ordinal))
+            .Select(p => model.Objects[p.Object!].Fields.FirstOrDefault(f => f.Ord == p.Ord)?.Enum).Where(e => e != null).ToHashSet(StringComparer.Ordinal);
         foreach (var ((en, member), tally) in memberNames)
         {
+            if (headerFlagEnums.Contains(en) && tally.Count > 1) continue;
             var m = model.Enums[en].First(x => x.Name == member);
             m.XEditName = tally.OrderByDescending(t => t.Value).ThenBy(t => t.Key, StringComparer.Ordinal).First().Key;
             st.EnumMembersNamed++;
+        }
+
+        // Objects and lists (GAPS S98): the xEdit element their paired fields sit in. A field by itself has no name, so
+        // each record type's container takes its own; an object's container field then takes the name most types give.
+        st.Containers = ContainerNames(model, pairs);
+        var containerTally = new Dictionary<FieldDef, Dictionary<string, int>>();
+        foreach (var c in st.Containers)
+        {
+            if (c.Def.XEdit != null) continue;
+            if (!containerTally.TryGetValue(c.Def, out var t)) containerTally[c.Def] = t = new(StringComparer.Ordinal);
+            t[LastName(c.XEditPath)] = t.GetValueOrDefault(LastName(c.XEditPath)) + 1;
+        }
+        foreach (var (def, tally) in containerTally)
+        {
+            var bestName = tally.OrderByDescending(t => t.Value).ThenBy(t => t.Key, StringComparer.Ordinal).First().Key;
+            def.XEdit = bestName; def.Readable = ReadableName(bestName, def.Name);
+            st.ContainerFieldsNamed++;
         }
         foreach (var f in model.Objects.Values.SelectMany(o => o.Fields))
             f.Readable ??= SpacedOut(f.Name);
@@ -379,6 +419,145 @@ public static class PairMatcher
         return st;
     }
 
+    /// <summary>A record type's object or list, with the xEdit element its paired fields sit in (GAPS S98).</summary>
+    public sealed record ContainerName(string Sig, string Path, string XEditPath, FieldDef Def);
+
+    /// <summary>The kinds of field that hold other fields: an object, a list (and the other collections), a male/female pair.</summary>
+    public static bool IsContainer(FieldRow r) => r.Def.RefObject != null || r.Def.Kind is "Object" or "List" or "Array" or "Array2D" or "Dictionary" or "Gendered";
+
+    static readonly Regex PathToken = new(@"\[\*\]|[^.\[\]]+", RegexOptions.Compiled);
+
+    /// <summary>The xEdit path's parts, without the empty first one.</summary>
+    static string[] XParts(string xeditPath) => xeditPath.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+    static string XJoin(IEnumerable<string> parts) => "\\" + string.Join('\\', parts);
+
+    /// <summary>
+    /// xEdit's name for each object and list of each record type (GAPS S98): the xEdit element its paired fields share.
+    /// Every matched pair gives its field's own xEdit element (the pair's path; a component's or a flag's parent). A
+    /// field <c>n</c> levels below a container (a list's <c>[*]</c> counts as a level) gives the container its element
+    /// without the last <c>n</c> parts; the container takes the longest start all its fields' elements share (the item
+    /// element of a list of components of many kinds is <c>\Base Form Components\Component</c>, where each kind's data
+    /// sits one level deeper). A list is the element its items sit in: <c>Keywords[*]</c> at
+    /// <c>\Keywords\KWDA - Keywords\Keyword</c> makes <c>Keywords</c> <c>\Keywords\KWDA - Keywords</c>. A container whose
+    /// element is the same as the one it sits in gets none (the two sides nest differently there), nor does one no pair
+    /// reaches. A pair that names the container itself keeps its own name (it isn't listed here).
+    /// </summary>
+    public static List<ContainerName> ContainerNames(SchemaModel model, List<PairRow> pairs)
+    {
+        // The element of each paired field, per record type: (type, field path) -> xEdit elements
+        var fieldEls = new Dictionary<(string Sig, string Type), Dictionary<string, List<string>>>();
+        var named = new HashSet<(string, string)>();
+        // The pairs checked on the most records first: where two kinds of a list's items give a container as many fields (a
+        // quest's reference and location aliases' Conditions), the element of the one on more records wins (J108)
+        foreach (var p in pairs.OrderByDescending(p => p.Checked))
+        {
+            if (p.Type == null || p.Match == null) continue;
+            (string? field, string? el) = p.Match switch
+            {
+                "exact" => (p.MutagenPath, p.XEditPath),
+                "whole value" => (p.MutagenPath[..^(p.Part!.Length + (p.Part.StartsWith('#') ? 0 : 1))], p.XEditPath),
+                "component" => (p.MutagenPath[..^(p.Part!.Length + 1)], XJoin(XParts(p.XEditPath)[..^1])),
+                "flag" => (FlagField(p), XJoin(XParts(p.XEditPath)[..^1])),
+                _ => (null, null),
+            };
+            if (field == null || el == null || XParts(el).Length == 0) continue;
+            if (p.Match is "exact" or "whole value") named.Add((p.Sig, field));
+            var key = (p.Sig, p.Type);
+            if (!fieldEls.TryGetValue(key, out var byField)) fieldEls[key] = byField = new(StringComparer.Ordinal);
+            (byField.TryGetValue(field, out var l) ? l : byField[field] = new()).Add(el);
+        }
+
+        // The deepest element three quarters of a container's fields sit in. A few fields nest differently on the two
+        // sides (a condition's CIS2 has no xEdit element for Mutagen's Data; a component's data sits in a "Component Data -
+        // <kind>" element of its own kind), and would otherwise cut every container above them short or lead it into one kind
+        static string[] Choose(List<(string Field, string[] El)> list)
+        {
+            int fields = list.Select(x => x.Field).Distinct(StringComparer.Ordinal).Count();
+            string[] best = Array.Empty<string>();
+            for (int len = 1; ; len++)
+            {
+                var top = list.Where(x => x.El.Length >= len).GroupBy(x => string.Join('|', x.El.Take(len)), StringComparer.Ordinal)
+                    .Select(g => (El: g.First().El[..len], Fields: g.Select(x => x.Field).Distinct(StringComparer.Ordinal).Count()))
+                    .OrderByDescending(g => g.Fields).FirstOrDefault();
+                if (top.El == null || top.Fields * 4 < fields * 3) return best;
+                best = top.El;
+            }
+        }
+
+        // Each container's candidates, per record type: its fields' elements, cut by how deep each field sits below it
+        var perType = new List<(string Sig, string Type, Dictionary<string, FieldRow> Rows, Dictionary<string, List<(string Field, string[] El)>> Cands, Dictionary<string, List<string>> ByField)>();
+        // A container that holds one of several kinds of object (a component, a condition): its candidates from every
+        // record type, by path and base object. A type with one kind only (COBJ's object window filter) would name the
+        // item after that kind's element (\Base Form Components\Component\Component Data - Object Window Filter)
+        var kinds = new Dictionary<(string Path, string Base), List<(string Field, string[] El)>>();
+        foreach (var ((sig, type), byField) in fieldEls.OrderBy(k => k.Key.Sig, StringComparer.Ordinal).ThenBy(k => k.Key.Type, StringComparer.Ordinal))
+        {
+            var rows = new Dictionary<string, FieldRow>(StringComparer.Ordinal);
+            foreach (var r in model.Expand(type)) rows.TryAdd(r.PlainPath, r);
+            var cands = new Dictionary<string, List<(string Field, string[] El)>>(StringComparer.Ordinal);
+            foreach (var (field, els) in byField)
+            {
+                var tokens = PathToken.Matches(field).Select(m => m.Value).ToList();
+                for (int i = 0; i < tokens.Count - 1; i++)
+                {
+                    string c = string.Concat(tokens.Take(i + 1).Select((t, k) => k == 0 || t == "[*]" ? t : "." + t));
+                    int depth = tokens.Count - 1 - i;
+                    foreach (var el in els)
+                    {
+                        var parts = XParts(el);
+                        // A field xEdit keeps shallower than Mutagen gives no element, but still counts among the fields
+                        var cut = parts.Length - depth < 1 ? Array.Empty<string>() : parts[..^depth];
+                        (cands.TryGetValue(c, out var l) ? l : cands[c] = new()).Add((field, cut));
+                        if (rows.TryGetValue(c, out var cr) && cr.Def.RefObject is { } baseObj && model.Variants(baseObj).Count > 0)
+                            (kinds.TryGetValue((c, baseObj), out var kl) ? kl : kinds[(c, baseObj)] = new()).Add((sig + "|" + field, cut));
+                    }
+                }
+            }
+            perType.Add((sig, type, rows, cands, byField));
+        }
+
+        var res = new List<ContainerName>();
+        foreach (var (sig, type, rows, cands, byField) in perType)
+        {
+            var found = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (var (c, list) in cands)
+            {
+                var e = Choose(list);
+                // Several kinds of object: what every record type's kinds share, where this type's element goes on from it
+                if (rows.TryGetValue(c, out var cr) && cr.Def.RefObject is { } baseObj && kinds.TryGetValue((c, baseObj), out var all)
+                    && Choose(all) is { Length: > 0 } shared && shared.Length < e.Length && e.Take(shared.Length).SequenceEqual(shared))
+                    e = shared;
+                if (e.Length > 0) found[c] = e;
+            }
+            // A list is the element its items sit in: its item's element (a container's, or a paired item's own) without the last part
+            foreach (var c in cands.Keys.Where(c => !c.EndsWith("[*]", StringComparison.Ordinal)).ToList())
+            {
+                string item = c + "[*]";
+                string[]? itemEl = found.TryGetValue(item, out var ie) ? ie
+                    : byField.TryGetValue(item, out var own) && Choose(own.Select(x => (item, XParts(x))).ToList()) is { Length: > 0 } oe ? oe : null;
+                if (itemEl is { Length: > 1 }) found[c] = itemEl[..^1];
+            }
+            foreach (var (c, e) in found.OrderBy(f => f.Key, StringComparer.Ordinal))
+            {
+                if (!rows.TryGetValue(c, out var row) || !IsContainer(row) || named.Contains((sig, c))) continue;
+                // The container it sits in: a container with the same element nests differently on the two sides
+                int cut = Math.Max(c.LastIndexOf('.'), c.EndsWith("[*]", StringComparison.Ordinal) ? c.Length - 3 : -1);
+                string? outer = cut > 0 ? c[..cut] : null;
+                if (outer != null && found.TryGetValue(outer, out var oe2) && oe2.SequenceEqual(e)) continue;
+                // Three quarters of the fields below it must sit in it (a list's element, taken from its items', too):
+                // WTHR's Clouds gathers each layer from several xEdit arrays (Cloud Speeds, Cloud Colors, Cloud Alphas)
+                if (cands.TryGetValue(c, out var mine))
+                {
+                    int all = mine.Select(x => x.Field).Distinct(StringComparer.Ordinal).Count();
+                    int inside = mine.Where(x => x.El.Length >= e.Length && x.El.Take(e.Length).SequenceEqual(e)).Select(x => x.Field).Distinct(StringComparer.Ordinal).Count();
+                    if (inside * 4 < all * 3) continue;
+                }
+                res.Add(new ContainerName(sig, c, XJoin(e), row.Def));
+            }
+        }
+        return res;
+    }
+
     /// <summary>
     /// A pair whose path goes past a field into a property of the value's .NET type. When that property is the value
     /// itself (ValueParts) and xEdit's subrecord is the field's, the pair names the whole field: Match "whole value",
@@ -393,7 +572,8 @@ public static class PairMatcher
         string where = look.PathSoFar.Length == 0 ? type : $"{type}.{look.PathSoFar}";
         if (look.StoppedAtLeaf is { } leaf && seg != "#count")
         {
-            bool part = ValueParts.TryGetValue(leaf.Def.Kind, out var parts) && parts.Contains(seg, StringComparer.Ordinal);
+            bool part = (ValueParts.TryGetValue(leaf.Def.Kind, out var parts) && parts.Contains(seg, StringComparer.Ordinal))
+                || (leaf.Def.ClrType != null && ValueParts.TryGetValue(leaf.Def.ClrType, out var clrParts) && clrParts.Contains(seg, StringComparer.Ordinal));
             bool sameSubrecord = p.Subrecord.Length != 4 || p.Subrecord == "NULL" || leaf.Subrecord == p.Subrecord;
             if (part && sameSubrecord && !p.MutagenPath.Contains('@') && !p.MutagenPath.EndsWith("#count", StringComparison.Ordinal))
             {

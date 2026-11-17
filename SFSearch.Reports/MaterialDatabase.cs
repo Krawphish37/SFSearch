@@ -71,13 +71,15 @@ public sealed class MaterialDatabase
         && (path.Equals(GamePath, StringComparison.OrdinalIgnoreCase) || path.Equals(@"materials\materialsfinal.cdb", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// True when the game reads a database at this path in this archive (null: loose in Data). Learned from the game's
-    /// executable (Starfield.exe; the Creation Kit's is the same), not from a test in the game: it names its own
-    /// database as "Materials/" with "MaterialsBeta.cdb" or "MaterialsFinal.cdb", and, in the code that reads a
-    /// plugin's archives, keeps the extension ".cdb" beside the pattern ".* - Main[0-9]*\.ba2". So the databases
-    /// that count are the game's own and every .cdb, at any path, in an archive named "&lt;plugin&gt; - Main.ba2",
+    /// True when the game reads a database at this path in this archive (null: loose in Data). Read from the game's
+    /// code (Starfield.exe; the Creation Kit's is the same; notes\fix-j8-11-materials.md), not run in the game: it
+    /// loads its own database by its path, "Materials/" with "MaterialsBeta.cdb" or "MaterialsFinal.cdb"; and its file
+    /// listener for materials and particles (MaterialAndParticleFileListener) keeps the extension ".cdb", matches the
+    /// name of each archive opened against ".* - Main[0-9]*\.ba2" (std::regex, case ignored), and in an archive that
+    /// matches takes every file of that extension, at any folder. Nothing else in the code names ".cdb". So the
+    /// databases that count are the game's own and every .cdb in an archive named "&lt;plugin&gt; - Main.ba2",
     /// "- Main01.ba2" and so on: all 21 of the Data folder this was written on. A .cdb loose in Data, or in another
-    /// archive (" - Textures.ba2"), isn't read.
+    /// archive (" - Textures.ba2"), isn't read. The test holds this against the executables it finds (ExeListener).
     /// </summary>
     public static bool GameReads(string path, string? archive) =>
         IsGamePath(path, archive) || (archive != null && MainArchive.IsMatch(System.IO.Path.GetFileName(archive)));
@@ -94,7 +96,10 @@ public sealed class MaterialDatabase
         return ext == MatExt && Array.BinarySearch(_ids, Key(file, dir)) >= 0;
     }
 
-    /// <summary>True when the database holds a material with this resource ID's file and folder hashes.</summary>
+    /// <summary>True when the database holds a material with this resource ID's file and folder hashes. Two paths with the
+    /// same pair of hashes would be one material here; they are one in the game too, which keys its compiled materials,
+    /// and the databases it collects from the archives, by the same BSResource::ID (folder, file and extension CRC-32s).
+    /// No two of the material paths Data writes share a pair (MaterialPathEvidence.Collisions).</summary>
     public bool Has(uint file, uint dir) => Array.BinarySearch(_ids, Key(file, dir)) >= 0;
 
     /// <summary>The folder hash of each of its materials (a database holds no paths): for telling paths (GAPS S33a).</summary>

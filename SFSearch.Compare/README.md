@@ -71,7 +71,7 @@ It walks two records' JSON beside the schema and gives a `RecordDiff`: one `Fiel
 - **`records`:** `expect` names fields by their Mutagen name, readable name or path. Any other difference is listed as unexpected and sets `Failed`. A name that fits no field of the record type is pointed out. Records nested in both (the same FormKey under both) are compared as records of their own, up to 500.
 - **`plugin_vs_masters`:** each override against the version before it: the last of the plugin's masters, in the header's order, that holds the record. Classes: changed, ITM, another type than its base, override of nothing, not read. A summary by record type and field. The plugin's own records are counted by type.
 - **`plugins`:**
-    - **Two files of one name** (after `.bak` and the like are cut, or with `readAs`) are two versions of one plugin. Records are paired by FormKey: added, removed, changed, unchanged. With the same masters in both, a pair with equal bytes isn't read at all (`Comparer.TrustEqualBytes`, on by default).
+    - **Two files of one name** (after `.bak` and the like are cut, or with `readAs`) are two versions of one plugin. Records are paired by FormKey: added, removed, changed, unchanged. With the same masters in both, a pair with equal bytes isn't read at all (`Comparer.TrustEqualBytes`, internal: only the tests turn it off).
     - **`MatchBy.EditorId`** pairs the plugin's own records by record type and EditorID. A link to a record paired that way is compared as its partner in the other file, so a record that moved to another FormKey doesn't make every record that points at it look changed. EditorIDs a file holds more than once are listed and counted, and those records are paired by FormKey: none is dropped.
     - **A file and a patch that masters it** are compared record by record on the patch's FormKeys. What the patch doesn't hold isn't a removal.
     - **Anything else stops** with an error that names the plugin name expected, and how to pair the two on purpose (`readAs`).
@@ -114,9 +114,8 @@ $c = "SFSearch.Compare.Runner\bin\Release\net10.0\sfscompare.exe"
 & $c keys ConstructibleObject
 
 dotnet build SFSearch.Compare.Tests -c Release
-SFSearch.Compare.Tests/bin/Release/net10.0/sfscompare-tests.exe "<Data folder>" --work <folder outside the repo and Data> --report <folder> `
-    --sfsearch SFSearch\bin\Release\net10.0\SFSearch.exe --home <an empty test home> --baseline <the harness's work folder>\baseline\cli\recorded
+SFSearch.Compare.Tests/bin/Release/net10.0/sfscompare-tests.exe "<Data folder>" --work <folder outside the repo and Data> --report <folder>
 ```
 - The runner's options are listed at the top of `SFSearch.Compare.Runner\Program.cs`. Its exit code is 1 for a failing result (a difference outside `--expect`) and for an error. Its scratch folder is `%TEMP%\sfscompare-scratch` unless `--scratch` or `SFSCOMPARE_SCRATCH` names another.
 - The tests make their plugins with Mutagen in the work folder. They never write to the Data folder and never copy a `darkstarpatch_` file.
-- `--sfsearch` and `--home` let the tests run today's `Check`, `Conflicts` and `PluginDiff` on a test home, with no service. That builds today's stored databases there (about 8 GB, most of it one plugin that holds a record the tests ask about). Delete the home afterwards.
+- The tests that held the comparisons against SFSearch 1.x's `Check`, `Conflicts`, `Delta`, `Diff` and `PluginDiff` were retired on 2026-11-15: 2.0 removed those commands. `itm-headers` still holds every ITM of darkstar.esm against the files' bytes.

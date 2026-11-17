@@ -38,6 +38,8 @@ namespace SFSearch.Engine
               --limit    rows per answer (default 40). The answer's [more] line gives the cursor for the next rows.
 
               A plugin's name alone means "plugin": loadorder2 darkstar.esm
+              The load order is Starfield's own plugins.txt (in your Windows user's AppData), or the one "pluginsTxt" in
+              sfsearch.json (or SFSEARCH_PLUGINS_TXT) names: 'sfs.cmd Service config' shows which.
               Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...).
             """;
 
@@ -137,8 +139,12 @@ namespace SFSearch.Engine
             var entries = ix.LoadOrderEntries.Where(e => ask.All || e.Enabled).ToList();
             var loaded = ix.LoadOrderEntries.Where(e => e.Enabled).ToList();
             int notInData = ix.LoadOrderEntries.Count(e => !e.InData);
+            // An enabled plugin with a missing master (or built on one) can't be loaded: Mutagen's load order drops it and xEdit
+            // doesn't load it; the game won't either. It is counted apart, its row says so, and it has no slot.
+            var cantLoad = loaded.Select(e => ix.Plugin(e.Name)).Where(p => p is { CantLoad: true }).Select(p => p!.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var sizes = new SizeWords();
-            answer.Line($"{loaded.Count} plugins loaded ({loaded.Count(e => e.Size == MasterStyle.Full)} Full, {loaded.Count(e => e.Size == MasterStyle.Medium)} Medium, {loaded.Count(e => e.Size == MasterStyle.Small)} {sizes.Name("Small")}), "
+            answer.Line((cantLoad.Count == 0 ? "" : $"{loaded.Count} plugins enabled; {cantLoad.Count} of them can't be loaded (a master isn't in Data, or one of its masters can't be loaded): Mutagen's load order drops them and xEdit doesn't load them, so they are left out of queries and of the winners. ")
+                + $"{loaded.Count - cantLoad.Count} plugins loaded ({loaded.Count(e => e.Size == MasterStyle.Full && !cantLoad.Contains(e.Name))} Full, {loaded.Count(e => e.Size == MasterStyle.Medium && !cantLoad.Contains(e.Name))} Medium, {loaded.Count(e => e.Size == MasterStyle.Small && !cantLoad.Contains(e.Name))} {sizes.Name("Small")}), "
                 + $"{ix.Plugins.Count} in Data{(notInData > 0 ? $", {notInData} listed in plugins.txt but not in Data" : "")}."
                 + $"{(ask.All ? "" : " The plugins that aren't loaded are left out (all: true adds them).")} Slot is the runtime prefix of a plugin's own records: FE:09A means FormIDs FE09Axxx in the console.");
             answer.Line("| Pos | Loaded | Slot | Plugin | Size | File | Records | New | Overrides | Problems |");
@@ -155,7 +161,8 @@ namespace SFSearch.Engine
                 shown.Add(p);
                 var seg = p.Segment;
                 string records = seg == null ? "" : N(seg.Count), news = seg == null ? "" : N(seg.FirstUnresolved - seg.FirstOwn), overrides = seg == null ? "" : N(seg.FirstOwn);
-                answer.Line($"| {pos} | {(e.Enabled ? "yes" : "no")} | {e.Slot} | {p.Name} | {(p.Header == null ? "" : sizes.Name(EngineIndex.SizeName(e.Size)))} | {EngineIndex.Mb(p.Stamp.Length)} | {records} | {news} | {overrides} | {ProblemNotes.Short(p)} |");
+                bool cant = e.Enabled && cantLoad.Contains(p.Name);
+                answer.Line($"| {pos} | {(cant ? "no: can't be loaded" : e.Enabled ? "yes" : "no")} | {(cant ? "" : e.Slot)} | {p.Name} | {(p.Header == null ? "" : sizes.Name(EngineIndex.SizeName(e.Size)))} | {EngineIndex.Mb(p.Stamp.Length)} | {records} | {news} | {overrides} | {ProblemNotes.Short(p)} |");
             }
             int next = offset + page.Count;
             answer.Page(offset + 1, page.Count, entries.Count, next < entries.Count ? Cursors.Make(next, question) : null);
@@ -205,6 +212,7 @@ namespace SFSearch.Engine
             var sizes = new SizeWords();
             string size = p.Header == null ? "not a plugin" : sizes.Name(EngineIndex.SizeName(p.Header.Style));
             string where = byPath ? "a file outside Data, not in the load order"
+                : p.Order.Enabled && p.CantLoad ? $"enabled at position {p.Order.Position}, but it can't be loaded: {(p.Problems.MissingMasters.Count > 0 ? $"its master {string.Join(", ", p.Problems.MissingMasters)} isn't in Data" : $"its master {p.Problems.MasterUnreadable} can't be loaded (a master of it isn't in Data)")}. Mutagen's load order drops it and xEdit doesn't load it, so it is left out of queries and of the winners"
                 : p.Order.Enabled ? $"loaded at position {p.Order.Position}, slot {p.Order.Slot}{(p.LeftOut != null ? $", but left out of queries and of the winners: {(p.Problems.Refused != null ? "Mutagen refuses it (its error is in the notes)" : p.LeftOut)}" : "")}"
                 : p.Order.Position >= 0 ? $"in the load order at position {p.Order.Position} but not enabled" : "in Data but not in the load order";
             answer.Line($"{p.Name}: {size}, {EngineIndex.Mb(p.Stamp.Length)} ({N(p.Stamp.Length)} bytes), {where}.");
@@ -244,8 +252,9 @@ namespace SFSearch.Engine
                 {
                     var mp = main.Plugin(masters[m]);
                     string msize = mp?.Header == null ? "missing" : sizes.Name(EngineIndex.SizeName(mp.Header.Style));
-                    string loaded = mp == null ? "not in Data" : mp.Order.Enabled ? "yes" : "no";
-                    answer.Line($"| {m} | {mp?.Name ?? masters[m]} | {msize} | {loaded} | {mp?.Order.Slot} | {(mp == null ? "" : EngineIndex.Mb(mp.Stamp.Length))} | {(m < perOwner.Length ? N(perOwner[m]) : "")} |");
+                    bool cant = mp is { CantLoad: true } && mp.Order.Enabled;
+                    string loaded = mp == null ? "not in Data" : cant ? "no: can't be loaded" : mp.Order.Enabled ? "yes" : "no";
+                    answer.Line($"| {m} | {mp?.Name ?? masters[m]} | {msize} | {loaded} | {(cant ? "" : mp?.Order.Slot)} | {(mp == null ? "" : EngineIndex.Mb(mp.Stamp.Length))} | {(m < perOwner.Length ? N(perOwner[m]) : "")} |");
                     if (mp != null) answer.Source(EngineIndex.Source(mp));
                 }
             }
@@ -292,7 +301,8 @@ namespace SFSearch.Engine
                 if (pr.ReadError != null) Row("can't be read", pr.ReadError);
                 if (pr.Refused != null) Row("refused by Mutagen: left out of queries and of the winners (record and check2 still read it)", pr.Refused);
                 if (pr.MasterRefused != null) Row($"its master {pr.MasterRefused} is refused by Mutagen: left out of queries and of the winners");
-                if (pr.MissingMasters.Count > 0) Row($"missing master(s): {string.Join(", ", pr.MissingMasters)}", $"{N(pr.Unresolved)} of its {N(p.Segment?.Count ?? 0)} records have a FormID that can't be read without {(pr.MissingMasters.Count == 1 ? "it" : "them")}");
+                if (pr.MasterUnreadable != null) Row($"can't be loaded: its master {pr.MasterUnreadable} can't be (a master of it isn't in Data); left out of queries and of the winners");
+                if (pr.MissingMasters.Count > 0) Row($"{(p.Order.Enabled ? "can't be loaded: " : "")}missing master(s): {string.Join(", ", pr.MissingMasters)}", $"{N(pr.Unresolved)} of its {N(p.Segment?.Count ?? 0)} records have a FormID that can't be read without {(pr.MissingMasters.Count == 1 ? "it" : "them")}");
                 if (pr.MastersNotLoaded.Count > 0) Row($"master(s) not loaded: {string.Join(", ", pr.MastersNotLoaded)}");
                 if (pr.MastersLoadedAfter.Count > 0) Row($"master(s) load after it: {string.Join(", ", pr.MastersLoadedAfter)}");
                 if (pr.TypeMismatches.Count > 0)

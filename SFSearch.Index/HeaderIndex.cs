@@ -24,6 +24,10 @@ public sealed class IndexOptions
     /// one FormKey twice: C204, fixes.17). Asked only for a plugin whose headers repeat a FormKey. Null: nothing is
     /// refused.</summary>
     public RefusalSource? Refusals { get; init; }
+    /// <summary>Asked when a refresh lets go of segments no plugin uses any more (a plugin taken out of Data, or the copy a
+    /// changed plugin replaced): true keeps their files, so the plugin put back finds its segment (J43, the setting
+    /// keepRemovedPluginIndexMB; the program trims them to a size). Null or false: they are deleted at once.</summary>
+    public Func<bool>? KeepUnusedSegments { get; init; }
 }
 
 /// <summary>Says whether a plugin is refused by its reader, and why (Mutagen's error). The index itself never opens a
@@ -81,14 +85,19 @@ public sealed class PluginProblems
     public string? Refused { get; internal set; }
     /// <summary>A master of the plugin is refused (or itself left out), so the plugin is left out too.</summary>
     public string? MasterRefused { get; internal set; }
+    /// <summary>A master of the plugin can't be read (a master of its own isn't in Data, or one of its masters can't be
+    /// read in turn), so the plugin is left out too, as Mutagen's load order drops it (fixes.17's DropPlugin: "a loaded
+    /// plugin whose master was dropped is dropped too").</summary>
+    public string? MasterUnreadable { get; internal set; }
 
-    public bool Any => MissingMasters.Count + MastersNotLoaded.Count + MastersLoadedAfter.Count + TypeMismatches.Count + OverridesOfNothing.Count + Unresolved + Duplicates > 0 || BothSizeFlags || ReadError != null || Refused != null || MasterRefused != null;
+    public bool Any => MissingMasters.Count + MastersNotLoaded.Count + MastersLoadedAfter.Count + TypeMismatches.Count + OverridesOfNothing.Count + Unresolved + Duplicates > 0 || BothSizeFlags || ReadError != null || Refused != null || MasterRefused != null || MasterUnreadable != null;
 
     public IEnumerable<string> Lines()
     {
         if (ReadError != null) yield return "couldn't be read: " + ReadError;
         if (Refused != null) yield return "refused by Mutagen, left out of queries and of the winners: " + Refused;
         if (MasterRefused != null) yield return $"left out of queries and of the winners: its master {MasterRefused} is refused by Mutagen";
+        if (MasterUnreadable != null) yield return $"left out of queries and of the winners: its master {MasterUnreadable} can't be loaded (a master of it isn't in Data)";
         if (MissingMasters.Count > 0) yield return $"missing master(s): {string.Join(", ", MissingMasters)}";
         if (Unresolved > 0) yield return $"{Unresolved:N0} record(s) have a FormID that can't be resolved without the missing master(s)";
         if (MastersNotLoaded.Count > 0) yield return $"master(s) not loaded: {string.Join(", ", MastersNotLoaded)}";
@@ -119,7 +128,13 @@ public sealed class IndexedPlugin
     public PluginProblems Problems { get; internal set; } = new();
     /// <summary>Why the plugin is left out of queries and of the winners, as Mutagen's load order drops it (C204):
     /// Mutagen refuses it (<see cref="PluginProblems.Refused"/>) or one of its masters is left out. Null: it is read.</summary>
-    public string? LeftOut => Problems.Refused != null ? "Mutagen refuses it: " + Problems.Refused : Problems.MasterRefused != null ? $"its master {Problems.MasterRefused} is refused by Mutagen" : null;
+    public string? LeftOut => Problems.Refused != null ? "Mutagen refuses it: " + Problems.Refused : Problems.MasterRefused != null ? $"its master {Problems.MasterRefused} is refused by Mutagen"
+        : Problems.MasterUnreadable != null ? $"its master {Problems.MasterUnreadable} can't be loaded (a master of it isn't in Data)" : null;
+    /// <summary>Why the plugin is left out, in a few words for a list: "refused by Mutagen" or "a master can't be loaded". Null: it is read.</summary>
+    public string? LeftOutShort => Problems.Refused != null || Problems.MasterRefused != null ? "refused by Mutagen" : Problems.MasterUnreadable != null ? "a master can't be loaded" : null;
+    /// <summary>The game can't load the plugin as it is: a master of it isn't in Data, or one of its masters can't be
+    /// loaded in turn. Mutagen's load order drops it, and xEdit doesn't load it.</summary>
+    public bool CantLoad => Problems.MissingMasters.Count > 0 || Problems.MasterUnreadable != null;
     /// <summary>The index's plugin Id for each place in the segment's name table.</summary>
     internal int[] OwnerToPlugin = Array.Empty<int>();
     /// <summary>For sorting holders: enabled plugins in load order, then the rest.</summary>
@@ -204,8 +219,6 @@ public sealed class HeaderIndex : IDisposable
     }
 
     public string ScratchFolder => _options.ScratchFolder;
-    /// <summary>Called after a plugin was read and before its stamp is checked again. Tests change the file here.</summary>
-    internal Action<string>? AfterReadForTests;
     /// <summary>Every plugin that is there, by Id.</summary>
     public IReadOnlyList<IndexedPlugin> Plugins => _plugins;
     /// <summary>The load order: listed plugins first, then the plugins no list names.</summary>
@@ -233,9 +246,9 @@ public sealed class HeaderIndex : IDisposable
         var result = new StringsStamp[plugins.Count];
         Array.Fill(result, StringsStamp.NotStamped);
         if (_options.StringFiles == null || !plugins.Any(p => p.Header is { Localized: true })) return result;
-        using var look = _options.StringFiles.Look();
-        for (int i = 0; i < plugins.Count; i++)
-            if (plugins[i].Header is { Localized: true }) result[i] = look.Stamp(plugins[i].Path, plugins[i].Name);
+        var localized = Enumerable.Range(0, plugins.Count).Where(i => plugins[i].Header is { Localized: true }).ToList();
+        var stamps = _options.StringFiles.Stamps(localized.Select(i => (plugins[i].Path, plugins[i].Name)).ToList());
+        for (int j = 0; j < localized.Count; j++) result[localized[j]] = stamps[j];
         return result;
     }
 
@@ -284,8 +297,8 @@ public sealed class HeaderIndex : IDisposable
         GuardScratch(files.Values);
         Directory.CreateDirectory(_options.ScratchFolder);
         var manifest = ReadManifest();
-        // One look at the folders localized plugins' string files can be in, for every plugin of this refresh
-        using var strings = _options.StringFiles?.Look();
+        // Where localized plugins' string files are found: asked once for every plugin of this refresh, after step 1
+        var strings = _options.StringFiles;
 
         // 1. Quick stamps and headers (and the string files of a localized plugin)
         var work = new ConcurrentBag<Work>();
@@ -302,13 +315,26 @@ public sealed class HeaderIndex : IDisposable
                     long need = PluginHeader.LengthNeeded(start);
                     w.Header = need > start.Length ? PluginHeader.Read(f.Value) : PluginHeader.Parse(start);
                 }
-                if (w.StampSame && !verifyContent) { w.Content = w.Old!.ContentKey; w.ContentKnown = !w.Content.IsZero; }
+                if (w.StampSame && !verifyContent)
+                {
+                    w.Content = w.Old!.ContentKey; w.ContentKnown = !w.Content.IsZero;
+                    // Another program on this index folder hashed the file whole since (the service's full check at its
+                    // start, or the hourly one) and found other content under the same quick stamp: a change in the middle
+                    // of the file. Its key is the truth now (J31: kept indexes are checked by a full hash at start).
+                    if (manifest.TryGetValue(f.Value, out var seen) && seen.Stamp == w.Stamp && !seen.Content.IsZero && seen.Content != w.Content) w.Content = seen.Content;
+                }
                 else if (!verifyContent && manifest.TryGetValue(f.Value, out var m) && m.Stamp == w.Stamp) { w.Content = m.Content; w.ContentKnown = true; }
-                if (strings != null && w.Header is { Localized: true }) w.Strings = strings.Stamp(f.Value, f.Key);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { w.Header = null; w.StampSame = false; w.Stamp = default; w.Gone = IsGone(f.Value); }
             work.Add(w);
         });
+        // The string files of the localized plugins, all in one look (Mutagen resolves the load order in one pass, C74)
+        if (strings != null)
+        {
+            var localized = work.Where(w => !w.Gone && w.Header is { Localized: true }).ToList();
+            var stamps = strings.Stamps(localized.Select(w => (w.Path, w.Name)).ToList());
+            for (int i = 0; i < localized.Count; i++) localized[i].Strings = stamps[i];
+        }
         // The plugins of this refresh: the folder as it was listed, less the files already gone when they were stamped
         // (S43). This one list, and the masters' sizes taken from it, serve the whole refresh.
         var all = work.Where(w => !w.Gone).OrderByDescending(w => w.Stamp.Length).ThenBy(w => w.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -331,7 +357,6 @@ public sealed class HeaderIndex : IDisposable
                     w.Result.Problems.ReadError = $"it couldn't be read ({e.GetType().Name}: {e.Message.TrimEnd('.')})";
                     if (w.Old == null && !localNotes.Contains(("added", w.Name))) localNotes.Add(("added", w.Name));
                 }
-                AfterReadForTests?.Invoke(w.Name);
                 // Rule 5: a plugin that changed while it was read isn't trusted. Read it once more, then give up on it.
                 QuickStamp after;
                 try { after = w.Header == null && w.Stamp == default ? default : QuickStamp.Read(w.Path); }
@@ -355,7 +380,7 @@ public sealed class HeaderIndex : IDisposable
                 {
                     w.Stamp = QuickStamp.Read(w.Path, out var start);
                     w.Header = PluginHeader.Parse(start) ?? PluginHeader.Read(w.Path);
-                    w.Strings = strings != null && w.Header is { Localized: true } ? strings.Stamp(w.Path, w.Name) : StringsStamp.NotStamped;
+                    w.Strings = strings != null && w.Header is { Localized: true } ? strings.Stamps(new[] { (w.Path, w.Name) })[0] : StringsStamp.NotStamped;
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { w.Stamp = default; w.Header = null; w.Strings = StringsStamp.NotStamped; }
                 w.ContentKnown = false; w.StampSame = false;
@@ -376,9 +401,12 @@ public sealed class HeaderIndex : IDisposable
         var oldSegments = _plugins.Where(p => p.Segment != null).Select(p => p.Segment!).ToList();
         var plugins = all.Select(w => w.Result!).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
         var kept = new HashSet<Segment>(plugins.Where(p => p.Segment != null).Select(p => p.Segment!));
-        foreach (var s in oldSegments.Where(s => !kept.Contains(s)))
+        var letGo = oldSegments.Where(s => !kept.Contains(s)).ToList();
+        bool keepFiles = letGo.Count > 0 && _options.KeepUnusedSegments?.Invoke() == true;
+        foreach (var s in letGo)
         {
             s.Dispose();
+            if (keepFiles) continue;
             try { File.Delete(s.Path); } catch (IOException) { } catch (UnauthorizedAccessException) { } // another worker may still map it
         }
         bool segmentsChanged = report.Removed.Count > 0 || plugins.Count != _plugins.Count || plugins.Any(p => !_byName.TryGetValue(p.Name, out var o) || !ReferenceEquals(o.Segment, p.Segment));
@@ -392,7 +420,7 @@ public sealed class HeaderIndex : IDisposable
         BuildOverrideMap(); // a few milliseconds, and plugin Ids may have moved
         report.WinnersReworked = segmentsChanged || report.LoadOrderChanged;
         report.MapSeconds = mapClock.Elapsed.TotalSeconds;
-        if (report.Added.Count + report.ContentChanged.Count + report.StampChangedOnly.Count + report.Hashed.Count > 0) WriteManifest();
+        if (report.Added.Count + report.ContentChanged.Count + report.StampChangedOnly.Count + report.Hashed.Count > 0) WriteManifest(report.Hashed);
         report.Seconds = clock.Elapsed.TotalSeconds;
         return report;
     }
@@ -435,7 +463,7 @@ public sealed class HeaderIndex : IDisposable
             }
             p.ContentKey = w.Content;
             if (!isNew && !w.StampSame) notes.Add((old!.ContentKey == w.Content ? "stamp" : "content", w.Name));
-            else if (!isNew && verifyContent && old!.ContentKey != w.Content) notes.Add(("content", w.Name));
+            else if (!isNew && old!.ContentKey != w.Content) notes.Add(("content", w.Name)); // the full check, here or in another program
             p.ReadingKey = Keys.Reading(w.Content, w.Name, w.Header.Masters, w.Styles, _options.VersionText);
             if (!isNew && old!.ContentKey == w.Content && old.ReadingKey != p.ReadingKey && !old.ReadingKey.IsZero) notes.Add(("rekeyed", w.Name));
 
@@ -496,14 +524,20 @@ public sealed class HeaderIndex : IDisposable
         return d;
     }
 
-    /// <summary>Adds this index's plugins to what the manifest already holds (other indexes share the scratch folder).</summary>
-    void WriteManifest()
+    /// <summary>
+    /// Adds this index's plugins to what the manifest already holds (other indexes and programs share the folder). A line
+    /// for the same quick stamp is replaced only by a plugin this refresh hashed: another program may have hashed the
+    /// file since this one did, and found a change in its middle.
+    /// </summary>
+    void WriteManifest(IReadOnlyCollection<string> hashed)
     {
         string tmp = ManifestPath + $".{Environment.ProcessId}.tmp";
+        var hashedNow = new HashSet<string>(hashed, StringComparer.OrdinalIgnoreCase);
         try
         {
             var all = ReadManifest();
-            foreach (var p in _plugins.Where(p => !p.ContentKey.IsZero)) all[p.Path] = (p.Stamp, p.ContentKey);
+            foreach (var p in _plugins.Where(p => !p.ContentKey.IsZero))
+                if (hashedNow.Contains(p.Name) || !all.TryGetValue(p.Path, out var had) || had.Stamp != p.Stamp) all[p.Path] = (p.Stamp, p.ContentKey);
             File.WriteAllLines(tmp, all.Select(m =>
                 string.Join('\t', m.Key, m.Value.Stamp.Length.ToString(CultureInfo.InvariantCulture), m.Value.Stamp.WriteTicksUtc.ToString(CultureInfo.InvariantCulture), m.Value.Stamp.EndsHash.ToString("x16"), m.Value.Content.ToString())));
             File.Move(tmp, ManifestPath, overwrite: true);
@@ -634,15 +668,18 @@ public sealed class HeaderIndex : IDisposable
             if (_refusals.TryGetValue(p.Name, out var refused) && refused.Content == p.ContentKey) pr.Refused = refused.Error;
             p.Problems = pr;
         }
-        // A plugin whose master is left out is left out too, as Mutagen's load order drops it ("master X was refused")
+        // A plugin whose master is left out is left out too, as Mutagen's load order drops it ("master X was refused"); so
+        // is one whose master can't be read because a master of that one isn't in Data (Mutagen drops both: DropPlugin)
         for (bool more = true; more;)
         {
             more = false;
             foreach (var p in _plugins)
             {
                 if (p.LeftOut != null || p.Header == null) continue;
-                var gone = p.Header.Masters.FirstOrDefault(m => _byName.TryGetValue(m, out var mp) && mp.LeftOut != null);
-                if (gone != null) { p.Problems.MasterRefused = gone; more = true; }
+                var refused = p.Header.Masters.FirstOrDefault(m => _byName.TryGetValue(m, out var mp) && (mp.Problems.Refused != null || mp.Problems.MasterRefused != null));
+                if (refused != null) { p.Problems.MasterRefused = refused; more = true; continue; }
+                var unreadable = p.Header.Masters.FirstOrDefault(m => _byName.TryGetValue(m, out var mp) && mp.Header != null && (mp.Problems.MissingMasters.Count > 0 || mp.Problems.MasterUnreadable != null));
+                if (unreadable != null) { p.Problems.MasterUnreadable = unreadable; more = true; }
             }
         }
     }
@@ -750,6 +787,14 @@ public sealed class HeaderIndex : IDisposable
     string FormKeyText(IndexedPlugin p, int owner, uint localId) =>
         owner >= Entry.UnresolvedOwner ? $"{(uint)(owner & 0xFF) << 24 | localId:X8}:(unresolved in {p.Name})"
         : $"{localId:X6}:{(p.OwnerToPlugin[owner] >= 0 ? _plugins[p.OwnerToPlugin[owner]].Name : p.Segment!.Names[owner])}";
+
+    /// <summary>A record's FormKey as Describe writes it, alone: for a caller that reads millions of records and keeps
+    /// only that (the SQL layer's columns read from the records' bytes, J30).</summary>
+    public string FormKeyOf(RecordRef r)
+    {
+        var p = _plugins[r.Plugin]; var e = p.Segment![r.Entry];
+        return FormKeyText(p, e.Owner, e.LocalId);
+    }
 
     public RecordInfo Describe(RecordRef r)
     {

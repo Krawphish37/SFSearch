@@ -42,7 +42,7 @@ public static class ViewDocs
         ["Json"] = ("JSON", "the whole record as Mutagen writes it; read any field with Json ->> '$.Path'"),
     };
 
-    /// <summary>The three views that aren't made from a record type.</summary>
+    /// <summary>The five views that aren't made from a record type.</summary>
     static readonly Dictionary<string, (string About, (string Name, string Type, string About)[] Columns)> Special = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Records"] = ("Every record read so far in this scope, of every type, one row each. A statement that narrows it (WHERE Type = 'Weapon', FormKey = '…', EditorID = '…') has that type read first; one that narrows to nothing reads every type of the scope when nothing is read yet (its cost is said first). Forms has every record's header, read or not.", new[]
@@ -60,6 +60,11 @@ public static class ViewDocs
             ("Parent", "text", "the FormKey of the record it sits in (a cell for a placed object, a topic for a dialogue line); NULL at the top"),
             ("IsWinner", "integer 0/1", "1 for the copy the game uses"), ("IsOverride", "integer 0/1", "1 when it overrides a record of a master"),
             ("Pos", "integer", "where the record starts in the plugin file, in bytes"), ("LoadOrder", "integer", "the plugin's place in the load order (NULL when it isn't loaded)"),
+            ("Size", "integer", "the record's bytes after its 24-byte header, as the file stores them (compressed when it is)"),
+            ("DataSize", "integer", "the record's subrecords in bytes as they are read: inflated when the record is compressed. The biggest records of a type: ORDER BY DataSize DESC"),
+            ("Compressed", "integer 0/1", "1 when the file stores the record compressed"),
+            ("Flags", "integer", "the record header's flags as the file stores them (bytes 8-11): Deleted 0x20, Compressed 0x40000, and each type's own bits. Count a bit by type: SELECT Sig, count(*) FROM Forms WHERE Flags & 0x40000000 GROUP BY Sig"),
+            ("FlagNames", "text", "the flags by Mutagen's names for the record's type (its MajorFlag enum: NonPlayable, …), and Deleted and Compressed; a bit Mutagen has no name for as its number (0x40000000). Empty when there are no flags"),
         }),
         ["Links"] = ("The links (FormKeys) inside the records read so far in this scope, one row per link. A statement that narrows it (WHERE ToKey = '…', FromKey = '…', FromType = '…') has what that needs read first: for ToKey, the types whose records link to it (the link index), or that can (the schema).", new[]
         {
@@ -67,6 +72,39 @@ public static class ViewDocs
             ("Field", "text", "the field, every list place written [*] and a last one dropped (Keywords, ObjectTemplates[*].Includes[*].Mod)"),
             ("Idx", "integer", "the place in the innermost list (NULL outside a list)"), ("ToKey", "text", "the FormKey the link points at"),
             ("Path", "text", "the exact place (ObjectTemplates[0].Includes[2].Mod)"), ("Plugin", "text", "the plugin the linking record comes from"),
+        }),
+        ["Conditions"] = ("Every condition (CTDA) inside the records read so far in this scope, one row each, wherever it sits (Conditions, Stages[*].LogEntries[*].Conditions, …). A statement that narrows it (WHERE Type = 'Perk', FormKey = '…', EditorID = '…') has that type read first; one that narrows to nothing reads every type of the scope that can hold a condition (its cost is said first). Count functions with SELECT Function, FunctionName, count(*) FROM Conditions GROUP BY 1, 2.", new[]
+        {
+            ("FormKey", "text", "the FormKey of the record that holds the condition"), ("Type", "text", "that record's type (Mutagen's name)"),
+            ("EditorID", "text", "that record's EditorID"), ("Plugin", "text", "the plugin the record comes from"),
+            ("Field", "text", "the condition list, every list place written [*] and the last one dropped (Conditions, Stages[*].LogEntries[*].Conditions)"),
+            ("Idx", "integer", "the condition's place in its list, from 0"), ("Path", "text", "the exact place (Stages[2].LogEntries[0].Conditions[1])"),
+            ("Function", "integer", "the function's index, as the CTDA stores it (961)"), ("FunctionName", "text", "the function's name (GetGameplayOptionCurrentValue)"),
+            ("RunOn", "text", "what the function runs on (Subject, Target, Reference, …)"), ("Reference", "text", "the reference it runs on, when RunOn is Reference (a FormKey)"),
+            ("Comparison", "text", "the comparison (EqualTo, GreaterThanOrEqualTo, …)"), ("Value", "real", "the value compared with (NULL when it is a global)"),
+            ("Global", "text", "the global variable compared with (a FormKey; NULL when it is a number)"), ("Flags", "JSON", "the condition's flags as a list of names ([\"OR\"])"),
+            ("FlagsRaw", "integer (flag bits)", "the same flags as one number (Mutagen's Condition.Flag: OR 0x1, SwapSubjectAndTarget 0x10); test a bit with (FlagsRaw & 0x10) <> 0"),
+            ("Param1", "any", "the function's first parameter (a FormKey, a number or a name), its default when the record leaves it out"),
+            ("Param2", "any", "the function's second parameter"), ("Param3", "integer", "the third parameter (ParameterThree; -1 when unused)"),
+            ("Json", "JSON", "the whole condition as Mutagen writes it"),
+            ("LoadOrder", "integer", "the plugin's place in the load order (versions scope only)"), ("IsWinner", "integer 0/1", "1 for the copy the game uses (versions scope only)"),
+        }),
+        ["Plugins"] = ("Every plugin in the Data folder, one row each, from its header (TES4) alone: its flags, size, record count and masters. No record is read, and the scope doesn't narrow it: LoadOrder is NULL for a plugin that isn't loaded. Masters is a JSON list: SELECT p.Plugin FROM Plugins p, json_each(p.Masters) m WHERE m.value = 'darkstar.esm' gives the plugins that need darkstar.esm. record <plugin> reads one header field by field.", new[]
+        {
+            ("Plugin", "text", "the plugin's file name"), ("LoadOrder", "integer", "its place in the load order (NULL when it isn't loaded)"),
+            ("Slot", "text", "the runtime prefix of its own records when loaded: 0A, FD:03 (medium), FE:09A (light)"),
+            ("Size", "text", "Full, Medium or Light (xEdit: Small), from the header's flags 0x400 and 0x100"),
+            ("Flags", "integer", "the header's flags as the file stores them (record header bytes 8-11): Master 0x1, Localized 0x80, Light 0x100, Medium 0x400"),
+            ("FlagNames", "text", "the flags by Mutagen's names (Master, Localized, Light, Medium); a bit Mutagen has no name for as its number (0x800, xEdit's Blueprint)"),
+            ("FormVersion", "integer", "the header's form version, record header bytes 20-21 (Starfield.esm: 581)"),
+            ("Version", "real", "HEDR's version (0.96)"), ("NumRecords", "integer", "HEDR's number of records, as the plugin's writer counted them"),
+            ("NextFormID", "integer", "HEDR's next object ID, as stored (xEdit: Next Object ID)"),
+            ("MasterCount", "integer", "how many masters it has"), ("Masters", "JSON", "its masters (MAST), in the header's order"),
+            ("Author", "text", "CNAM, the author (NULL when absent)"), ("Description", "text", "SNAM, the description (NULL when absent)"),
+            ("OverriddenCount", "integer", "how many FormIDs ONAM lists (the overridden forms a master records; 0 when there is no ONAM)"),
+            ("InteriorCellCount", "integer", "INCC, the interior cell count (NULL when absent)"),
+            ("Subrecords", "text", "the header's subrecord signatures, each once, in the file's order (HEDR CNAM MAST ONAM INTV INCC)"),
+            ("HeaderSize", "integer", "the header record's size in bytes, after its 24-byte record header"), ("FileSize", "integer", "the plugin file's size in bytes"),
         }),
     };
 
@@ -141,6 +179,7 @@ public static class ViewDocs
         "String" or "ObjectType" or "Enum" => "text",
         "Bool" => "integer 0/1",
         "Flags" => "JSON list of flag names",
+        FlagsRaw.Kind => "integer (flag bits)",
         "Json" or "Array2DRow" => "JSON",
         "Float" or "Double" or "Percent" or "Half" => "real",
         var k when k.StartsWith("Int", StringComparison.Ordinal) || k.StartsWith("UInt", StringComparison.Ordinal) || k is "Byte" or "SByte" or "Short" or "UShort" or "Long" or "ULong" => "integer",
@@ -159,6 +198,7 @@ public static class ViewDocs
         parts.Add("field " + path);
         if (c.Kind == "String" && c.Expr.Contains("sfs_text(", StringComparison.Ordinal)) parts.Add("in the query's language; text(Col, 'ja') gives another");
         if (c.Kind == "Json") parts.Add("an object too deep for columns of its own");
+        if (c.Kind == FlagsRaw.Kind) parts.Add($"the flags of {c.Name[..^FlagsRaw.Suffix.Length]} as one number, each set bit by its value (named or not): test bit N with ({c.Name} & (1 << N)) <> 0, e.g. ({c.Name} & 0x80000000) <> 0");
         return string.Join("; ", parts);
     }
 
@@ -166,7 +206,7 @@ public static class ViewDocs
     static readonly Dictionary<string, string> TableAbout = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Fields"] = "Every field of every record type, one row per path (the rows describe <type> shows).",
-        ["RecordTypes"] = "Every record type: signature, Mutagen name and counts.",
+        ["RecordTypes"] = "Every record type: signature, Mutagen name, xEdit's name and counts.",
         ["Enums"] = "Every enum's members, with their values and xEdit's names.",
         ["Objects"] = "Every Mutagen object (record types and the objects inside them).",
         ["ObjectFields"] = "The fields of each object, before they are spread over record types (Fields has them per type).",
@@ -174,7 +214,7 @@ public static class ViewDocs
         ["ObjectAncestors"] = "Each object's bases, nearest first.",
         ["ObjectTargets"] = "Which objects a reference to another object can hold.",
         ["LinkInterfaces"] = "Which record types a link interface (a link that takes several types) accepts.",
-        ["PairNames"] = "xEdit's name for a field, by signature and Mutagen path.",
+        ["PairNames"] = "xEdit's name for a field, an object or a list, by signature and Mutagen path.",
         ["Pairs"] = "How each xEdit field was matched to a Mutagen field, and how many records agreed.",
         ["UnknownEvidence"] = "What is known from real plugins about fields Mutagen has no real name for.",
         ["Meta"] = "The schema's version, the Mutagen version it was made from, and the like.",

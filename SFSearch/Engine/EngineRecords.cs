@@ -41,7 +41,8 @@ namespace SFSearch.Engine
             }
         }
 
-        public static string ScratchRoot => Path.GetDirectoryName(EngineIndex.IndexFolder())!;
+        /// <summary>The home's scratch folder (emptied at every service start). The kept indexes are elsewhere: <see cref="Home.Indexes"/>.</summary>
+        public static string ScratchRoot => Home.Scratch;
 
         /// <summary>The engine for a header index: the main one, or a side index of a plugin outside Data.</summary>
         public static RecordEngine For(EngineIndex eng, HeaderIndex ix, Language language = Language.English)

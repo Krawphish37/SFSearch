@@ -34,8 +34,16 @@ namespace SFSearch
 
             var argList = CommandLine.ParseGlobalOptions(args.ToList());
             if (argList.Count < 1) { PrintHelp(); return; }
+            if (!SessionServer.Active && RunOnChosenCollector(args, argList[0])) return;
             // --allow-heavy: the caller's OK for a command that finds it needs a lot of memory (Service\JobContext.cs)
             if (CommandLine.TakeFlag(argList, "--allow-heavy")) Service.JobContext.AllowHeavyLocal = true;
+            // --allow-heavy=save-index: the third answer (J33): yes, and save the index that makes this question fast
+            if (argList.FirstOrDefault(Service.JobContext.IsSaveFlag) is { } saveIndex)
+            {
+                argList.Remove(saveIndex);
+                Service.JobContext.AllowHeavyLocal = true;
+                Service.JobContext.SaveIndexLocal = true;
+            }
             string command = argList[0].ToLowerInvariant();
             var rest = argList.Skip(1).ToList();
 
@@ -66,12 +74,14 @@ namespace SFSearch
                     case "extensions":
                         Console.Write(Extensions.Describe());
                         break;
-                    case "__test" when Service.TestHooks.Enabled:
-                        Service.TestHooks.Run(rest);
-                        break;
                     default:
                         // The engine's verbs, then a retired name (SFSearch's own names come before an add-on's), then the add-ons
-                        if (Engine.EngineCommands.TryRun(command, rest)) break;
+                        if (Engine.EngineCommands.TryRun(command, rest))
+                        {
+                            // The caller answered "save_index" (J33): with no service to queue it, the index is made now, after the answer
+                            if (!SessionServer.Active && Service.JobContext.IndexAfter == "world") Engine.LinksJob.WorldAfterAnswer();
+                            break;
+                        }
                         if (Retired.TryGetValue(command, out var instead)) { RetiredCommand(argList[0], instead); break; }
                         if (!Extensions.TryRun(command, rest)) UnknownCommand(argList[0]);
                         break;
@@ -83,12 +93,51 @@ namespace SFSearch
                 Console.WriteLine($"Error: {ex.Message}");
                 Environment.ExitCode = 1;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException || !Service.ServiceWorker.Connected)
             {
                 // A command that stopped on an exception nothing above expected: the error line and exit code 2, never 0
+                // (in a service worker, running out of the heap's limit goes to the worker: the command's limit error, J57)
                 // (S43: a crash inside an add-on's command exited 0)
                 Crashed(ex, null);
             }
+        }
+
+        /// <summary>
+        /// A command run without the service follows workerGarbageCollector as the service's workers do (J59, 2026-11-15):
+        /// "auto" is server when one command may use 2.5 GB or more (workerMaxMB in effect: a PC of about 15 GB or more),
+        /// else workstation; "server" and "workstation" pick it. .NET fixes the collector when a process starts, and this
+        /// program starts on server (SFSearch.csproj). When the setting picks the other one, the command is run again in a
+        /// new process with DOTNET_gcServer set (about 0.2 s), which inherits this console, its input and its output; this
+        /// one waits and passes on its exit code. Ctrl+C reaches both: the new one stops its command, this one waits for it.
+        /// A DOTNET_gcServer already set to the collector wanted isn't asked again (no loop). The service's own commands
+        /// (start, stop, config), Version, help, SetData and Extensions read no plugin and run where they are.
+        /// True when the command ran in the new process.
+        /// </summary>
+        static bool RunOnChosenCollector(string[] args, string command)
+        {
+            if (command.ToLowerInvariant() is "service" or "version" or "--version" or "-v" or "help" or "--help" or "-h" or "setdata" or "extensions") return false;
+            bool want = Service.ServiceConfig.Load(Home.Dir, makeFile: false).ServerGcPlain;
+            if (System.Runtime.GCSettings.IsServerGC == want) return false;
+            string value = want ? "1" : "0";
+            if (Environment.GetEnvironmentVariable("DOTNET_gcServer") == value) return false;
+            string? self = Environment.ProcessPath;
+            if (self == null || !Path.GetFileNameWithoutExtension(self).Equals("SFSearch", StringComparison.OrdinalIgnoreCase)) return false; // run through dotnet.exe: stay
+            var psi = new System.Diagnostics.ProcessStartInfo(self) { UseShellExecute = false, WorkingDirectory = Home.CallerCwd };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            psi.Environment["DOTNET_gcServer"] = value;
+            if (want) psi.Environment["DOTNET_GCDynamicAdaptationMode"] = "1"; else psi.Environment.Remove("DOTNET_GCDynamicAdaptationMode");
+            ConsoleCancelEventHandler wait = (_, e) => e.Cancel = true;
+            Console.CancelKeyPress += wait;
+            try
+            {
+                using var p = System.Diagnostics.Process.Start(psi);
+                if (p == null) return false;
+                p.WaitForExit();
+                Environment.ExitCode = p.ExitCode;
+                return true;
+            }
+            catch (System.ComponentModel.Win32Exception) { return false; } // couldn't start it: run here, on the collector this process has
+            finally { Console.CancelKeyPress -= wait; }
         }
 
         /// <summary>
@@ -145,7 +194,7 @@ namespace SFSearch
             ["verifydb"] = "record <record> --view verify (sfs_record), or check2 <plugin> --what roundtrip",
             ["losscheck"] = "check2 <plugin> --what roundtrip (sfs_check)",
             ["buildcache"] = "nothing: SFSearch keeps no databases; every verb reads the plugin files live",
-            ["databases"] = "status (sfs_status: the scratch folder and the indexes)",
+            ["databases"] = "indexes (through sfs_run: what SFSearch keeps on disk, each index's size and age, and how to drop it; sfs_status for the service)",
             ["session"] = "Service start | stop | restart | status | config",
         };
 
@@ -176,12 +225,14 @@ namespace SFSearch
 Global flags: --json (a verb's answer as one JSON object) | --allow-heavy (run a command that said its cost first)
 Service start | stop | restart | status | config   runs SFSearch as a service (settings: sfsearch.json): many commands at once,
   from many agents (the MCP server SFSearch.Mcp is the main way in). While it runs, every command goes to it.
+  Service config shows every setting in effect and where it came from; sfsearch.json explains each one above its line.
 
 The verbs. Each takes its options by name; <verb> --help shows them:");
             foreach (var v in Engine.EngineCommands.Verbs) Console.WriteLine($"  {v.Verb,-12} {char.ToUpperInvariant(v.What[0])}{v.What[1..]}");
             Console.WriteLine(@"
 Other:
-  SetData <path>     Remember where Starfield's Data folder is (needed only when it isn't found by itself)
+  SetData <path>     Remember where Starfield's Data folder is (needed only when it isn't found by itself;
+                     the SFSEARCH_DATA environment variable, when set, wins over it)
   Version
   Extensions         List the add-ons in the extensions folder and their commands
 

@@ -153,6 +153,11 @@ public sealed unsafe class Segment : IDisposable
     static T Rd<T>(ReadOnlySpan<byte> h, int at) where T : unmanaged => MemoryMarshal.Read<T>(h[at..]);
 
     /// <summary>Maps a segment read only. Null when the file isn't there or isn't a whole segment of this version.</summary>
+    /// <summary>True when a program with this version text would read this segment for its plugin: its reading key is
+    /// the one its content, name, masters and their sizes give under that version (a segment of another SFSearch never is).</summary>
+    public bool ReadableBy(string versionText) =>
+        Keys.Reading(ContentKey, Plugin, Names.Take(Names.Count - 1).ToList(), MasterStyles, versionText) == ReadingKey;
+
     public static Segment? TryOpen(string path)
     {
         if (!File.Exists(path)) return null;

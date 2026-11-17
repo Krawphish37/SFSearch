@@ -103,6 +103,60 @@ public sealed class FileFinder
 
     public FileHit Find(string dataRelativePath) => Find(new[] { dataRelativePath });
 
+    /// <summary>Finds a file as <see cref="Find"/> does, the archives' names read a few at a time side by side
+    /// (<see cref="FindAll"/>).</summary>
+    public FileHit FindAhead(IReadOnlyList<string> candidates)
+    {
+        FindAll(new[] { candidates });
+        return Find(candidates);
+    }
+
+    /// <summary>
+    /// Finds many files at once, each as <see cref="Find"/> would (later calls of Find answer from what this found).
+    /// The archives are taken in the same order, a few at a time: the plugin's own first, then as many as the
+    /// computer has cores, their names read side by side (<see cref="ArchiveStore.ReadAhead"/>) and looked in one
+    /// after another in that order. Once every file is found the reads still under way are stopped.
+    /// </summary>
+    public void FindAll(IEnumerable<IReadOnlyList<string>> candidateLists)
+    {
+        var pending = new List<IReadOnlyList<string>>();
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in candidateLists)
+        {
+            if (c.Count == 0 || _found.ContainsKey(c[0]) || !keys.Add(c[0])) continue;
+            string? loose = c.FirstOrDefault(_store.IsLoose);
+            if (loose != null) { _found[c[0]] = new FileHit(FileOrigin.Loose, "loose", loose, null); continue; }
+            pending.Add(c);
+        }
+        var stop = new CancellationTokenSource();
+        try
+        {
+            int at = 0;
+            while (pending.Count > 0 && at < _order.Count)
+            {
+                int width = at == 0 && OwnCount > 0 ? OwnCount : Math.Max(2, Environment.ProcessorCount);
+                var window = _order.Skip(at).Take(width).ToList();
+                var reads = _store.ReadAhead(window.Select(w => w.Path).ToList(), stop.Token);
+                for (int k = 0; k < window.Count && pending.Count > 0; k++)
+                {
+                    var (path, origin) = window[k];
+                    if (reads[k].Result) _store.NoteRead(path);
+                    var names = _store.Names(path);
+                    pending.RemoveAll(c =>
+                    {
+                        string? hit = c.FirstOrDefault(names.Has);
+                        if (hit == null) return false;
+                        _found[c[0]] = new FileHit(origin, names.Name, hit, names);
+                        return true;
+                    });
+                }
+                at += width;
+            }
+        }
+        finally { stop.Cancel(); }
+        foreach (var c in pending) _found[c[0]] = default;
+    }
+
     readonly Dictionary<(string, string), bool> _mayHold = new();
 
     /// <summary>

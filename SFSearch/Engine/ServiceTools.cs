@@ -61,7 +61,7 @@ namespace SFSearch.Engine
         public const string Help = """
             status [--json]
               The SFSearch service's health: workers, the queue, the heavy lane, the indexer; how far the header index and
-              the link index are; what is open; the scratch folder's size; memory. With no service running it says so, and
+              the link index are, and how much the kept indexes take on disk; what is open; the scratch folder's size; memory. With no service running it says so, and
               shows what a plain run has in the scratch folder.
               Exit code: 0 answered; 2 an error (one line, Error: ... Fix: ...).
             """;
@@ -117,6 +117,8 @@ namespace SFSearch.Engine
                     ? $"Link index: complete. {have:N0} of {could:N0} plugins have a link file: {links:N0} links, {names:N0} in-game names, {Mb(bytes)}."
                     : $"Link index: {have:N0} of {could:N0} plugins have a link file so far ({links:N0} links, {names:N0} in-game names, {Mb(bytes)}). Until the rest are made, refs searches those plugins' bytes, and find knows no in-game names of theirs.";
                 answer.Line(linksLine);
+                // Where they are kept, how big, and whether they outlive a start (J31)
+                answer.Line(IndexesTool.StatusLine());
                 string root = EngineLibs.ScratchRoot;
                 var parts = new List<string>();
                 long all = 0; int files = 0;
@@ -137,7 +139,8 @@ namespace SFSearch.Engine
                 string history = Path.Combine(EngineLibs.KeptRoot, "history");
                 var (historyBytes, historyFiles) = EngineLibs.FolderSize(history);
                 var lastLook = Directory.Exists(history) ? Directory.GetDirectories(history).Select(SFSearch.Reports.HistoryLook.Read).Where(l => l != null).OrderByDescending(l => l!.Seen).FirstOrDefault() : null;
-                string looks = ServiceConfig.Load(Home.Dir).HistoryLook ? "the service looks by itself at its start and every 10 minutes while idle; changes2 looks when asked" : "only changes2 looks (historyLook is off)";
+                var cfg = ServiceConfig.Load(Home.Dir);
+                string looks = cfg.HistoryLook ? $"the service looks by itself at its start and {ServiceConfig.EveryText(cfg.PluginCheckSeconds)} while idle (pluginCheckSeconds); changes2 looks when asked" : "only changes2 looks (historyLook is off)";
                 answer.Line(historyFiles == 0 ? $"History log: none yet. The first look writes one under {history} ({looks}): one line per plugin copy seen and a list of its FormKeys, no record contents."
                     : $"History log: {history}, {Mb(historyBytes)} in {historyFiles:N0} file(s) (one line per plugin copy seen and a list of its FormKeys, no record contents); {looks}.{(lastLook != null ? $" The last look: {lastLook.Seen:yyyy-MM-dd HH:mm:ss}, by {lastLook.ByWords}." : "")} Deleting it only forgets the history.");
                 // The names of the plugins this program holds open. Their number is the one the service's line gives
@@ -146,8 +149,10 @@ namespace SFSearch.Engine
                 long mem;
                 using (var me = Process.GetCurrentProcess()) mem = me.PrivateMemorySize64 / 1048576;
                 string who = service ? "the worker that answered this" : "this program";
-                answer.Line(open.Count == 0 ? $"Open in {who}: no plugin. It holds {mem:N0} MB."
-                    : $"Open in {who}, as Mutagen overlays: {string.Join(", ", open.Take(12))}{(open.Count > 12 ? $" and {open.Count - 12:N0} more" : "")} ({open.Count:N0} plugin{(open.Count == 1 ? "" : "s")}). It holds {mem:N0} MB.");
+                // Read inside the process that answers, so it is what that worker really runs (workerGarbageCollector, J44)
+                string gc = $"with .NET's {(System.Runtime.GCSettings.IsServerGC ? "server" : "workstation")} garbage collector";
+                answer.Line(open.Count == 0 ? $"Open in {who}: no plugin. It holds {mem:N0} MB, {gc}."
+                    : $"Open in {who}, as Mutagen overlays: {string.Join(", ", open.Take(12))}{(open.Count > 12 ? $" and {open.Count - 12:N0} more" : "")} ({open.Count:N0} plugin{(open.Count == 1 ? "" : "s")}). It holds {mem:N0} MB, {gc}.");
                 answer.Line($"Memory: Windows has {MemoryInfo.AvailableMB():N0} MB available of {MemoryInfo.TotalMB():N0} MB.");
                 // The service's own lines above already say what limits it uses and where each came from; with no service, say what one would use
                 if (!service) foreach (var line in ServiceConfig.Load(Home.Dir).MemoryLines().Split('\n')) answer.Line(line);

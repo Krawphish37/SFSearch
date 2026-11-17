@@ -20,12 +20,17 @@ public sealed partial class QueryEngine
         /// <summary>Each view of the schema the statement names, with the columns it reads.</summary>
         public Dictionary<ViewSpec, HashSet<string>> Views = new();
         public HashSet<string> Special = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The columns the statement reads of each of <see cref="Special"/>.</summary>
+        public Dictionary<string, HashSet<string>> SpecialColumns = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>SQLite's plan for the statement over the stand-ins, with an index on each view's FormKey; null when
         /// the statement compares no FormKey with a text (Session.Keyed.cs).</summary>
         public List<string>? Plan;
+        /// <summary>Each column of a typed view the statement compares only with literals: the literals, and SQLite's
+        /// plan over the stand-ins with an index on that column (Session.Filter.cs).</summary>
+        public Dictionary<string, (List<object> Literals, List<string> Plan)> ColumnPlans = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    enum Route { Full, Projection, Forms, Links }
+    enum Route { Full, Projection, Forms, Links, Conditions, ListProjection, KeyedEstimate }
 
     sealed class ReadJob
     {
@@ -37,6 +42,19 @@ public sealed partial class QueryEngine
         public ViewSpec? View;
         public List<string> Columns = new();
         public List<string> LinkSigs = new();
+        /// <summary>A list view's named columns read straight from the records (ListReads.cs), and which records.</summary>
+        public DirectList? List;
+        public Dictionary<IndexedPlugin, int[]>? Entries;
+        /// <summary>A list view's rows taken out of each record's JSON instead (ListReads.cs, GAPS S58).</summary>
+        public string? ListSql;
+        /// <summary>Route.KeyedEstimate: the records whole (else the named columns).</summary>
+        public bool Whole;
+        /// <summary>Read from the records' own bytes (RawColumns.cs), not through Mutagen.</summary>
+        public bool Raw;
+        /// <summary>A named column comes out of each record's JSON (the whole record's JSON is made for it).</summary>
+        public bool Json;
+        /// <summary>A typed view's columns read with the statement's col = literal applied while reading (Session.Filter.cs).</summary>
+        public RowFilter? Filter;
         public long Records => Loads.Sum(l => l.Load.Count);
         public long Bytes => Loads.Sum(l => l.Load.Bytes);
     }
@@ -53,6 +71,8 @@ public sealed partial class QueryEngine
         readonly Dictionary<ScratchFile, Dictionary<string, DoneRow>> _done = new();
         /// <summary>For a file and a record type: the table that holds named columns only, and which columns.</summary>
         readonly Dictionary<(ScratchFile, string), (string Table, HashSet<string> Columns)> _projections = new();
+        /// <summary>For a file and a record type: every table of its named columns, each read on its own route (GAPS S146).</summary>
+        readonly Dictionary<(ScratchFile, string), List<(string Table, HashSet<string> Columns)>> _projectionTables = new();
         readonly List<string> _ownViews = new();
         readonly HashSet<string> _usedLabels = new(StringComparer.Ordinal);
         readonly HashSet<string> _readLabels = new(StringComparer.Ordinal);
@@ -208,6 +228,7 @@ public sealed partial class QueryEngine
             {
                 _winners = _req.Scope == ScopeKind.Winners; _versions = _req.Scope == ScopeKind.Versions;
                 var loaded = index.Plugins.Where(p => p.Order.Enabled).OrderBy(p => p.Order.Position).ToList();
+                var enabled = loaded.ToList();
                 // A loaded plugin Mutagen refuses (C204), and any built on it, has no rows: the versions before it win
                 foreach (var p in loaded.Where(p => p.LeftOut != null).ToList())
                 {
@@ -226,10 +247,29 @@ public sealed partial class QueryEngine
                 _files.Add(SetFile("lo", _members));
                 string txt = _e._options.PluginsTxt ?? LoadOrder.DefaultPluginsTxt;
                 string date = File.Exists(txt) ? File.GetLastWriteTime(txt).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : "no plugins.txt";
-                _answer.LoadOrder = $"load order of {date} ({_members.Count:N0} loaded plugins)";
+                _answer.LoadOrder = LoadOrderText(date, enabled);
             }
             for (int i = 0; i < _files.Count; i++) { _files[i].Alias = "p" + i; _files[i].EnsureCreated(); }
             _answer.Sources.AddRange(_members.Select(p => new AnswerSource(p.Name, p.Stamp.Length, p.ContentKey.ToString())));
+        }
+
+        /// <summary>
+        /// The load order an answer was read from, in numbers that agree with the game's and loadorder2's: the plugins
+        /// loaded, then how many were read and which loaded ones were left out and why (refused by Mutagen, C204), and the
+        /// enabled ones that can't be loaded (a missing master, or a master that can't be loaded: Mutagen's load order
+        /// drops them, xEdit doesn't load them).
+        /// </summary>
+        string LoadOrderText(string date, List<IndexedPlugin> enabled)
+        {
+            var read = _members.ToHashSet();
+            var cant = enabled.Where(p => p.CantLoad).ToList();
+            var leftOut = enabled.Where(p => !p.CantLoad && !read.Contains(p)).ToList();
+            static string List(List<IndexedPlugin> ps, Func<IndexedPlugin, string> why) =>
+                string.Join(", ", ps.Take(5).Select(p => $"{p.Name} ({why(p)})")) + (ps.Count > 5 ? $", +{ps.Count - 5:N0} more" : "");
+            string text = $"load order of {date} ({enabled.Count - cant.Count:N0} loaded plugins";
+            if (leftOut.Count > 0) text += $", {_members.Count:N0} read: {List(leftOut, p => p.LeftOutShort ?? (p.Problems.ReadError != null ? "can't be read" : "left out"))} left out";
+            if (cant.Count > 0) text += $"; {cant.Count:N0} more enabled that can't be loaded: {List(cant, p => p.Problems.MissingMasters.Count > 0 ? "missing master " + string.Join(", ", p.Problems.MissingMasters) : $"its master {p.Problems.MasterUnreadable} can't be loaded")}";
+            return text + ")";
         }
 
         void NoteRefresh(RefreshReport r)
@@ -278,7 +318,8 @@ public sealed partial class QueryEngine
             // A private database in memory. The "file:" form switches on URI names, which the read-only attaches need.
             _con = new SqliteConnection($"Data Source=file:sfsq{Guid.NewGuid():N}?mode=memory&cache=private;Pooling=False");
             _con.Open();
-            ScratchFile.Exec(_con, "PRAGMA temp_store = MEMORY;");
+            SqliteTuning.TempFolder(Path.Combine(_e._options.ScratchFolder, "temp"));
+            ScratchFile.Exec(_con, SpillPragmas(MemoryLimit()));
             string schemaUri = "file:///" + _e._schemaDb.Replace('\\', '/').Replace("%", "%25").Replace("?", "%3f").Replace("#", "%23") + "?mode=ro";
             ScratchFile.Exec(_con, $"ATTACH DATABASE {SqlText.Literal(schemaUri)} AS schema");
             foreach (var f in _files)
@@ -300,6 +341,34 @@ public sealed partial class QueryEngine
             _req.Cancel.Register(() => { try { if (_con.Handle is { } h) raw.sqlite3_interrupt(h); } catch (ObjectDisposedException) { } });
         }
 
+        /// <summary>The host's memory limit for this command (MB), or 0 for none.</summary>
+        long MemoryLimit()
+        {
+            long mb = _e._options.MemoryLimitMB?.Invoke() ?? 0;
+            return mb > 0 ? mb : 0;
+        }
+
+        /// <summary>
+        /// How the query's connection keeps big sorts and temporary tables (GAPS S104). temp_store FILE: what doesn't fit
+        /// in memory goes to temporary files (SqliteTuning.TempFolder) instead of growing in memory without end, as
+        /// temp_store MEMORY let a GROUP BY do (16 GB in 5 s). A sort keeps 8 MB in memory, then writes that as a sorted
+        /// run to its file and merges the runs on 4 threads; a sort that fits writes nothing. 8 MB is the fastest size
+        /// measured, not a saving: every Form of Starfield.esm (3.8 million rows) sorted by EditorID in 1.3-1.6 s with
+        /// 8 MB runs, 2.1-2.6 s with 32 or 64 MB runs, 5.2-6.8 s all in memory as before. Temporary tables (the records a
+        /// statement reads by FormKey, a query's own CREATE TEMP TABLE) keep up to an eighth of the command's memory limit
+        /// in SQLite's cache (at least 64 MB; 1 GB when there is no limit); Windows keeps the temporary files in its
+        /// file cache while it has memory to spare, so settings that allow all memory use it.
+        /// </summary>
+        internal static string SpillPragmas(long limitMB)
+        {
+            long tempMB = limitMB > 0 ? Math.Max(64, limitMB / 8) : 1024;
+            return $"PRAGMA temp_store = FILE; PRAGMA main.cache_size = -{SortRunKB}; PRAGMA temp.cache_size = -{tempMB * 1024}; PRAGMA threads = 4;";
+        }
+
+        /// <summary>What a sort keeps in memory before it writes a sorted run (SQLite takes it from the main database's
+        /// cache_size; the main database is in memory and holds nothing else).</summary>
+        const int SortRunKB = 8192;
+
         void Close()
         {
             if (_con == null) return;
@@ -310,6 +379,7 @@ public sealed partial class QueryEngine
         {
             _done[f] = ScratchFile.ReadDone(_con, f.Alias);
             foreach (var k in _projections.Keys.Where(k => k.Item1 == f).ToList()) _projections.Remove(k);
+            foreach (var k in _projectionTables.Keys.Where(k => k.Item1 == f).ToList()) _projectionTables.Remove(k);
             using var cmd = _con.CreateCommand();
             cmd.CommandText = $"SELECT Type, TableName, Cols FROM {f.Alias}.Proj ORDER BY Rows";
             using var r = cmd.ExecuteReader();
@@ -323,6 +393,8 @@ public sealed partial class QueryEngine
                 // The table with the most columns wins when several fit
                 if (!_projections.TryGetValue((f, r.GetString(0)), out var have) || set.Count >= have.Columns.Count)
                     _projections[(f, r.GetString(0))] = (r.GetString(1), set);
+                if (!_projectionTables.TryGetValue((f, r.GetString(0)), out var all)) _projectionTables[(f, r.GetString(0))] = all = new();
+                all.Add((r.GetString(1), set));
             }
         }
 
@@ -332,6 +404,7 @@ public sealed partial class QueryEngine
             var toks = SqlText.Tokenize(sql);
             Guard.CheckFirstWord(toks);
             CheckLanguageLiterals(toks);
+            CheckPositionalParameters(toks);
             DropOwnViews();
             DropKeyed();
             // text(Name, 'ja') on a view's text column reads the translated value instead; if the changed statement
@@ -346,9 +419,16 @@ public sealed partial class QueryEngine
             Lap("probe");
             foreach (var v in probed.Views.Keys) _allViewsUsed.Add(v);
             foreach (var s in probed.Special) _specialUsed.Add(s);
+            // The plugin header's typed view never has rows: the header (TES4) is no record of the plugin's groups (GAPS S91)
+            if (probed.Views.Keys.Any(v => v.Types.Contains("StarfieldModHeader")))
+                Note("StarfieldModHeader and its list views have no rows: a plugin's header (TES4) isn't one of its records. The view Plugins has every plugin's header (flags, size, record count, masters); record <plugin> reads one header field by field.");
             CheckEditorIdLiterals(toks, probed);
             // A typed view narrowed by FormKey reads only those records (Session.Keyed.cs)
             FindKeyedRoots(probed, toks);
+            // A typed view joined to one of its list views by FormKey reads only the list's FormKeys (ListReads.cs)
+            FindJoinedRoots(probed, toks);
+            // A typed view whose rows all have one column equal to a literal: only those rows are inserted (Session.Filter.cs)
+            FindFilterRoots(probed, toks);
             // Records and Links: the types the statement narrows to are read first (Session.AutoReads.cs)
             var plan = probed;
             _autoReadNote = _autoReadRefused = null;
@@ -364,9 +444,15 @@ public sealed partial class QueryEngine
             Lap("plan");
             RunJobs(jobs);
             RunKeyed();
+            RunKeyedProjections();
             Lap("read");
-            CreateViews(probed);
+            CreateViews(probed, GroupsRows(toks), JoinsRows(toks));
+            // A record view whose Json a join names goes first in the join, or stays folded into it (GAPS S126)
+            sql = PlaceJsonViews(sql, ref toks, probed);
             Lap("views");
+            // A sort that would keep each record's whole Json for every row of a join is said before it runs (GAPS S110)
+            if (!AdmitTempFiles(sql, toks, probed)) return false;
+            Lap("temp files");
             Execute(sql, toks, last, count);
             Lap("run");
             return true;
@@ -390,6 +476,7 @@ public sealed partial class QueryEngine
             var guarded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var firstToks = SqlText.Tokenize(sql);
             List<string>? plan = null;
+            Dictionary<string, (List<object>, List<string>)>? columnPlans = null;
             string firstWord = firstToks.Count > 0 && firstToks[0].Kind == TokKind.Word ? firstToks[0].Text.ToUpperInvariant() : "";
             try
             {
@@ -443,6 +530,7 @@ public sealed partial class QueryEngine
                     if (m.Success) throw UnknownColumn(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value, stubs.Values.OfType<ViewSpec>().ToList(), stubs.Values.OfType<string>().ToList());
                     throw new QueryException("SQLite: " + message, "check the SQL");
                 }
+                columnPlans = ColumnPlans(sql, firstToks, stubs.Values.OfType<ViewSpec>(), reads);
                 if (FormKeyLiterals(firstToks) is { Count: > 0 })
                     plan = PlanLines(sql, stubs.Values.OfType<ViewSpec>());
             }
@@ -452,12 +540,15 @@ public sealed partial class QueryEngine
                 foreach (var s in stubs.Values) ScratchFile.Exec(_con, $"DROP TABLE IF EXISTS temp.{SqlText.Name(s is ViewSpec v ? v.Name : (string)s)}");
             }
             var probed = new Probed { Plan = plan };
+            if (columnPlans != null) foreach (var (k, v) in columnPlans) probed.ColumnPlans[k] = v;
             foreach (var (name, target) in stubs)
             {
                 string table = target is ViewSpec vs ? vs.Name : (string)target;
-                if (!reads.TryGetValue(table, out var cols)) continue;   // named, but the statement reads nothing of it
+                // Named, and no column of it read: still a table of the statement (a view joined by USING (FormKey)
+                // has its FormKey read from the other side; GAPS S79)
+                if (!reads.TryGetValue(table, out var cols)) cols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 if (target is ViewSpec v) probed.Views[v] = cols;
-                else probed.Special.Add((string)target);
+                else { probed.Special.Add((string)target); probed.SpecialColumns[(string)target] = cols; }
             }
             return probed;
         }
@@ -467,6 +558,7 @@ public sealed partial class QueryEngine
         {
             var clock = Stopwatch.StartNew();
             _guard.Denied = null; _guard.Reads = null; _guard.Current = Guard.Mode.User;
+            WatchStart();
             try
             {
                 using var cmd = _con.CreateCommand();
@@ -508,9 +600,23 @@ public sealed partial class QueryEngine
             {
                 throw new QueryException($"the query isn't allowed {_guard.Denied}", "a query may read, and may make temporary tables, indexes and views of its own (CREATE TEMP …)");
             }
+            catch (SqliteException e) when (e.SqliteErrorCode == raw.SQLITE_INTERRUPT && _stoppedBy != null)
+            {
+                // Stopped by the watch (Session.Memory.cs): past the command's memory, or its temporary files filling the drive
+                throw MemoryStop();
+            }
             catch (SqliteException e) when (e.SqliteErrorCode == raw.SQLITE_INTERRUPT)
             {
                 throw new OperationCanceledException();
+            }
+            catch (SqliteException e) when (e.SqliteErrorCode == raw.SQLITE_NOMEM)
+            {
+                throw MemoryStop(outOfMemory: true);
+            }
+            catch (SqliteException e) when (e.SqliteErrorCode == raw.SQLITE_FULL)
+            {
+                _stoppedBy = "disk"; _stoppedAtMB = Math.Max(0, FreeMB(_tempRoot));
+                throw MemoryStop();
             }
             catch (SqliteException e) when (e.SqliteErrorCode == raw.SQLITE_READONLY)
             {
@@ -518,6 +624,7 @@ public sealed partial class QueryEngine
             }
             finally
             {
+                WatchStop();
                 _guard.Current = Guard.Mode.Off;
                 _answer.Cost.QuerySeconds += clock.Elapsed.TotalSeconds;
             }

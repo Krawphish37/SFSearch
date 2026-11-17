@@ -3,7 +3,11 @@
 // Walk with Readings. No Mutagen overlay, no JSON: the header index says where each record sits.
 //  - Which subrecords are text: the schema's String fields that fill a whole subrecord (Name FULL, a book's DESC, a
 //    response's NAM1, a quest objective's NNAM, ...), per record type. A subrecord that the schema also gives a field
-//    of another kind in the same record type is left out (it can't be told apart from its bytes).
+//    of another kind in the same record type (a perk's entry point data, a script's properties, an object
+//    modification's properties) is offered when its bytes could hold the text asked for, and told by reading the record
+//    through Mutagen's reader (GAPS S32: notes\fix-s32-shared-text.md, notes\fix-j10-texts.md).
+//  - Plain text fields (never translated: EditorIDs, scripts' strings, a quest's summary) are searched with plain only;
+//    check2 reads them always.
 //  - Text stored in the plugin is read with Mutagen's own encoding (RecordNames.EncodingOf), so the text found is the
 //    text record and SQL give.
 //  - Text in strings files (a localized plugin's translated fields) is listed by Mutagen's own strings folder lookup
@@ -46,6 +50,8 @@ public static class RecordTexts
         /// <summary>For a shared subrecord: the schema paths of its text fields (without kinds of object), the fields a
         /// record read through Mutagen is asked for.</summary>
         public IReadOnlyList<string> TextPaths { get; init; } = Array.Empty<string>();
+        /// <summary>True for a subrecord told to be text by reading its record through Mutagen (<see cref="Confirm"/>).</summary>
+        public bool ByMutagen => Shared is SharedKind.Typed or SharedKind.Script or SharedKind.ModProperty;
     }
 
     /// <summary>How a subrecord that text and other values both fill is told apart (GAPS S32).</summary>
@@ -53,12 +59,20 @@ public static class RecordTexts
     {
         /// <summary>Only text fills it.</summary>
         No,
-        /// <summary>A game setting's DATA: text when the EditorID starts with a lower-case s (Mutagen's own rule,
-        /// GameSettingUtility.GetGameSettingType), told from the bytes.</summary>
+        /// <summary>A game setting's DATA: text when the EditorID's first character is a string setting's by
+        /// Mutagen's own rule (GameSettingUtility.TryGetGameSettingType), told from the bytes.</summary>
         GameSettingString,
         /// <summary>Told by reading the record through Mutagen: the subrecord is text when one of its text fields has
         /// this text (or, in a localized plugin, this string ID). Only records whose bytes could hold a match are read.</summary>
         Typed,
+        /// <summary>A script's properties (VMAD): binary, its strings each written after a 2-byte length (Mutagen's
+        /// PrependLengthUShort). Told like <see cref="Typed"/>, through Mutagen's reading, only for records whose VMAD
+        /// holds such a run of bytes that could be a match (<see cref="ScriptStrings"/>); never translated (GAPS S32).</summary>
+        Script,
+        /// <summary>An object modification's properties (OMOD DATA, an object template's OBTS): 24 bytes each, a string
+        /// property's value the 4 bytes at 12 (Mutagen's ObjectTemplateBinaryCreateTranslation.ReadProperty, value type 3).
+        /// Told like <see cref="Typed"/>, only for records where such a property could hold a match.</summary>
+        ModProperty,
     }
 
     /// <summary>
@@ -93,12 +107,12 @@ public static class RecordTexts
     }
 
     /// <summary>
-    /// Shared subrecords left out on purpose (GAPS S32, notes\fix-s32-shared-text.md): VMAD, a script's properties.
-    /// Its strings are values a script reads, never a translated text, so find --text (translated text only) wouldn't
-    /// search them anyway; and VMAD is binary (FormIDs, floats, object handles), so no byte test can narrow which
-    /// records hold text outside ASCII for check2: every scripted record would be read through Mutagen.
+    /// A script's properties (VMAD): script names, property names, string properties' values, struct members' (GAPS
+    /// S32, notes\fix-j10-texts.md). Never translated, so find reads them with plain (--plain) only. VMAD is binary
+    /// (FormIDs, floats, object handles), so a byte over 0x7F says nothing: the walk offers a VMAD only when a run of
+    /// bytes after a 2-byte length, as Mutagen writes each of its strings, could be the text asked for.
     /// </summary>
-    static bool IsUnshownText(string sub) => sub == "VMAD";
+    static bool IsScript(string sub) => sub == "VMAD";
 
     static readonly ConcurrentDictionary<string, TextPlaces> Places = new(StringComparer.Ordinal);
 
@@ -165,8 +179,8 @@ public static class RecordTexts
                 {
                     string why = $"{sub}{(within == null ? "" : $" (in {within})")}: text {string.Join(", ", fields.Take(4))}{(fields.Count > 4 ? ", …" : "")}; also {string.Join(", ", others.Take(3))}{(others.Count > 3 ? $" and {others.Count - 3} more" : "")}";
                     var kind = sig == "GMST" && sub == "DATA" && within == null ? SharedKind.GameSettingString
-                        : IsUnshownText(sub) ? SharedKind.No : SharedKind.Typed;
-                    if (kind == SharedKind.No) { ambiguous.Add(why); continue; }
+                        : IsScript(sub) ? SharedKind.Script
+                        : fields.All(f => f.EndsWith("Properties[*].Value", StringComparison.Ordinal)) ? SharedKind.ModProperty : SharedKind.Typed;
                     sharedRead.Add(why);
                     maps[c][Code(sub)] = new Place(sub, field, t.Translated, within) { Shared = kind, TextPaths = fields };
                     continue;
@@ -299,7 +313,8 @@ public static class RecordTexts
     static int Subrecords(ReadOnlySpan<byte> data, TextPlaces map, Keep keep, int entry, List<Found> found)
     {
         int pos = 0, seen = 0, context = 0; uint longLength = 0; bool longForm = false;
-        // The EditorID's first byte: a game setting's DATA is text when it is a lower-case s (Mutagen's rule)
+        // The EditorID's first byte: a game setting's DATA is text when Mutagen's GameSettingUtility reads that
+        // character as a string setting
         int editorIdFirst = -1;
         while (pos + 6 <= data.Length)
         {
@@ -317,10 +332,10 @@ public static class RecordTexts
             context = Context(sig, context, out bool marker);
             if (sig == Edid && editorIdFirst < 0) editorIdFirst = len > 0 ? data[pos + 6] : 0;
             if (!marker && map.Maps[context].TryGetValue(sig, out var place)
-                && (place.Shared != SharedKind.GameSettingString || editorIdFirst == 's'))
+                && (place.Shared != SharedKind.GameSettingString || IsStringSetting(editorIdFirst)))
             {
                 // A subrecord read through Mutagen later (Confirm) isn't counted until it is
-                if (place.Shared != SharedKind.Typed) seen++;
+                if (!place.ByMutagen) seen++;
                 var bytes = data.Slice(pos + 6, (int)len);
                 if (keep(place, bytes)) found.Add(new Found(entry, place, bytes.ToArray()));
             }
@@ -328,6 +343,14 @@ public static class RecordTexts
         }
         return seen;
     }
+
+    /// <summary>Whether a game setting whose EditorID starts with this byte holds text: Mutagen's own rule
+    /// (<see cref="GameSettingUtility.TryGetGameSettingType"/>; the EditorID is read as Windows-1252, the same character
+    /// for every byte the rule names). -1 or 0: no EditorID.</summary>
+    static bool IsStringSetting(int editorIdFirst) =>
+        editorIdFirst > 0
+        && GameSettingUtility.TryGetGameSettingType((char)editorIdFirst, out var type)
+        && type == GameSettingType.String;
 
     static readonly uint Xxxx = Code("XXXX"), Edid = Code("EDID");
 
@@ -365,7 +388,7 @@ public static class RecordTexts
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var r = new Confirmation();
-        foreach (var group in found.Where(f => f.Place.Shared == SharedKind.Typed).GroupBy(f => f.Entry).OrderBy(g => g.Key))
+        foreach (var group in found.Where(f => f.Place.ByMutagen).GroupBy(f => f.Entry).OrderBy(g => g.Key))
         {
             object record;
             try { record = read(group.Key); }
@@ -374,6 +397,8 @@ public static class RecordTexts
             var paths = group.SelectMany(f => f.Place.TextPaths).Distinct(StringComparer.Ordinal).ToList();
             var texts = TextsAt(record, paths).Where(take).ToList();
             var used = new HashSet<string>(StringComparer.Ordinal);
+            // A subrecord can hold several text fields (a script's properties, a planet's details): each field found in
+            // its bytes is one text
             foreach (var f in group)
                 foreach (var t in texts)
                 {
@@ -386,7 +411,6 @@ public static class RecordTexts
                     else if ((raw = Locate(f.Data, t.Text, t.Translated, language)) == null) continue;
                     used.Add(t.Path);
                     r.Texts.Add(new Confirmed(f, t, raw));
-                    break;
                 }
         }
         r.Ms = clock.Elapsed.TotalMilliseconds;
@@ -425,7 +449,9 @@ public static class RecordTexts
         return list;
     }
 
-    /// <summary>The bytes of a stored text in a subrecord: a piece that reads as this text with Mutagen's encoding.</summary>
+    /// <summary>The bytes of a stored text in a subrecord: a piece that reads as this text with Mutagen's encoding, or
+    /// the text's bytes after a 1-, 2- or 4-byte length that counts them (a script's strings, Mutagen's
+    /// PrependLengthUShort) or before a zero.</summary>
     static byte[]? Locate(ReadOnlySpan<byte> data, string text, bool translated, Language language)
     {
         if (text.Length == 0) return null;
@@ -435,7 +461,141 @@ public static class RecordTexts
             var piece = data.Slice(start, length);
             if (encoding.GetString(piece) == text) return piece.ToArray();
         }
+        // A text written after its length (1, 2 or 4 bytes), or after other values and before a zero
+        byte[] bytes = new byte[encoding.GetByteCount(text)];
+        if (bytes.Length == 0 || encoding.GetBytes(text, bytes) != bytes.Length) return null;
+        for (int from = 1; from + bytes.Length <= data.Length;)
+        {
+            int at = data[from..].IndexOf(bytes);
+            if (at < 0) break;
+            at += from;
+            bool counted = data[at - 1] == bytes.Length
+                || at >= 2 && BinaryPrimitives.ReadUInt16LittleEndian(data[(at - 2)..]) == bytes.Length
+                || at >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(data[(at - 4)..]) == bytes.Length
+                || at + bytes.Length == data.Length || data[at + bytes.Length] == 0;
+            if (counted && encoding.GetString(data.Slice(at, bytes.Length)) == text) return bytes;
+            from = at + 1;
+        }
         return null;
+    }
+
+    /// <summary>
+    /// The runs of a subrecord's bytes that may be one of a script's strings (VMAD): each run of L bytes after a 2-byte
+    /// length L, as Mutagen reads every string of a script's properties (PrependLengthUShort, code page 1252), that reads
+    /// as text: no zero and no other control byte than tab, line feed and carriage return. Every string Mutagen reads
+    /// from a VMAD in Data is one of them (text-plain holds them against Mutagen's reading); most other runs are cut short
+    /// by the zeros and small bytes of FormIDs, flags and counts.
+    /// </summary>
+    public static List<(int Start, int Length)> ScriptStrings(ReadOnlySpan<byte> data)
+    {
+        var list = new List<(int, int)>();
+        for (int s = 2; s < data.Length; s++)
+        {
+            int length = BinaryPrimitives.ReadUInt16LittleEndian(data[(s - 2)..]);
+            if (length == 0 || s + length > data.Length) continue;
+            var run = data.Slice(s, length);
+            if (!TextLike(run)) continue;
+            list.Add((s, length));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// The runs of an object modification's properties (OMOD DATA, OBTS) that may be a string property's value: at
+    /// each byte 3 (the value type String), the up to 4 bytes 12 bytes on, up to a zero, that read as text. Mutagen reads
+    /// each 24-byte property so (ObjectTemplateBinaryCreateTranslation.ReadProperty, ProcessWholeToZString of 4 bytes).
+    /// </summary>
+    public static List<(int Start, int Length)> ModPropertyStrings(ReadOnlySpan<byte> data)
+    {
+        var list = new List<(int, int)>();
+        for (int at = data.IndexOf((byte)3); at >= 0 && at + 16 <= data.Length;)
+        {
+            var value = data.Slice(at + 12, 4);
+            int zero = value.IndexOf((byte)0);
+            int length = zero < 0 ? 4 : zero;
+            if (length > 0 && TextLike(value[..length])) list.Add((at + 12, length));
+            int next = data[(at + 1)..].IndexOf((byte)3);
+            at = next < 0 ? -1 : at + 1 + next;
+        }
+        return list;
+    }
+
+    static readonly Regex OutsideAscii = new(@"[^\x00-\x7F]", RegexOptions.CultureInvariant);
+
+    /// <summary>check2's test for a subrecord read through Mutagen (<see cref="Place.ByMutagen"/>): one of the runs that
+    /// could be a plain text (<see cref="CouldHold"/>) holds a character outside ASCII.</summary>
+    public static bool CouldHoldOutsideAscii(Place place, ReadOnlySpan<byte> data) =>
+        data.IndexOfAnyInRange((byte)0x80, (byte)0xFF) >= 0 && CouldHold(place, data, RecordNames.EncodingOf(false, Language.English), OutsideAscii);
+
+    /// <summary>True for bytes that read as text: none below 0x20 but tab, line feed and carriage return.</summary>
+    public static bool TextLike(ReadOnlySpan<byte> run)
+    {
+        for (int at = run.IndexOfAnyInRange((byte)0, (byte)0x1F); at >= 0;)
+        {
+            if (run[at] is not (0x09 or 0x0A or 0x0D)) return false;
+            int next = run[(at + 1)..].IndexOfAnyInRange((byte)0, (byte)0x1F);
+            at = next < 0 ? -1 : at + 1 + next;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when a subrecord read through Mutagen (<see cref="Place.ByMutagen"/>) could hold a plain text that fits the
+    /// pattern: a script's strings (<see cref="ScriptStrings"/>); for the others also each run up to a zero (from any
+    /// byte of the run between zeros, past a length or other values) and each run after a 4-byte length (Mutagen's
+    /// PrependLength and PrependLengthWithNullIfContent, the shared subrecords' other ways to write a string), each that
+    /// reads as text.
+    /// </summary>
+    public static bool CouldHold(Place place, ReadOnlySpan<byte> data, IMutagenEncoding encoding, Regex pattern)
+    {
+        // Code page 1252 (Mutagen's reading of plain text, C150) gives one character a byte: the subrecord is read once
+        string all = encoding.GetString(data);
+        bool oneToOne = all.Length == data.Length, seesStart = SeesStart(pattern);
+        if (place.Shared == SharedKind.ModProperty)
+        {
+            foreach (var (start, length) in ModPropertyStrings(data))
+                if (Fits(data, start, length, all, oneToOne, encoding, pattern, textLike: true)) return true;
+            return false;
+        }
+        foreach (var (start, length) in ScriptStrings(data))
+            if (Fits(data, start, length, all, oneToOne, encoding, pattern, textLike: true)) return true;
+        if (place.Shared == SharedKind.Script) return false;
+        // A text up to a zero: every part of a run between zeros that ends at its zero and reads as text (a text written
+        // after other values, a length or a hash, with no zero between: an XMPM item's Extension after its FileHash)
+        for (int start = 0; start < data.Length;)
+        {
+            int zero = data[start..].IndexOf((byte)0);
+            int end = zero < 0 ? data.Length : start + zero;
+            int from = start;
+            for (int i = end - 1; i >= start; i--) if (data[i] < 0x20 && data[i] is not (0x09 or 0x0A or 0x0D)) { from = i + 1; break; }
+            // A pattern that can't tell where its text starts (no ^, \A, \G, \b, \B or look-behind) fits a part of
+            // the run only if it fits the run
+            for (int s = from; s < end; s = seesStart ? s + 1 : end)
+                if (Fits(data, s, end - s, all, oneToOne, encoding, pattern, textLike: true)) return true;
+            start = end + 1;
+        }
+        for (int s = 4; s < data.Length; s++)
+        {
+            uint four = BinaryPrimitives.ReadUInt32LittleEndian(data[(s - 4)..]);
+            if (four > 0 && s + four <= data.Length && Fits(data, s, (int)four, all, oneToOne, encoding, pattern, textLike: false)) return true;
+        }
+        return false;
+    }
+
+    static readonly ConcurrentDictionary<string, bool> StartSeen = new(StringComparer.Ordinal);
+
+    /// <summary>True when a pattern may fit a text but not the same text with more before it: it holds ^, \A, \G, \b,
+    /// \B or a look-behind (any "(?&lt;").</summary>
+    static bool SeesStart(Regex pattern) => StartSeen.GetOrAdd(pattern.ToString(), t =>
+        t.Contains('^') || t.Contains(@"\A", StringComparison.Ordinal) || t.Contains(@"\G", StringComparison.Ordinal) || t.Contains(@"\b", StringComparison.Ordinal)
+        || t.Contains(@"\B", StringComparison.Ordinal) || t.Contains("(?<", StringComparison.Ordinal));
+
+    /// <summary>Whether a run of a subrecord reads as text that fits the pattern (<paramref name="textLike"/>: already known to).</summary>
+    static bool Fits(ReadOnlySpan<byte> data, int start, int length, string all, bool oneToOne, IMutagenEncoding encoding, Regex pattern, bool textLike)
+    {
+        var run = data.Slice(start, length);
+        if (!textLike && !TextLike(run)) return false;
+        return oneToOne ? pattern.IsMatch(all.AsSpan(start, length)) : pattern.IsMatch(encoding.GetString(run));
     }
 
     /// <summary>
@@ -647,7 +807,9 @@ public static class RecordTexts
     /// <summary>One text that fits the pattern.</summary>
     /// <param name="Entry">The record's entry in the plugin's segment; -1 for a string no record of the searched types names.</param>
     /// <param name="File">Null for a text stored in the plugin; else the strings file it is in.</param>
-    public sealed record Hit(int Entry, string Field, string Subrecord, string Text, string? File, uint StringId);
+    /// <param name="Plain">A plain text field (never translated: an EditorID, a quest's summary, a script's strings),
+    /// searched with plain only.</param>
+    public sealed record Hit(int Entry, string Field, string Subrecord, string Text, string? File, uint StringId, bool Plain = false);
 
     public sealed class PluginHits
     {
@@ -680,32 +842,43 @@ public static class RecordTexts
     /// <remarks>A subrecord that text and other values both fill (a perk's entry point data, GAPS S32) is told by
     /// reading its record through <paramref name="read"/>, only when its bytes could hold a match; without a reader such
     /// subrecords are left out (<see cref="PluginHits.TypedSkipped"/>).</remarks>
-    public static PluginHits Search(IndexedPlugin plugin, bool[] signatures, RecordSchema schema, Regex pattern, Language language, string dataFolder, From from, ReadRecord? read = null)
+    /// <param name="plain">Plain text fields too (never translated: EditorIDs, a quest's summary, a log entry's note,
+    /// components' node names and file paths, a script's strings), stored in every plugin's bytes, localized or not;
+    /// read when <paramref name="from"/> takes stored text.</param>
+    public static PluginHits Search(IndexedPlugin plugin, bool[] signatures, RecordSchema schema, Regex pattern, Language language, string dataFolder, From from, ReadRecord? read = null, bool plain = false)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var r = new PluginHits { Localized = IsLocalized(plugin) };
-        if (!r.Localized)
+        bool stored = (from & From.Stored) != 0;
+        if (!r.Localized ? stored : stored && plain)
         {
-            if ((from & From.Stored) != 0)
+            // Not localized: its translated texts (and, with plain, its plain ones); localized: its plain texts, the ones
+            // never put in strings files. A translated text stored in a plugin always fills its whole subrecord (Mutagen
+            // reads it with ProcessWholeToZString), so a shared subrecord is offered by the same test; a plain text of a
+            // shared subrecord (a planet's details, a script's strings) may sit anywhere in it (CouldHold)
+            bool localized = r.Localized;
+            var plainEncoding = RecordNames.EncodingOf(false, language);
+            Func<Place, bool> which = !localized ? (plain ? _ => true : p => p.Translated) : p => !p.Translated || p.ByMutagen;
+            var walked = Walk(plugin, signatures, schema, which, (place, data) =>
             {
-                // A translated text stored in a plugin always fills its whole subrecord (Mutagen reads it with
-                // ProcessWholeToZString), so a shared subrecord is offered by the same test
-                var walked = Walk(plugin, signatures, schema, p => p.Translated, (place, data) => pattern.IsMatch(Decode(data, true, language)));
-                r.Texts = walked.Texts; r.NotInflated = walked.NotInflated.Count;
-                foreach (var f in walked.Found)
-                    if (f.Place.Shared != SharedKind.Typed) r.Hits.Add(new Hit(f.Entry, f.Place.Field, f.Place.Subrecord, Decode(f.Data, true, language), null, 0));
-                var typed = walked.Found.Where(f => f.Place.Shared == SharedKind.Typed).ToList();
-                if (typed.Count > 0 && read == null) r.TypedSkipped += typed.Count;
-                else if (typed.Count > 0)
-                {
-                    var c = Confirm(typed, read!, language, t => t.Translated && pattern.IsMatch(t.Text));
-                    r.TypedRead += c.Read; r.TypedNotRead += c.NotRead; r.TypedMs += c.Ms; r.Texts += c.Texts.Count;
-                    foreach (var t in c.Texts) r.Hits.Add(new Hit(t.Found.Entry, t.Text.Path, t.Found.Place.Subrecord, t.Text.Text, null, 0));
-                    InEntryOrder(r.Hits);
-                }
+                if (!place.ByMutagen) return pattern.IsMatch(Decode(data, place.Translated, language));
+                if (place.Translated && !localized && place.Shared != SharedKind.Script && pattern.IsMatch(Decode(data, true, language))) return true;
+                return plain && CouldHold(place, data, plainEncoding, pattern);
+            });
+            r.Texts = walked.Texts; r.NotInflated = walked.NotInflated.Count;
+            foreach (var f in walked.Found)
+                if (!f.Place.ByMutagen) r.Hits.Add(new Hit(f.Entry, f.Place.Field, f.Place.Subrecord, Decode(f.Data, f.Place.Translated, language), null, 0, !f.Place.Translated));
+            var typed = walked.Found.Where(f => f.Place.ByMutagen).ToList();
+            if (typed.Count > 0 && read == null) r.TypedSkipped += typed.Count;
+            else if (typed.Count > 0)
+            {
+                var c = Confirm(typed, read!, language, t => t.StringId == null && (t.Translated ? !localized : plain) && pattern.IsMatch(t.Text));
+                r.TypedRead += c.Read; r.TypedNotRead += c.NotRead; r.TypedMs += c.Ms; r.Texts += c.Texts.Count;
+                foreach (var t in c.Texts) r.Hits.Add(new Hit(t.Found.Entry, t.Text.Path, t.Found.Place.Subrecord, t.Text.Text, null, 0, !t.Text.Translated));
+                InEntryOrder(r.Hits);
             }
         }
-        else if ((from & From.Strings) != 0)
+        if (r.Localized && (from & From.Strings) != 0)
         {
             var files = StringsOf(plugin, language, dataFolder);
             r.NoStrings = files.Count == 0;
@@ -723,15 +896,15 @@ public static class RecordTexts
                 // A translated text of a localized plugin is a string ID that fills its whole subrecord (Mutagen
                 // refuses any other length), shared subrecord or not
                 var walked = Walk(plugin, signatures, schema, p => p.Translated, (place, data) => data.Length == 4 && hits.ContainsKey(BinaryPrimitives.ReadUInt32LittleEndian(data)));
-                r.Texts = walked.Texts; r.NotInflated = walked.NotInflated.Count;
+                r.Texts += walked.Texts; r.NotInflated += walked.NotInflated.Count;
                 foreach (var f in walked.Found)
                 {
-                    if (f.Place.Shared == SharedKind.Typed) continue;
+                    if (f.Place.ByMutagen) continue;
                     uint id = BinaryPrimitives.ReadUInt32LittleEndian(f.Data);
                     named.Add(id);
                     foreach (var (file, text, _) in hits[id]) r.Hits.Add(new Hit(f.Entry, f.Place.Field, f.Place.Subrecord, text, file, id));
                 }
-                var typed = walked.Found.Where(f => f.Place.Shared == SharedKind.Typed).ToList();
+                var typed = walked.Found.Where(f => f.Place.ByMutagen).ToList();
                 if (typed.Count > 0 && read == null) r.TypedSkipped += typed.Count;
                 else if (typed.Count > 0)
                 {
@@ -750,6 +923,8 @@ public static class RecordTexts
                 r.SharedIds = hits.Values.Count(l => l.Count > 1);
                 r.StringsNotNamed = hits.Keys.Count(k => !named.Contains(k));
             }
+            // The plain texts read first, the strings' after: one list in the records' order
+            if (plain && stored) InEntryOrder(r.Hits);
         }
         r.Ms = clock.Elapsed.TotalMilliseconds;
         return r;

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The service tests' own commands (J37, 2026-11-15): `__test echo|sleep|rows|lines|heavy|alloc|keep|yieldable|scratch|
+       source|fail|crash` and `__test linkscheck`. They were SFSearch\Service\TestHooks.cs, behind SFSEARCH_TEST_HOOKS=1;
+       by the user's rule no test code is in the program, so they are a test add-on. Only for test homes: build it with
+       -p:SfsExtensionsDir=<test home>\extensions. It is never put in SFSearch's own extensions folder. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SfsHome>$(MSBuildThisFileDirectory)..\..\SFSearch</SfsHome>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(SfsHome)\SFSearch.csproj" Private="false" />
+  </ItemGroup>
+
+  <Target Name="NeedTestHome" BeforeTargets="Build" Condition="'$(SfsExtensionsDir)' == ''">
+    <Error Text="Name the test home's extensions folder: -p:SfsExtensionsDir=&lt;test home&gt;\extensions. These are the service tests' commands and never go into SFSearch's own extensions folder." />
+  </Target>
+
+  <Target Name="CopyToSfsExtensions" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SfsExtensionsDir)" />
+  </Target>
+
+</Project>

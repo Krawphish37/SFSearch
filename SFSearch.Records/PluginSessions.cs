@@ -1,4 +1,4 @@
-// Plugin sessions: plugins opened as Mutagen binary overlays and kept open.
+// Plugin sessions: plugins opened as Mutagen binary overlays (each at its first use) and kept open.
 //  - Master sizes come from the header index, never from a guess and never from Mutagen's own look at the Data folder.
 //  - Before each use the plugin's quick stamp (and each master's) is checked against the header index. A changed
 //    plugin is reopened and the caller is told.
@@ -86,7 +86,11 @@ public sealed class PluginSession : IDisposable
     public string Name { get; }
     public string Path { get; }
     public ModKey ModKey { get; }
-    public IStarfieldModDisposableGetter Mod { get; }
+    /// <summary>The plugin as Mutagen's binary overlay, opened at its first use (J29): a read of one record from its own
+    /// bytes doesn't need it, and opening it walks the plugin's groups (refs opened 68 plugins' overlays in 4.1 s to read
+    /// a few records of each). A plugin Mutagen can't open fails here, with the same words as before.</summary>
+    public IStarfieldModDisposableGetter Mod => _mod.Value;
+    readonly Lazy<IStarfieldModDisposableGetter> _mod;
     public QuickStamp Stamp { get; }
     public Key128 ReadingKey { get; }
     public Key128 ContentKey { get; }
@@ -102,8 +106,16 @@ public sealed class PluginSession : IDisposable
     /// <summary>The same sizes as Mutagen's master flags lookup, the one the session reads with: for Mutagen calls that
     /// need it with a record read from its own bytes (GetStoredFormIds).</summary>
     public IReadOnlyCache<IModMasterStyledGetter, ModKey> MasterFlags { get; }
+    /// <summary>How long opening the session took (the overlay itself opens at its first use).</summary>
     public double OpenSeconds { get; }
     public bool Localized { get; }
+    /// <summary>The language Mutagen reads the plugin's translated texts in (StringsReadParameters.TargetLanguage): what
+    /// its TranslatedString gives as <c>String</c>.</summary>
+    public Language TargetLanguage { get; }
+    /// <summary>The strings lookup every read of this plugin uses (the overlay's, the record reader's, <see cref="StringsFor"/>):
+    /// for a translated text read from the record's bytes, the same tables and texts as Mutagen's (RawColumns.cs, GAPS
+    /// S152). Null when the plugin isn't localized.</summary>
+    public IStringsFolderLookup? StringsLookup => _strings;
 
     /// <summary>Mutagen's reader of one record at a time (C176): the same masters, strings and encodings as the
     /// overlay. Made at the first direct read; it holds a handle on the file, shared as the overlay's is.</summary>
@@ -127,6 +139,7 @@ public sealed class PluginSession : IDisposable
         FormIds = plugin.FormIds;
         var header = plugin.Header!;
         Localized = (header.Flags & 0x80) != 0;
+        TargetLanguage = language;
 
         var lookup = MasterLookup(plugin, out var styles);
         MasterStyles = styles;
@@ -146,7 +159,11 @@ public sealed class PluginSession : IDisposable
             DuplicateFormKeys = Refused != null ? DuplicateFormKeyOption.KeepLater : DuplicateFormKeyOption.Refuse,
         };
         var modPath = new ModPath(ModKey, Path);
-        Mod = StarfieldMod.CreateFromBinaryOverlay(modPath, StarfieldRelease.Starfield, read);
+        _mod = new Lazy<IStarfieldModDisposableGetter>(() =>
+        {
+            try { return StarfieldMod.CreateFromBinaryOverlay(modPath, StarfieldRelease.Starfield, read); }
+            catch (Exception e) when (e is not RecordException) { throw new RecordException($"Mutagen couldn't open {Name}: {e.GetType().Name}: {e.Message}"); }
+        }, LazyThreadSafetyMode.ExecutionAndPublication);
         File = System.IO.File.OpenHandle(Path, FileMode.Open, FileAccess.Read, Sharing);
         FileLength = RandomAccess.GetLength(File);
 
@@ -195,7 +212,7 @@ public sealed class PluginSession : IDisposable
 
     public void Dispose()
     {
-        try { Mod.Dispose(); } catch (IOException) { }
+        if (_mod.IsValueCreated) try { _mod.Value.Dispose(); } catch (IOException) { }
         if (_records.IsValueCreated) _records.Value.Dispose();
         File.Dispose();
         lock (_moreHandles)
@@ -294,14 +311,22 @@ public sealed class PluginSession : IDisposable
 
     /// <summary>
     /// Reads one record straight from its own bytes with Mutagen's binary reader: no group is walked and nothing else
-    /// of the plugin is read. For a record that holds others, its children group follows with every child cut down
-    /// to its 24-byte header, so Mutagen lays the children out (which list, which order, the group's own values)
-    /// without reading them.
+    /// of the plugin is read. For a record that holds others (a cell, a worldspace, a quest, a topic), Mutagen lays its
+    /// children group out with each child read from its record header alone (<c>ChildRecordRead.Headers</c>, C58 W9):
+    /// which list, which order, the group's own values, without reading the children. <paramref name="stubs"/>: how
+    /// many children it laid out so.
     /// </summary>
     public object ReadDirect(string typeName, long offset, bool withChildStubs, out int stubs)
     {
-        byte[] buffer = DirectBuffer(offset, withChildStubs, out stubs);
-        return Read(typeName, buffer, offset, $"the {typeName} at 0x{offset:X} of {Name}");
+        Span<byte> head = stackalloc byte[4];
+        ReadAt(offset, head);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(head) == Grup)
+            throw new RecordException($"The file has a group, not a record, at 0x{offset:X} of {Name}. The plugin may have changed: run the command again.");
+        string what = $"the {typeName} at 0x{offset:X} of {Name}";
+        var record = Read(typeName, new RecordType(BinaryPrimitives.ReadInt32LittleEndian(head)), what,
+            () => _records.Value.ReadAt(offset, withChildStubs ? ChildRecordRead.Headers : ChildRecordRead.None));
+        stubs = withChildStubs && record is IMajorRecordGetterEnumerable holder ? holder.EnumerateMajorRecords().Count() : 0;
+        return record;
     }
 
     /// <summary>
@@ -309,19 +334,47 @@ public sealed class PluginSession : IDisposable
     /// binary reader, as if the plugin held them: the plugin's masters, strings and encodings apply. The part read of
     /// a heavy record (<see cref="RecordEngine.ReadPart"/>) gives it the record with only some of its subrecords.
     /// </summary>
-    public object ReadBytes(string typeName, byte[] record) => Read(typeName, record, 0, $"the part of the {typeName} given to it");
+    public object ReadBytes(string typeName, byte[] record)
+        => Read(typeName, new RecordType(BinaryPrimitives.ReadInt32LittleEndian(record)), $"the part of the {typeName} given to it", () => _records.Value.Read(record, 0));
 
-    /// <summary>A record's bytes (with a children group of stubs after it, or not) read by Mutagen's
-    /// <see cref="MajorRecordReader"/>, which picks the class from the record's signature as the full import does (an
-    /// OMOD's or a GMST's from its content). The record read must be a <paramref name="typeName"/>.</summary>
-    object Read(string typeName, byte[] bytes, long position, string what)
+    /// <summary>
+    /// Where each value of a record sits in its bytes, as Mutagen's reader reads it (C60, value positions): the record's
+    /// header and subrecords as <see cref="RawRecord"/> holds them (a compressed record inflated), read by this plugin's
+    /// record reader (its masters, strings and encodings) noting each value's place. The offsets are those of
+    /// <see cref="RawRecord.Data"/>'s subrecords. Only the record's own bytes: not its child group.
+    /// </summary>
+    public RecordValuePositions Positions(RawRecord raw)
+    {
+        var bytes = new byte[RawRecord.HeaderLength + raw.Data.Length];
+        raw.Header.CopyTo(bytes, 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)raw.Data.Length);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(8), raw.Flags & ~RawRecord.CompressedFlag);
+        raw.Data.CopyTo(bytes, RawRecord.HeaderLength);
+        try { return _records.Value.ReadValuePositions(bytes, raw.Offset); }
+        catch (Exception e) when (e is not RecordException) { throw new RecordException($"Mutagen couldn't read the {raw.Signature} at 0x{raw.Offset:X} of {Name} noting its value positions: {e.GetType().Name}: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Where each value of the plugin's header (TES4) sits in its bytes, as Mutagen's header reader reads it (C82,
+    /// <c>ReadModHeaderValuePositions</c>, GAPS S172): read from the file by this plugin's record reader. The offsets are
+    /// those of the header's subrecords as <see cref="RawRecord"/> holds them (a header is never stored compressed).
+    /// </summary>
+    public ModHeaderValuePositions HeaderPositions()
+    {
+        try { return _records.Value.ReadModHeaderValuePositions(); }
+        catch (Exception e) when (e is not RecordException) { throw new RecordException($"Mutagen couldn't read the plugin header of {Name} noting its value positions: {e.GetType().Name}: {e.Message}"); }
+    }
+
+    /// <summary>A record read by Mutagen's <see cref="MajorRecordReader"/>, which picks the class from the record's
+    /// signature as the full import does (an OMOD's or a GMST's from its content). The record read must be a
+    /// <paramref name="typeName"/>.</summary>
+    object Read(string typeName, RecordType signature, string what, Func<IMajorRecord> read)
     {
         var type = MutagenTypes.Class(typeName) ?? throw new RecordException($"Mutagen has no type named {typeName}.");
-        var signature = new RecordType(BinaryPrimitives.ReadInt32LittleEndian(bytes));
         if (MajorRecordReader.GetRecordClass(GameCategory.Starfield, signature) == null)
             throw new RecordException($"Mutagen reads no {signature} record on its own: {what} can't be read on its own.");
         IMajorRecord record;
-        try { record = _records.Value.Read(bytes, position); }
+        try { record = read(); }
         catch (Exception e) when (e is not RecordException)
         {
             throw new RecordException($"Mutagen couldn't read {what}: {e.GetType().Name}: {e.Message}");
@@ -332,67 +385,6 @@ public sealed class PluginSession : IDisposable
     }
 
     const uint Grup = 0x50555247;
-
-    internal byte[] DirectBuffer(long offset, bool withChildStubs, out int stubs)
-    {
-        stubs = 0;
-        Span<byte> head = stackalloc byte[24];
-        ReadAt(offset, head);
-        if (BinaryPrimitives.ReadUInt32LittleEndian(head) == Grup)
-            throw new RecordException($"The file has a group, not a record, at 0x{offset:X} of {Name}. The plugin may have changed: run the command again.");
-        uint size = BinaryPrimitives.ReadUInt32LittleEndian(head[4..]);
-        uint formId = BinaryPrimitives.ReadUInt32LittleEndian(head[12..]);
-        var record = new byte[24 + size];
-        head.CopyTo(record);
-        ReadAt(offset + 24, record.AsSpan(24));
-        if (!withChildStubs) return record;
-
-        long next = offset + record.Length;
-        if (next + 24 > FileLength) return record;
-        ReadAt(next, head);
-        // A holder's children group follows it: world children (1), cell children (6), topic children (7),
-        // quest children (10), labelled with the holder's own FormID
-        if (BinaryPrimitives.ReadUInt32LittleEndian(head) != Grup || !IsChildrenGroup(BinaryPrimitives.ReadInt32LittleEndian(head[12..]))
-            || BinaryPrimitives.ReadUInt32LittleEndian(head[8..]) != formId) return record;
-        var ms = new MemoryStream(record.Length + 4096);
-        ms.Write(record);
-        AppendStubGroup(next, ms, ref stubs);
-        return ms.ToArray();
-    }
-
-    static bool IsChildrenGroup(int groupType) => groupType is 1 or 6 or 7 or 10;
-
-    /// <summary>Copies a group with its sub-groups, each record cut down to its header (data length 0, not compressed).
-    /// The children groups of those records are left out: they belong to records that are only stubs here.</summary>
-    void AppendStubGroup(long pos, MemoryStream into, ref int stubs)
-    {
-        Span<byte> head = stackalloc byte[24];
-        GroupHeader(pos, head);
-        uint groupSize = BinaryPrimitives.ReadUInt32LittleEndian(head[4..]);
-        long start = into.Position, end = pos + groupSize;
-        into.Write(head);
-        for (long p = pos + 24; p + 24 <= end;)
-        {
-            GroupHeader(p, head);
-            uint size = BinaryPrimitives.ReadUInt32LittleEndian(head[4..]);
-            if (BinaryPrimitives.ReadUInt32LittleEndian(head) == Grup)
-            {
-                if (size < 24) throw new RecordException($"A group at 0x{p:X} has a size under its own header's.");
-                if (!IsChildrenGroup(BinaryPrimitives.ReadInt32LittleEndian(head[12..]))) AppendStubGroup(p, into, ref stubs);
-                p += size;
-                continue;
-            }
-            BinaryPrimitives.WriteUInt32LittleEndian(head[4..], 0);
-            BinaryPrimitives.WriteUInt32LittleEndian(head[8..], BinaryPrimitives.ReadUInt32LittleEndian(head[8..]) & ~RawRecord.CompressedFlag);
-            into.Write(head);
-            stubs++;
-            p += 24 + size;
-        }
-        long after = into.Position;
-        Span<byte> len = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32LittleEndian(len, (uint)(after - start));
-        into.Position = start + 4; into.Write(len); into.Position = after;
-    }
 
     /// <summary>A header inside a group, through the thread's window: a walk over a group's record headers isn't
     /// one read of the file each.</summary>
@@ -466,15 +458,19 @@ static class SameFile
     }
 }
 
-/// <summary>Mutagen's Starfield types by name: the getter interface of a record type, and its class.</summary>
+/// <summary>Mutagen's Starfield types by name: the getter interface of a record type, and its class. A class the
+/// serializers' registry has (C59 W11) is looked up there; an abstract one (a type several record classes share, which
+/// has no serializer of its own) by its Loqui registration.</summary>
 static class MutagenTypes
 {
-    static readonly Assembly Starfield = typeof(IWeaponGetter).Assembly;
-    static readonly ConcurrentDictionary<string, Type?> Getters = new(StringComparer.Ordinal);
-    static readonly ConcurrentDictionary<string, Type?> Classes = new(StringComparer.Ordinal);
+    static readonly ConcurrentDictionary<string, Loqui.ILoquiRegistration?> Registrations = new(StringComparer.Ordinal);
 
-    public static Type? Getter(string typeName) => Getters.GetOrAdd(typeName, n => Starfield.GetType($"Mutagen.Bethesda.Starfield.I{n}Getter", false));
-    public static Type? Class(string typeName) => Classes.GetOrAdd(typeName, n => Starfield.GetType($"Mutagen.Bethesda.Starfield.{n}", false));
+    static Loqui.ILoquiRegistration? Registration(string typeName) => Registrations.GetOrAdd(typeName, n =>
+        RecordSerializer.Registry.TryGetClassType(n, out var t) && Loqui.LoquiRegistration.TryGetRegister(t, out var r) ? r
+        : Loqui.LoquiRegistration.TryGetRegisterByFullName($"Mutagen.Bethesda.Starfield.{n}", out var a) ? a : null);
+
+    public static Type? Getter(string typeName) => Registration(typeName)?.GetterType;
+    public static Type? Class(string typeName) => Registration(typeName)?.ClassType;
 }
 
 /// <summary>The plugins held open. One caller at a time, like the header index it stands on.</summary>

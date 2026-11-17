@@ -93,10 +93,19 @@ namespace SFSearch.Engine
                 {
                     ScratchFolder = scratch, SchemaDbPath = SchemaTypes.DefaultPath, Language = language.ToString(), PluginsTxt = eng.PluginsTxt,
                     HeavyGate = (mb, what) => JobContext.RequireHeavy((int)Math.Min(int.MaxValue, mb), what) ? null : RefusedMark,
+                    // A statement is held to what this command may hold (GAPS S104): stopped with a clear error near it
+                    MemoryLimitMB = () => JobContext.CommandMemoryMB, MemoryLimitSetting = "workerMaxMB in sfsearch.json",
+                    // The third answer of a Links WHERE ToKey = '…' over world data (J33): the world link index of the plugins it would read
+                    WorldIndexOffer = plugins => IndexOffers.World(plugins, WorldLaterSeconds, WorldLaterQuery),
                 });
                 return _query[(ix, language.ToString())] = made;
             }
         }
+
+        /// <summary>A Links WHERE ToKey = '…' with the world link index (J32 note: the chair's 8 placed objects found in 0.05 s,
+        /// read alone in under 1 s; XMarker's 4,787 in several seconds): the lookup, before the records found are read.</summary>
+        const double WorldLaterSeconds = 0.1;
+        const string WorldLaterQuery = "Links WHERE ToKey = '…' then finds the world records that link to a record in about 0.1 s and reads only those (seconds when there are thousands)";
 
         /// <summary>What a library's error holds when the heavy lane said no: JobContext has already printed the line.</summary>
         public const string RefusedMark = "\u0001the heavy lane refused it";
@@ -206,17 +215,22 @@ namespace SFSearch.Engine
         /// is what it would cost, and nothing runs. Allowed, it goes through the heavy lane: one at a time, and only
         /// when Windows has the memory. False: the answer is already said (call answer.Refused() has been done).
         /// </summary>
-        public static bool Heavy(EngineAnswer answer, bool allowed, double seconds, long memoryMB, string what)
+        /// <param name="offer">The index that would make this question fast, offered as the third answer (J33); null when none would.</param>
+        /// <param name="noIndex">Without an offer: why no index would make it faster, said in the answer.</param>
+        public static bool Heavy(EngineAnswer answer, bool allowed, double seconds, long memoryMB, string what, IndexOffer? offer = null, string? noIndex = null)
         {
             var cfg = ServiceConfig.Load(Home.Dir);
+            // allow_heavy="save_index" where no index helps: it runs as a yes, and the answer says why nothing is saved
+            if (offer == null && noIndex != null) IndexOffers.NothingToSave(answer, noIndex);
             if (seconds <= HeavySeconds && memoryMB < cfg.HeavyMinMB) return true;
             if (!allowed && !JobContext.HeavyAllowed)
             {
-                JobContext.NotRun($"Not run. {what.TrimEnd('.', ' ')}: about {(seconds < 100 ? seconds.ToString("0", CultureInfo.InvariantCulture) : (seconds / 60).ToString("0.#", CultureInfo.InvariantCulture) + " min")}{(seconds < 100 ? " s" : "")} and {MemoryInfo.GB(memoryMB)} GB of memory. Call again with allow_heavy=true (command line: --allow-heavy).", memoryMB, what);
+                JobContext.NotRun($"Not run. {what.TrimEnd('.', ' ')}: about {(seconds < 100 ? seconds.ToString("0", CultureInfo.InvariantCulture) : (seconds / 60).ToString("0.#", CultureInfo.InvariantCulture) + " min")}{(seconds < 100 ? " s" : "")} and {MemoryInfo.GB(memoryMB)} GB of memory."
+                    + HeavyAnswers.NotRunTail(offer, noIndex ?? "it reads the records themselves, and SFSearch keeps indexes only of where records and links are"), memoryMB, what, IndexOffers.Info(offer, seconds));
                 answer.Refused();
                 return false;
             }
-            if (!JobContext.RequireHeavy((int)Math.Min(int.MaxValue, memoryMB), what)) { answer.Refused(); return false; }
+            if (!JobContext.RequireHeavy((int)Math.Min(int.MaxValue, memoryMB), what, noIndex)) { answer.Refused(); return false; }
             return true;
         }
 

@@ -68,6 +68,39 @@ public sealed class RecordSchema
 
     /// <summary>True for a record type that holds other records (Cell, Worldspace, Quest, DialogTopic).</summary>
     public bool HoldsRecords(string type) => _holders.Contains(type);
+
+    /// <summary>
+    /// True when a top-level field of a record type may hold a record nested in it, at any depth, through any kind of
+    /// object it may be (a cell's Temporary list: yes; its Traversals: no). Unsure (too deep): true. A field that
+    /// can't hold one has the same JSON whether the record's nested records are split out of it or not.
+    /// </summary>
+    public bool FieldHoldsRecords(string type, string field)
+    {
+        lock (_lock)
+        {
+            var records = Model.Objects.Values.Where(o => o.ObjType == "Record").Select(o => o.Name).ToHashSet(StringComparer.Ordinal);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            bool found = false;
+            foreach (var (f, _) in Model.AllFields(type))
+                if (f.Name == field) { found = true; if (MayHold(f, records, seen, 0)) return true; }
+            return !found;
+        }
+    }
+
+    bool MayHold(FieldDef f, HashSet<string> records, HashSet<string> seen, int depth)
+    {
+        if (f.ClrType != null && f.ClrType.Contains("IPlacedGetter", StringComparison.Ordinal)) return true;
+        if (f.RefObject == null) return false;
+        if (depth > 12) return true;
+        foreach (string obj in Model.Variants(f.RefObject).Prepend(f.RefObject))
+        {
+            if (records.Contains(obj)) return true;
+            if (!seen.Add(obj)) continue;
+            foreach (var (g, _) in Model.AllFields(obj))
+                if (MayHold(g, records, seen, depth + 1)) return true;
+        }
+        return false;
+    }
     public IReadOnlyCollection<string> HolderTypes => _holders;
 
     /// <summary>An object's properties, bases first, in the order the schema gives (file order).</summary>

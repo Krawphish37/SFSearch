@@ -24,6 +24,8 @@ public sealed class ReadScope
 {
     readonly List<(RecordEngine Engine, SessionUse Use)> _uses = new();
     readonly HashSet<(RecordEngine, string)> _seen = new();
+    readonly List<(string Path, QuickStamp Stamp, string Name)> _bytes = new();
+    readonly HashSet<string> _bytesSeen = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Call before reading a record of a plugin: its stamp (and its masters') is checked once per command.</summary>
     public void Touch(RecordEngine engine, string plugin)
@@ -33,9 +35,31 @@ public sealed class ReadScope
         catch (RecordException e) { throw new ReportException(e.Message); }
     }
 
+    /// <summary>
+    /// Call before reading a plugin's bytes without Mutagen (a byte search, a subrecord read from the file): its stamp
+    /// is held against the header index's now and again at the end, as <see cref="Touch"/> does, but the plugin isn't
+    /// opened through Mutagen. (The command looked at the Data folder when it began: a plugin that changed since then
+    /// makes it fail.)
+    /// </summary>
+    public void TouchBytes(IndexedPlugin plugin)
+    {
+        if (!_bytesSeen.Add(plugin.Path)) return;
+        QuickStamp now;
+        try { now = QuickStamp.Read(plugin.Path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { now = default; }
+        if (now != plugin.Stamp) throw new ReportException($"{plugin.Name} changed on disk while the command ran: run the command again.", "run the command again");
+        _bytes.Add((plugin.Path, now, plugin.Name));
+    }
+
     /// <summary>At the end: a plugin that changed while it was read makes the answer fail.</summary>
     public void Confirm(ReportAnswer answer)
     {
+        foreach (var (path, stamp, name) in _bytes)
+        {
+            QuickStamp now;
+            try { now = QuickStamp.Read(path); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { now = default; }
+            if (now != stamp) throw new ReportException($"{name} changed during the read: run the command again.", "run the command again");
+        }
         foreach (var (engine, use) in _uses)
         {
             try { engine.Sessions.Confirm(use); }
@@ -227,6 +251,26 @@ public sealed class ReportSession : IDisposable
         scope.Touch(hit.Engine, hit.Plugin.Name);
         try { return Compare.View(hit.Engine, hit.Ref); }
         catch (CompareException e) { throw new ReportException(e.Message, e.Fix); }
+    }
+
+    /// <summary>A form list's entries (FormKeys) as the game uses it: its winning version's Items, then the entries of
+    /// the form lists whose winning versions add to it through AddToList (<see cref="FormListAdds"/>). Null when no
+    /// plugin in Data holds it, it isn't a form list, or it can't be read.</summary>
+    public ListEntries? FormListEntries(ReadScope scope, string formKey) =>
+        ListAdds(scope).Entries(formKey, k => OwnFormListEntries(scope, k));
+
+    /// <summary>The form lists that add their entries to others through AddToList, read once per command.</summary>
+    public FormListAdds ListAdds(ReadScope scope) => FormListAdds.For(scope, Index);
+
+    /// <summary>A form list's own entries (FormKeys): its winning version's Items, through Mutagen.</summary>
+    public IReadOnlyList<string>? OwnFormListEntries(ReadScope scope, string formKey)
+    {
+        if (Winner(formKey) is not { } hit || hit.Info.Signature != "FLST") return null;
+        try
+        {
+            return (View(scope, hit).Json["Items"] as JsonArray)?.Select(x => IsLink(x, out var k) ? Canon(k) : null).OfType<string>().ToList() ?? new List<string>();
+        }
+        catch (ReportException) { return null; }
     }
 
     /// <summary>"0003C2:darkstar.esm": six upper-case digits, then the plugin.</summary>

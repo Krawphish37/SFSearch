@@ -14,3 +14,5 @@
 {"id": "run14", "tool": "sfs_run", "params": {"args": ["record", "Eon", "--view", "versions"]}}
 {"id": "run15", "tool": "sfs_run", "params": {"args": ["leveled2", "nope_list"]}}
 {"id": "run16", "tool": "sfs_run", "params": {"args": ["nosuchverb", "x"]}}
+{"id": "run17", "tool": "sfs_run", "params": {"args": ["archive2", "SFBGS007.esm", "grep", "MGoulet_Pattern05_Test.mat"]}}
+{"id": "run18", "tool": "sfs_run", "params": {"args": ["archive2", "Starfield - Interface.ba2", "grep", "Aim Horizontal Sensitivity", "--count", "--detail"]}}

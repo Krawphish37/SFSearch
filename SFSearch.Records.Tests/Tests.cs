@@ -120,14 +120,41 @@ static class Tests
         Check(far == "Weapon has no field \"zzzz\".", $"a name that is nowhere near a field answers: {far}");
         var verify = e.Verify(new[] { rec.Ref })[0];
         Check(verify.Equal, $"the one-record verify: {verify.ToText()}");
-        // The verify must catch a JSON that isn't the record: a changed value, then a field taken away
-        var changed = new Verifier(e) { ChangeJsonForTests = j => j["AttackDamage"] = 13.0 }.Verify(rec.Ref);
-        Check(!changed.Equal && changed.Cause == "WEAP/WDMG: bytes differ" && changed.FileBytes!.StartsWith("00 00 40 41", StringComparison.Ordinal) && changed.WrittenBytes!.StartsWith("00 00 50 41", StringComparison.Ordinal),
-            $"a JSON with AttackDamage 13.0 gave: {changed.ToText()}");
-        var dropped = new Verifier(e) { ChangeJsonForTests = j => j.Remove("Keywords") }.Verify(rec.Ref);
-        Check(!dropped.Equal && dropped.Cause == "WEAP/KSIZ: in the file, missing from the written record" && dropped.FileBytes!.StartsWith("KSIZ (4 bytes) 19 00 00 00", StringComparison.Ordinal),
-            $"a JSON without Keywords gave: {dropped.ToText()}");
-        return $"{rec.Label} is a {rec.Type}; AttackDamage 12.0; evidence WEAP/WDMG offset 0, 4 bytes (00 00 40 41), xEdit {ev.XEdit}; card of {card.Values().Count()} values; HasScope answered false as the default; verify equal over {verify.Bytes:N0} bytes. Controls: a JSON with AttackDamage 13.0 is caught at WEAP/WDMG (file {changed.FileBytes![..11]}, written {changed.WrittenBytes![..11]}); a JSON without Keywords is caught at WEAP/KSIZ, the keyword count (file \"{dropped.FileBytes}\", written none)";
+        // The verify must catch a record that doesn't write back as the file holds it. J37: no hook in the verifier; a copy
+        // of the plugin with the weapon's bytes changed in place (size kept), read and verified like any plugin.
+        // The keyword count one less than the keywords the weapon holds: Mutagen writes the count of what it read
+        var changed = VerifyChangedCopy(ctx, rec, "ksiz", (raw, write) => write(raw.Subrecords.First(s => s.Signature == "KSIZ").Start, BitConverter.GetBytes(BitConverter.ToUInt32(raw.Content(raw.Subrecords.First(s => s.Signature == "KSIZ"))) - 1)));
+        Check(!changed.Equal && (changed.Cause ?? "").StartsWith("WEAP/K", StringComparison.Ordinal), $"a keyword count one short gave: {changed.ToText()}");
+        // The weapon's last subrecord renamed to a signature Mutagen doesn't know: its read leaves it out
+        var dropped = VerifyChangedCopy(ctx, rec, "zzzz", (raw, write) => write(raw.Subrecords[^1].Start - 6, "ZZZZ"u8.ToArray()));
+        Check(!dropped.Equal && (dropped.Detail ?? "").Contains("the file has ZZZZ", StringComparison.Ordinal), $"an unknown last subrecord gave: {dropped.ToText()}");
+        return $"{rec.Label} is a {rec.Type}; AttackDamage 12.0; evidence WEAP/WDMG offset 0, 4 bytes (00 00 40 41), xEdit {ev.XEdit}; card of {card.Values().Count()} values; HasScope answered false as the default; verify equal over {verify.Bytes:N0} bytes. Controls (copies of the plugin with the weapon's bytes changed): a keyword count one short is caught: {changed.Cause} (file {changed.FileBytes}, written {changed.WrittenBytes}); an unknown last subrecord is caught: {dropped.Cause} (file {dropped.FileBytes}, written {dropped.WrittenBytes})";
+    }
+
+    /// <summary>
+    /// A copy of the record's plugin in the work folder, with bytes of the record changed in place (the size kept), read
+    /// through an index and an engine of its own, and the record verified there. <paramref name="change"/> gets the
+    /// record's subrecords and writes bytes at a position counted from the start of the record's data.
+    /// </summary>
+    static VerifyResult VerifyChangedCopy(Ctx ctx, LoadedRecord rec, string name, Action<RawRecord, Action<int, byte[]>> change)
+    {
+        var data = ctx.DataIndex;
+        var source = data.Plugin(rec.Info.Plugin)!;
+        Check(!HandsOff(source.Name), "the plugin to copy is one the tests must not touch");
+        string copy = Path.Combine(ctx.Folder("verify-control-" + name), source.Name);
+        File.Copy(source.Path, copy, overwrite: true);
+        MustBeACopy(ctx, copy);
+        var raw = ctx.Engine.Raw(rec.Ref);
+        Check(!raw.Compressed, $"{rec.Label} is compressed: its bytes can't be changed in place");
+        using (var fs = new FileStream(copy, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+            change(raw, (at, bytes) => { fs.Position = raw.Offset + RawRecord.HeaderLength + at; fs.Write(bytes); });
+        var files = new List<string> { copy };
+        files.AddRange(source.Header!.Masters.Select(m => data.Plugin(m)!.Path));
+        using var index = new HeaderIndex(PluginSource.FromFiles(files), ctx.Options());
+        index.Refresh();
+        using var engine = new RecordEngine(index, ctx.Schema, Path.Combine(ctx.Work, "verify-control-" + name + "-scratch"), ctx.Data);
+        engine.Sessions.Use(source.Name);
+        return engine.Verify(new[] { engine.Find(source.Name, rec.Info.FormKey) })[0];
     }
 
     // ---------------------------------------------------------------- Properties Mutagen adds beyond its XML (GAPS Part 2 row 8)
@@ -141,7 +168,8 @@ static class Tests
         var eon = e.Load("Starfield.esm", "0476C4:Starfield.esm");
         var card = e.Card(eon);
         var flags = card.Fields.FirstOrDefault(f => f.Name == "MajorFlags");
-        Check(flags != null && flags.InSchema && flags.Text == "[0x40000000]", $"Eon's MajorFlags on its card: {(flags == null ? "missing" : $"{flags.Text}, in the schema {flags.InSchema}")}");
+        // Eon sets 0x40000000, which Mutagen names HighResFirstPersonOnly since fixes.19 (C54; it named 0x20000000 before)
+        Check(flags != null && flags.InSchema && flags.Text == "[HighResFirstPersonOnly]", $"Eon's MajorFlags on its card: {(flags == null ? "missing" : $"{flags.Text}, in the schema {flags.InSchema}")}");
         Check(card.Values().All(f => f.InSchema) && !card.ToText().Contains("[not in the schema]", StringComparison.Ordinal), "Eon's card still marks a value \"[not in the schema]\"");
         var region = e.Load("Starfield.esm", "045A50:Starfield.esm");
         var v = e.Fields(region, new[] { "Weather.DataType", "Weather.Priority", "IsCompressed", "IsDeleted" });
@@ -418,7 +446,7 @@ static class Tests
             foreach (var rec in session.Mod.EnumerateMajorRecords())
             {
                 string type = RecordSerializer.TypeName(rec);
-                var overlayJson = (JsonObject)JsonNode.Parse(RecordSerializer.ToJson(rec, type))!;
+                var overlayJson = (JsonObject)JsonNode.Parse(RecordSerializer.ToJson(rec))!;
                 bool holder = e.Schema.HoldsRecords(type);
                 string? nested = holder ? overlayJson.ToJsonString() : null;
                 RecordSplit.Split(overlayJson, null);
@@ -451,7 +479,7 @@ static class Tests
         for (int i = 0; i < 100; i++)
         {
             var q = quests[(int)((long)i * quests.Count / 100)];
-            string nested = JsonNode.Parse(RecordSerializer.ToJson(q, "Quest"))!.ToJsonString();
+            string nested = JsonNode.Parse(RecordSerializer.ToJson(q))!.ToJsonString();
             var loaded = e.Load(e.Find(Starfield, q.FormKey.ToString()));
             var assembled = e.Assembled(loaded);
             sfQuests++; sfChildren += Count(assembled) - 1;
@@ -603,6 +631,91 @@ static class Tests
         string heavy = tally.Heavy.Count == 0 ? "" : $" {tally.Heavy.Count} record was not read, and no card was made of it: \"{tally.Heavy[0]}\"";
         if (tally.HeavyChecked.Count > 0) heavy += $" Heavy records read in this run, their cards held against their JSON value by value (their text not made a second time): {string.Join("; ", tally.HeavyChecked)}.";
         return (tally.Heavy.Count == 0 ? "" : "DONE ") + $"up to 200 sampled records of each of the {byType.Count} record types of Starfield.esm ({full} types whole): {N(tally.Records)} cards, none fails. {CardSummary(tally)}. Most common values with no schema field: {notIn}.{heavy}";
+    }
+
+    // ---------------------------------------------------------------- Plugin names with spaces (GAPS S56)
+    /// <summary>
+    /// A FormKey whose plugin's name holds a space ("000808:astra-19 sidearm.esm") is a FormKey: every plugin in Data
+    /// whose name holds one, every record. The texts RecordSplit.IsFormKey takes in a record's JSON are exactly
+    /// Mutagen's links of it (none missed, no other text taken); every record nested in another is split out of it; the
+    /// card labels every link. And a few texts that only look like FormKeys aren't taken.
+    /// </summary>
+    public static string NamesWithSpaces(Ctx ctx)
+    {
+        var shapes = new (string Text, bool Is)[]
+        {
+            ("000808:astra-19 sidearm.esm", true), ("00F1A2:Non-Lethal Framework.esm", true), ("000800:unofficial starfield patch.esm", true),
+            ("000808:Starfield.esm", true), ("000808:x.ESP", true), ("000808:a b.esl", true),
+            ("000808: astra.esm", false), ("000808:astra .esm", false), ("000808:a/b.esm", false), ("000808:a\\b.esm", false), ("000808:a\"b.esm", false),
+            ("000808:a:b.esm", false), ("000808:a\nb.esm", false), ("000808:x.esm and more", false), ("see 000808:x.esm", false),
+            ("00080:x.esm", false), ("0008G8:x.esm", false), ("Null", false), ("000808:.esm", false),
+        };
+        foreach (var (text, isKey) in shapes)
+            Check(RecordSplit.IsFormKey(text) == isKey, $"\"{text.Replace("\n", "\\n")}\" is {(isKey ? "" : "not ")}a FormKey, but IsFormKey says {!isKey}");
+
+        var e = ctx.Engine; var index = ctx.DataIndex;
+        var plugins = index.Plugins.Where(p => p.Name.Contains(' ') && p.Segment != null).Select(p => p.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        Check(plugins.Count > 0, "no plugin in Data has a space in its name");
+        long records = 0, links = 0, nested = 0, holders = 0;
+        var problems = new List<string>();
+        var tally = new CardTally();
+        foreach (var plugin in plugins)
+        {
+            e.Sessions.Use(plugin);
+            var p = index.Plugin(plugin)!;
+            for (int i = 0; i < p.Segment!.FirstUnresolved; i++)
+            {
+                var r = new RecordRef(p.Id, i);
+                if (e.HeavyNote(r) != null) continue;
+                LoadedRecord rec;
+                try { rec = e.Load(r); } catch (RecordException) { continue; }
+                records++;
+                var json = e.Json(rec);
+                // Every record nested in this one is a marker now: no object below the top holds a FormKey of its own
+                if (e.Schema.HoldsRecords(rec.Type))
+                {
+                    holders++;
+                    long inside = Keys(json, top: true);
+                    if (inside > 0 && problems.Count < 12) problems.Add($"{rec.Label} {rec.Info.Signature}: {inside} records nested in it weren't split out");
+                    var whole = e.Assembled(rec);
+                    nested += Keys(whole, top: true);
+                    // Read from its group, Mutagen's record holds the records nested in it, and its links theirs: the whole
+                    // record is held against them. Read from its own bytes, it holds none (they are read on their own)
+                    if (rec.Route == ReadRoute.Group) json = whole;
+                }
+                // The texts taken as FormKeys against Mutagen's links (the records nested in it: theirs too)
+                var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                Texts(json, taken);
+                var theirs = rec.Record.EnumerateFormLinks().Where(l => !l.IsNull).Select(l => l.FormKey.ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                links += theirs.Count;
+                var missed = theirs.Except(taken, StringComparer.OrdinalIgnoreCase).ToList();
+                var extra = taken.Except(theirs, StringComparer.OrdinalIgnoreCase).ToList();
+                if ((missed.Count > 0 || extra.Count > 0) && problems.Count < 12)
+                    problems.Add($"{rec.Label} {rec.Info.Signature}: links not taken {string.Join(", ", missed.Take(3))}; texts taken that aren't links {string.Join(", ", extra.Take(3))}");
+                CardOf(e, r, tally);
+            }
+        }
+        Check(problems.Count == 0 && tally.Failed == 0, $"{string.Join(" || ", problems)} || cards: {string.Join(" || ", tally.Failures.Take(4))}");
+        return $"{shapes.Length} texts told right; {plugins.Count} plugins whose names hold a space ({string.Join(", ", plugins.Take(3))} …): {N(records)} records, the FormKeys in their JSON exactly Mutagen's {N(links)} links, {N(holders)} holders with {N(nested)} records nested in them, each split out; {N(tally.Records)} cards, {N(tally.Links)} links labelled";
+
+        // Objects below the top that hold a FormKey of their own (a record nested in this one)
+        static long Keys(JsonNode? n, bool top = false) => n switch
+        {
+            JsonObject o => (!top && o["FormKey"] is JsonValue v && v.TryGetValue<string>(out var s) && RecordSplit.IsFormKey(s) ? 1 : 0) + o.Sum(x => Keys(x.Value)),
+            JsonArray a => a.Sum(x => Keys(x)),
+            _ => 0,
+        };
+        // Every text IsFormKey takes, but a record's own FormKey (the top's and those of the records nested in it) and the
+        // markers of the records split out of it
+        static void Texts(JsonNode? n, HashSet<string> into)
+        {
+            switch (n)
+            {
+                case JsonObject o: foreach (var (k, x) in o) if (k != "FormKey" && k != RecordSplit.ChildKey) Texts(x, into); break;
+                case JsonArray a: foreach (var x in a) Texts(x, into); break;
+                case JsonValue v when v.TryGetValue<string>(out var s) && RecordSplit.IsFormKey(s): into.Add(s); break;
+            }
+        }
     }
 
     // ---------------------------------------------------------------- Fields mode: the default against Mutagen's own value
@@ -875,7 +988,7 @@ static class Tests
                 var def = p.Main;
                 if (def.Nullable || json.ContainsKey(p.Name)) continue;
                 if (def.Kind is not ("Bool" or "Int8" or "Int16" or "Int32" or "Int64" or "UInt8" or "UInt16" or "UInt32" or "UInt64" or "Float" or "Double" or "Percent" or "Enum" or "String" or "FormLink")) continue;
-                object? actual = Verifier.Resolve(rec.Record, p.Name);
+                object? actual = Property(rec.Record, p.Name);
                 var value = FieldLookup.Fields(e.Schema, card, new[] { p.Name })[0];
                 string key = $"{rec.Type}.{p.Name} ({def.Kind})";
                 // A property Mutagen adds beyond its XML (GAPS Part 2 row 8) is read from the record, not defaulted
@@ -931,6 +1044,14 @@ static class Tests
                 default: return actual != null && Convert.ToString(actual, CultureInfo.InvariantCulture) == value.Text;
             }
         }
+    }
+
+    /// <summary>A property of a Mutagen object by name, on its class or one of its interfaces.</summary>
+    static object? Property(object o, string name)
+    {
+        var type = o.GetType();
+        var prop = type.GetProperty(name) ?? type.GetInterfaces().Select(t => t.GetProperty(name)).FirstOrDefault(x => x != null);
+        return prop?.GetValue(o);
     }
 
     // ---------------------------------------------------------------- The one-record verify
@@ -1035,12 +1156,12 @@ static class Tests
         long beforeNpc = HeapMb();
         long jsonBytes = 0;
         var texts = new string[npcs.Count];
-        double npcOne = T(() => { for (int i = 0; i < npcs.Count; i++) { var rec = e.Load(npcs[i]); texts[i] = RecordSerializer.ToJson(rec.Record, rec.Type); jsonBytes += texts[i].Length; } });
+        double npcOne = T(() => { for (int i = 0; i < npcs.Count; i++) { var rec = e.Load(npcs[i]); texts[i] = RecordSerializer.ToJson(rec.Record); jsonBytes += texts[i].Length; } });
         long afterNpc = HeapMb();
         // The same on 8 threads (Mutagen doesn't promise overlays are safe to read from several threads: the result is compared)
         var records = npcs.Select(r => e.Load(r)).ToList();
         var texts8 = new string[npcs.Count];
-        double npcEight = T(() => Parallel.For(0, records.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, i => texts8[i] = RecordSerializer.ToJson(records[i].Record, records[i].Type)));
+        double npcEight = T(() => Parallel.For(0, records.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, i => texts8[i] = RecordSerializer.ToJson(records[i].Record)));
         int differ = 0; for (int i = 0; i < texts.Length; i++) if (texts[i] != texts8[i]) differ++;
         lines.Add($"{N(npcs.Count)} NPCs of Starfield.esm to JSON: {npcOne / 1000:F2} s on one thread ({npcOne / npcs.Count:F3} ms each), {npcEight / 1000:F2} s on 8 threads ({(differ == 0 ? "the same JSON for every one" : differ + " differ from the one-thread JSON")}); {jsonBytes / 1048576.0:F1} MB of JSON; {afterNpc - beforeNpc:N0} MB more on the managed heap with all of it held as text");
         Check(npcs.Count == 7131, $"Starfield.esm has {npcs.Count} NPCs, not 7,131");
@@ -1179,7 +1300,7 @@ static class Tests
                     foreach (var cell in sub.Cells)
                     {
                         if (!want.TryGetValue(cell.FormKey, out var r)) continue;
-                        string nested = JsonNode.Parse(RecordSerializer.ToJson(cell, "Cell"))!.ToJsonString();
+                        string nested = JsonNode.Parse(RecordSerializer.ToJson(cell))!.ToJsonString();
                         var loaded = e.Load(r);
                         var assembled = e.Assembled(loaded);
                         Check(assembled.ToJsonString() == nested, $"{loaded.Label}: put back together it isn't the overlay's cell: {CardCheck.FirstDifference(JsonNode.Parse(nested), assembled)}");

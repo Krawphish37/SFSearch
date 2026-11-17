@@ -33,3 +33,4 @@
 {"id":"refs33","tool":"sfs_refs","params":{"record":"000863:darkstarpatch_bublumi.esm","direction":"out"}}
 {"id":"refs34","tool":"sfs_refs","params":{"record":"LL_SFTA04_QuestRewards"}}
 {"id":"refs35","tool":"sfs_refs","params":{"record":"SFTA04_AphelionLaserRifle","limit":3}}
+{"id":"refs36","tool":"sfs_refs","params":{"record":"LL_SFTA03_Astra_VolkGun"}}

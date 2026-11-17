@@ -11,11 +11,14 @@ namespace SFSearch.Engine
     /// record on a heavy record (over 16 MB of data: Starfield.esm's navigation mesh info map), without its full card
     /// (GAPS row S7, fix G2). The record's bytes are read once; only the subrecords a view needs go through Mutagen
     /// (SFSearch.Records\HeavyRecord.cs).
-    ///  - card (the default): the header, the subrecords from the bytes with their counts and sizes, the fields that
-    ///    are small, read through Mutagen, and for each big field how to ask for it.
+    ///  - card (the default) and json: the whole card or JSON a part at a time (fix J7): each item of a big list is a
+    ///    part, and so is each run of the other fields; the cursor is a part and a line in it. The card's first page
+    ///    also gives the subrecords from the bytes with their counts and sizes.
+    ///  - verify: the record in parts, each written back by Mutagen and compared with its own bytes; the cursor is the
+    ///    first item of the next part.
     ///  - fields and evidence: only the fields named. A big list whose items are one subrecord each is read a page at a
     ///    time: the cursor counts its items. One item ([5]) reads that one subrecord.
-    /// The full card is still there with allow_heavy, at its cost.
+    /// The full card, json and verify of the whole record at once are still there with allow_heavy, at their cost.
     /// </summary>
     static class HeavyRecordView
     {
@@ -30,7 +33,7 @@ namespace SFSearch.Engine
         /// <summary>The memory of the full card, by megabyte of the record's data (RecordTool's estimate).</summary>
         const int CardMBPerMB = 250;
 
-        public static void Run(RecordEngine engine, EngineIndex eng, Picked pick, string view, List<string> fields, int offset, int maxChars, string question, EngineAnswer answer, bool justOpened)
+        public static void Run(RecordEngine engine, EngineIndex eng, Picked pick, string view, List<string> fields, int offset, int line, int maxChars, string question, EngineAnswer answer, bool justOpened)
         {
             var info = pick.Info;
             var layout = engine.Layout(pick.Ref);
@@ -40,44 +43,84 @@ namespace SFSearch.Engine
                 $"{info.Signature} {layout.Type} in {info.Plugin}{(info.IsOverride ? " (an override)" : " (its own record)")}{(info.Parent == null ? "" : ", inside " + engine.Label(info.Parent))}, at 0x{info.Offset:X}, {info.Size.ToString("N0", CultureInfo.InvariantCulture)} bytes{(layout.Raw.Compressed ? ", compressed" : "")}",
                 RecordTool.ReadFrom(eng, pick),
             };
-            long cardMB = (long)(layout.DataBytes / 1048576.0 * CardMBPerMB);
-            string heavyLine = RecordEngine.HeavyLine(layout) + $" Its full card isn't made here: it needs about {EngineIndex.Mb(cardMB << 20)} of memory (allow_heavy).";
+            var lists = layout.Fields.Where(f => f.Big && f.Paged).ToList();
+            string listWords = string.Join(" and ", lists.Select(f => f.Name));
+            long fullMB = (long)(layout.DataBytes / 1048576.0 * (view switch { "json" => 95, "verify" => 90, _ => CardMBPerMB }));
+            string heavyLine = RecordEngine.HeavyLine(layout) + (view is "card" or "json" or "verify"
+                ? $" Its {view} is {(view == "verify" ? "done" : "given")} a part at a time{(lists.Count > 0 ? $" (each item of {listWords} is a part)" : "")}, never the whole record in memory; allow_heavy reads it whole (about {EngineIndex.Mb(fullMB << 20)} of memory)."
+                : $" Its full card isn't made here: it needs about {EngineIndex.Mb((long)(layout.DataBytes / 1048576.0 * CardMBPerMB) << 20)} of memory (allow_heavy).");
             string readBytes = $"the bytes of 1 {info.Signature} of {pick.Plugin.Name} ({EngineIndex.Mb(layout.DataBytes)}{(layout.Raw.Compressed ? ", inflated once" : "")}{(justOpened ? $"; {pick.Plugin.Name} was opened for it" : "")})";
 
-            if (view == "card")
+            if (view is "card" or "json")
             {
+                // ---- The whole card or JSON, a part at a time: the cursor is a part and a line in it
                 lines.Add(heavyLine);
                 int head = lines.Count;
-                lines.Add($"Subrecords, from the bytes ({layout.Raw.Subrecords.Count.ToString("N0", CultureInfo.InvariantCulture)}):");
-                lines.AddRange(layout.SubrecordTable());
                 answer.Read(readBytes);
-                PartRead? whole = null;
-                string? why = null;
-                try { whole = engine.ReadPart(layout, new Dictionary<string, IReadOnlyCollection<int>?>()); }
-                catch (RecordException e) { why = e.Message; }
-                if (whole == null)
+                var text = engine.HeavyText(layout, view);
+                foreach (var note in text.Notes) answer.Note(note);
+                if (offset >= text.Parts) { answer.Fail($"the cursor points past the end ({text.Parts:N0} parts)", "leave the cursor out to start over", 2); return; }
+                var body = new List<string>();
+                if (offset == 0 && line == 0 && view == "card")
                 {
-                    // The subrecords from the bytes are still an answer; the fields can't be read in part
-                    lines.Add($"Fields: not read. {why}");
-                    answer.Note("The subrecords above come from the record's bytes. The raw view gives each one's bytes; allow_heavy reads the whole record through Mutagen.");
+                    body.Add($"Subrecords, from the bytes ({layout.Raw.Subrecords.Count.ToString("N0", CultureInfo.InvariantCulture)}):");
+                    body.AddRange(layout.SubrecordTable());
+                    foreach (var f in layout.Fields.Where(f => f.Big && !f.Paged))
+                        body.Add($"{Head(f)}: {What(f)}, read whole: it can't be read a page at a time ({f.NotPaged}).");
+                    foreach (var f in lists)
+                        body.Add($"{Head(f)}: {What(f)}. {HowToAsk(f)}");
+                    body.Add("Fields:");
                 }
-                else
+                int room = Math.Max(1_000, maxChars - lines.Sum(l => l.Length + 1) - body.Sum(l => l.Length + 1) - 400);
+                var page = engine.HeavyTextPage(text, offset, line, room);
+                body.AddRange(page.Lines);
+                foreach (var note in page.Notes) answer.Note(note);
+                foreach (var l in lines) answer.Line(l);
+                foreach (var l in body) answer.Line(l);
+                answer.HeaderLines = head;
+                answer.Page(offset + 1, Math.Max(1, page.PartsShown), text.Parts, page.End ? null : Cursor(page.NextPart, page.NextLine, question), "parts");
+                if (lists.Count > 0)
+                    answer.Note($"The {(view == "json" ? "JSON" : "card")} is given a part at a time: each item of {listWords} is a part, and so is each run of the other fields between them. A part longer than a page goes on at the next page's cursor. The pages put together are the whole record's {(view == "json" ? "JSON" : "card")}, line for line.");
+                answer.Read(PartLine(text.Head, layout) + (page.Reads > 0 ? $"; for this page {page.Reads:N0} read{(page.Reads == 1 ? "" : "s")} of {ItemsText(page)}: {page.ReadSubrecords.ToString("N0", CultureInfo.InvariantCulture)} subrecords ({EngineIndex.Mb(page.ReadBytes)})" : ""));
+                return;
+            }
+
+            if (view == "verify")
+            {
+                // ---- Verify in parts: the cursor is the first item of the next part
+                lines.Add(heavyLine);
+                int head = lines.Count;
+                answer.Read(readBytes);
+                if (offset >= Math.Max(1, lists.Sum(f => f.Items))) { answer.Fail($"the cursor points past the end ({Math.Max(1, lists.Sum(f => f.Items)):N0} items)", "leave the cursor out to start over", 2); return; }
+                var v = engine.VerifyParts(layout, offset);
+                long bytes = 0; int subs = 0;
+                foreach (var p in v.Parts)
                 {
-                    var json = engine.Json(whole.Record);
-                    var card = engine.PartCard(whole, json, withDefaults: true);
-                    foreach (var note in engine.TextNotes(whole.Record, new JsonNode?[] { json })) answer.Note(note);
-                    lines.Add(whole.Left.Count == 0 ? "Fields, read through Mutagen:" : "Fields, read through Mutagen without the big ones:");
-                    lines.AddRange(Split(card.ToText(int.MaxValue, 64)).Skip(2));
-                    if (whole.Left.Count > 0)
+                    bytes += p.Bytes; subs += p.Subrecords;
+                    lines.Add(p.Result.Equal
+                        ? $"  {p.What}: equal ({p.Subrecords.ToString("N0", CultureInfo.InvariantCulture)} subrecords, {p.Bytes.ToString("N0", CultureInfo.InvariantCulture)} bytes: these items and every other field of the record)"
+                        : $"  {p.What}: NOT equal. {p.Result.Cause}");
+                    if (!p.Result.Equal)
                     {
-                        lines.Add("Big fields, not read here:");
-                        foreach (var f in whole.Left)
-                            lines.Add($"  {Head(f)}: {What(f)}. {HowToAsk(f)}");
+                        lines.Add($"    {p.Result.Detail}{(p.Where != null ? " " + p.Where : "")}");
+                        if (p.Result.FileBytes != null) { lines.Add($"    file     {p.Result.FileBytes}"); lines.Add($"    written  {p.Result.WrittenBytes}"); }
                     }
-                    answer.Read(PartLine(whole, layout));
                 }
-                if (offset > 0 && offset >= lines.Count - head) { answer.Fail($"the cursor points past the end ({lines.Count - head:N0} lines)", "leave the cursor out to start over", 2); return; }
-                answer.Lines(lines, head, offset, maxChars, next => Cursors.Make(next, question));
+                bool last = v.NextUnit < 0;
+                if (!v.AllEqual) answer.Note("A part's JSON doesn't write back to the bytes it was read from: something of the record isn't in its JSON, or Mutagen writes it differently. The first difference is above; verify stops there.");
+                else if (last)
+                {
+                    lines.Add(offset == 0 ? "Every part is equal: the record verifies in parts." : "Every part from the cursor on is equal; with the pages before it, the record verifies in parts.");
+                    foreach (var s in v.Shown) lines.Add("  " + s);
+                    foreach (var s in v.Limits) lines.Add("  What the parts can't show: " + s);
+                }
+                foreach (var l in lines) answer.Line(l);
+                answer.HeaderLines = head;
+                int done = (last ? v.Units : v.NextUnit) - offset;
+                answer.Page(offset + 1, done, v.Units, v.AllEqual && !last ? Cursors.Make(v.NextUnit, question) : null, lists.Count > 0 ? $"{listWords} items" : "parts");
+                if (lists.Count > 0)
+                    answer.Note($"Verify is done a part at a time: each part holds some items of {listWords} and every other subrecord of the record; Mutagen reads it, its JSON is turned back into a record, Mutagen writes that, and it is compared with the part's own bytes. One call verifies about {EngineIndex.Mb(engine.HeavyVerifyBytes)} of items; the cursor goes on.");
+                answer.Read($"Mutagen's reads and writes of {v.Parts.Count:N0} part{(v.Parts.Count == 1 ? "" : "s")}: {subs.ToString("N0", CultureInfo.InvariantCulture)} subrecords ({EngineIndex.Mb(bytes)})");
                 return;
             }
 
@@ -90,11 +133,11 @@ namespace SFSearch.Engine
                 var f = layout.Field(a.Top);
                 if (f == null || !f.Big) continue;   // a small field is always read
                 a.Field = f;
-                if (f.ItemSignature == null)
+                if (!f.Paged)
                 {
                     if (f.Bytes > engine.HeavyRecordBytes)
                     {
-                        answer.Fail($"{f.Name} of {ProblemNotes.Label(info)} is {EngineIndex.Mb(f.Bytes)} in {f.Subrecords:N0} {string.Join(", ", f.Signatures)} subrecord(s), over the {EngineIndex.Mb(engine.HeavyRecordBytes)} of a heavy record, and it isn't a list of one subrecord an item, so it can't be read a page at a time",
+                        answer.Fail($"{f.Name} of {ProblemNotes.Label(info)} is {EngineIndex.Mb(f.Bytes)} in {f.Subrecords:N0} {string.Join(", ", f.Signatures)} subrecord(s), over the {EngineIndex.Mb(engine.HeavyRecordBytes)} of a heavy record, and it can't be read in parts: {f.NotPaged}",
                             "ask for the record with allow_heavy (its full card), or use the raw view for its bytes");
                         return;
                     }
@@ -147,8 +190,7 @@ namespace SFSearch.Engine
             // First pass: a few items, to learn how long an item's text is
             int left = paged.Items - offset;
             // The items' own sizes, from the bytes: a page reads at most PageBytes of them (one item at least)
-            var sizes = layout.Raw.Subrecords.Where(x => x.Signature == paged.ItemSignature).Select(x => 6L + x.Length).ToArray();
-            int ByBytes(int most, long cap) { long sum = 0; int k = 0; while (k < most && (k == 0 || sum + sizes[offset + k] <= cap)) sum += sizes[offset + k++]; return k; }
+            int ByBytes(int most, long cap) { long sum = 0; int k = 0; while (k < most && (k == 0 || sum + layout.ItemBytes(paged, offset + k) <= cap)) sum += layout.ItemBytes(paged, offset + k++); return k; }
             int n = ByBytes(Math.Min(Probe, left), ProbeBytes);
             var (part1, otherLines, items) = Page(engine, layout, asked, paged, offset, n, view, others, NamesFor, answer);
             int perItem = Math.Max(1, (int)Math.Ceiling(items.Average(i => i.Sum(l => l.Length + 1))));
@@ -218,10 +260,33 @@ namespace SFSearch.Engine
 
         static string What(HeavyField f) => f.ItemSignature != null
             ? $"a list of {f.Items.ToString("N0", CultureInfo.InvariantCulture)} items, one {f.ItemSignature} subrecord each, {EngineIndex.Mb(f.Bytes)}"
+            : f.Paged ? $"a list of {f.Items.ToString("N0", CultureInfo.InvariantCulture)} items in {f.Subrecords.ToString("N0", CultureInfo.InvariantCulture)} {string.Join(", ", f.Signatures)} subrecords{(f.Counter >= 0 ? " (its count first)" : "")}, {EngineIndex.Mb(f.Bytes)}"
             : $"{f.Subrecords.ToString("N0", CultureInfo.InvariantCulture)} {string.Join(", ", f.Signatures)} subrecord{(f.Subrecords == 1 ? "" : "s")}, {EngineIndex.Mb(f.Bytes)}";
 
-        static string HowToAsk(HeavyField f) => f.ItemSignature != null
-            ? $"One item: fields \"{f.Name}[0]\" (or one field of every item: \"{f.Name}[*].<field>\"); the whole list a page at a time: fields \"{f.Name}\", then the cursor."
+        static string ItemsText(HeavyPage page) => page.Items.Count == 0 ? "items" : string.Join(", ", page.Items.Select(x => x.First == x.Last ? $"{x.List.Name}[{x.First}]" : $"{x.List.Name}[{x.First}] to [{x.Last}]"));
+
+        /// <summary>A cursor of a part and a line in it: the plain cursor when the line is 0, else "part-line.mark".</summary>
+        internal static string Cursor(int part, int line, string question)
+        {
+            string c = Cursors.Make(part, question);
+            return line == 0 ? c : $"{part}-{line}{c[c.IndexOf('.')..]}";
+        }
+
+        /// <summary>Reads a cursor of a part and a line ("part-line.mark"). False when it isn't one of this question.</summary>
+        internal static bool TryCursor(string? cursor, string question, out int part, out int line)
+        {
+            part = 0; line = 0;
+            if (string.IsNullOrWhiteSpace(cursor)) return false;
+            var c = cursor.Trim().Trim('"');
+            int dash = c.IndexOf('-'), dot = c.IndexOf('.');
+            if (dash <= 0 || dot <= dash) return false;
+            return int.TryParse(c[..dash], NumberStyles.None, CultureInfo.InvariantCulture, out part)
+                && int.TryParse(c[(dash + 1)..dot], NumberStyles.None, CultureInfo.InvariantCulture, out line)
+                && Cursors.TryRead($"{part}{c[dot..]}", question, out _);
+        }
+
+        static string HowToAsk(HeavyField f) => f.Paged
+            ? $"The card below goes through it a part at a time; one item alone: fields \"{f.Name}[0]\" (or one field of every item: \"{f.Name}[*].<field>\", a page at a time)."
             : $"Read it with fields \"{f.Name}\".";
 
         sealed class Ask

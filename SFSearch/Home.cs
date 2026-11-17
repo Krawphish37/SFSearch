@@ -76,6 +76,29 @@ namespace SFSearch
             return _data = found;
         }
 
+        /// <summary>
+        /// For `Service config` (J43): the settings that live outside sfsearch.json, each with its value now and where it came
+        /// from: the home (SFSEARCH_HOME), the Data folder (SFSEARCH_DATA, SetData, or found by itself) and the name this
+        /// command line's commands carry in the service's status (SFSEARCH_AGENT). Nothing is looked for here: a Data folder
+        /// not found yet says so.
+        /// </summary>
+        public static List<(string Setting, string InEffect, string From)> SettingsOutsideFile()
+        {
+            var rows = new List<(string, string, string)>();
+            string? homeEnv = Environment.GetEnvironmentVariable("SFSEARCH_HOME");
+            rows.Add(("SFSEARCH_HOME (the home)", Dir, !string.IsNullOrWhiteSpace(homeEnv) && Directory.Exists(homeEnv) ? "set by SFSEARCH_HOME" : "the default: the SFSearch folder the program is built in"));
+            string? dataEnv = Environment.GetEnvironmentVariable("SFSEARCH_DATA");
+            string? remembered = ReadState("DataPath.txt")?.Trim();
+            rows.Add(("SFSEARCH_DATA (the Data folder)",
+                !string.IsNullOrWhiteSpace(dataEnv) ? dataEnv.Trim() : !string.IsNullOrEmpty(remembered) ? remembered : "(not looked for yet)",
+                !string.IsNullOrWhiteSpace(dataEnv) ? "set by SFSEARCH_DATA"
+                : !string.IsNullOrEmpty(remembered) ? "the default: remembered in state/DataPath.txt (by SetData, or found by itself the first time)"
+                : "the default: found by itself (Steam, Xbox, the registry) by the first command that needs it"));
+            string? agent = Environment.GetEnvironmentVariable("SFSEARCH_AGENT");
+            rows.Add(("SFSEARCH_AGENT", string.IsNullOrEmpty(agent) ? "cli" : agent, string.IsNullOrEmpty(agent) ? "the default: cli" : "set by SFSEARCH_AGENT"));
+            return rows;
+        }
+
         /// <summary>The SetData command: remember the Data folder in state\DataPath.txt.</summary>
         public static void SetDataFolder(string path)
         {
@@ -116,8 +139,8 @@ namespace SFSearch
         static string? _marked;
 
         /// <summary>
-        /// The home's scratch folder: working files that are only good until the service starts again (the header index, the
-        /// link index, SQL tables, round-trip copies). In a service worker the coordinator made it and emptied it at start. A
+        /// The home's scratch folder: working files that are only good until the service starts again (SQL tables,
+        /// round-trip copies, verify files). The kept indexes are in <see cref="Indexes"/>. In a service worker the coordinator made it and emptied it at start. A
         /// plain run makes it itself, with the marker that tells the service the folder is SFSearch's own.
         /// </summary>
         public static string Scratch
@@ -144,6 +167,37 @@ namespace SFSearch
 
         /// <summary>kept\ under the home: what outlives a service start (the reports' history and decompiled scripts).</summary>
         public static string Kept => Path.Combine(Dir, "kept");
+
+        /// <summary>The marker file that says the indexes folder is SFSearch's own: only then does anything delete in it.</summary>
+        public const string IndexesMarker = ".sfsearch-indexes";
+        public const string IndexesMarkerText = "SFSearch's kept indexes (header\\, links\\): made from the plugin files and kept between service starts. 'indexes' shows them; 'indexes drop all' deletes them. Don't keep anything else here.\n";
+        static string? _indexesMarked;
+
+        /// <summary>
+        /// indexes\ under the home (J31, 2026-11-15): the indexes SFSearch builds from the plugin files, kept between
+        /// service starts and brought up to date plugin by plugin: header\ (the header index's segments) and links\ (the
+        /// link index). Each part is named by its plugin's reading key, so a part of a changed plugin is never read. Only
+        /// indexes are kept here, never record data. With keepStartupIndexes false in sfsearch.json the service empties
+        /// header\ and links\ at every start. Made here with its marker, like the scratch folder.
+        /// </summary>
+        public static string Indexes
+        {
+            get
+            {
+                string root = Path.Combine(Dir, "indexes");
+                if (_indexesMarked == root && Directory.Exists(root)) return root;
+                try
+                {
+                    Directory.CreateDirectory(root);
+                    string marker = Path.Combine(root, IndexesMarker);
+                    if (!File.Exists(marker) && !Directory.EnumerateFileSystemEntries(root).Any()) File.WriteAllText(marker, IndexesMarkerText);
+                    _indexesMarked = root;
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                return root;
+            }
+        }
 
         // ---------------------------------------------------------------- Small state files
         /// <summary>A small state file: state\name under the home.</summary>

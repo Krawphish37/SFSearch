@@ -1,0 +1,51 @@
+{
+  "about": "The polish cases of named plugin sets across the verbs (fix-j102-plugin-sets, GAPS S117, 2026-11-15), in the shape of polish.json. In a file of their own so that other fixes' cases don't collide with them.",
+  "cases": [
+    {
+      "n": 171,
+      "title": "query2 over @official gives the rows of the same 33 plugins named by their names and patterns, and says how the set was named (GAPS S117)",
+      "before": "(The S116 census over @official is the note's targeted test: it reads 7.7 million Forms rows, too heavy for a polish case.) query2 --plugins @official (and query2 @official \"...\") answered \"@official isn't in Data\": a census over the official plugins needed every name listed.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "sql": "SELECT Plugin, count(*) AS Weapons, sum(AttackDamage) AS Damage FROM Weapon GROUP BY Plugin ORDER BY Plugin;", "plugins": "@official", "allow_heavy": true } },
+          { "tool": "sfs_query", "params": { "sql": "SELECT Plugin, count(*) AS Weapons, sum(AttackDamage) AS Damage FROM Weapon GROUP BY Plugin ORDER BY Plugin;", "plugins": "Starfield.esm,Constellation.esm,OldMars.esm,ShatteredSpace.esm,BlueprintShips-*.esm,SFBGS*.esm,sfta*.esm", "allow_heavy": true } }
+        ],
+        "pass_if": [
+          {
+            "name": "the same rows as the names and patterns; the set repeated with its count",
+            "all": [
+              { "call": 1, "part": "out", "same_as_call": 2 },
+              { "call": 1, "part": "out", "matches": "(?m)^\\| Starfield\\.esm \\| \\d+ \\|" },
+              { "call": 1, "part": "notes", "matches": "\\[source\\] @official \\(33 plugins\\)" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 172,
+      "title": "A wrong set name is a clear error with the near one; @winners where it doesn't apply says what to use (GAPS S117)",
+      "before": "query2 --plugins @offical said \"@offical isn't in Data\"; find, refs2 and indexes had no sets at all.",
+      "form": {
+        "calls": [
+          { "tool": "sfs_query", "params": { "sql": "SELECT 1;", "plugins": "@offical" } },
+          { "tool": "sfs_find", "params": { "query": "Eon", "in": "@winners" } },
+          { "tool": "sfs_find", "params": { "query": "Eon", "type": "WEAP", "in": "@official" } }
+        ],
+        "pass_if": [
+          {
+            "name": "the errors name the sets; find over @official answers and repeats the set",
+            "all": [
+              { "call": 1, "part": "out", "matches": "isn't a set of plugins SFSearch knows \\(did you mean @official\\?\\)" },
+              { "call": 1, "part": "out", "matches": "@loaded" },
+              { "call": 2, "part": "out", "matches": "@winners counts each record only in the version the game uses.*use @loaded" },
+              { "call": 3, "exit": "zero" },
+              { "call": 3, "part": "all", "matches": "Eon" },
+              { "call": 3, "part": "notes", "matches": "\\[source\\] @official \\(33 plugins\\)" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

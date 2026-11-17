@@ -335,6 +335,9 @@ static class ArchiveTests
             Check(paths.Error == null && paths.Paths.SequenceEqual(direct), $"{name}: the store's paths differ from Mutagen's reader ({paths.Error})");
             var hashes = store.Names(path);
             Check(hashes.Count == direct.Count && direct.All(hashes.Has), $"{name}: the store's hashes miss a path");
+            // The read-ahead's hash of a path as stored (no text made) is the hash of its normalized text (GAPS S30)
+            foreach (var stored in Archive.CreateReader(GameRelease.Starfield, path).EnumerateFilePaths())
+                Check(ArchiveStore.HashOfStored(stored) == ArchiveStore.Hash(ArchiveStore.Normalize(stored)), $"{name}: the read-ahead hashes {stored} differently");
             files += direct.Count; fast += tFast; whole += tWhole;
             parts.Add($"{name} {N(direct.Count)}");
         }

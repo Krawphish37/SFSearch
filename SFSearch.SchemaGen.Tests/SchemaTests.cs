@@ -45,6 +45,7 @@ public sealed class SchemaFixture : IDisposable
     {
         PackageDir = PackageDir,
         PairsFile = Directory.GetFiles(Path.Combine(GenDir, "inputs"), "xedit-pairs-*.tsv").Single(),
+        RecordNamesFile = Directory.GetFiles(Path.Combine(GenDir, "inputs"), "xedit-record-names-*.tsv").Single(),
         EvidenceFile = Directory.GetFiles(Path.Combine(GenDir, "inputs"), "unknown-fields-*.tsv").Single(),
         AnnotationsFile = annotations ?? Path.Combine(GenDir, "annotations.tsv"),
         OutDb = db, ReportFile = report, Quiet = true, CkNamesPath = CkNames,
@@ -108,16 +109,32 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
     public void AtLeastNinetyPercentOfThePairsMatchAndTheRestSayWhy()
     {
         var p = fx.Result.Pairs;
-        Assert.Equal(7260, p.Rows);
-        // 7,257 paths: three pairs of SCEN's Player Dialogue action (WED0) name the same path as the FX action's once
-        // WED0 is Sound (C218, fixes.17), which the pairs file names on the old names
-        Assert.Equal(7257, p.DistinctPaths);
-        Assert.Equal(230, p.Renamed);
-        Assert.Equal(0, p.Reasons.Values.Sum());
-        var renamed = fx.Result.PairRows.Single(x => x.Sig == "SCEN" && x.RenamedFrom == "Actions[*].WED0.Start");
-        Assert.Equal(("Actions[*].Sound.StartEvent", "exact"), (renamed.MutagenPath, renamed.Match));
-        var tnam = fx.Result.PairRows.Single(x => x.Sig == "AVMD" && x.RenamedFrom == "TNAM");
+        // 8,380: 7,260 for the record types until J73, 20 for the plugin header (TES4, xedit-tes4-2026-11-15; GAPS S90),
+        // since J73/J77 (2026-11-15) 992 for every record's own header (GAPS S97), 87 changed by J77's fixes; since J108
+        // (GAPS S136) the whole fixes.19 rerun: 76 more, 3 fewer (TheFixes19RerunsChangesAreRight), 4 of them header flags
+        Assert.Equal(8380, p.Rows);
+        Assert.Equal(996, fx.Result.PairRows.Count(x => x.Sig != "TES4" && x.XEditPath.StartsWith(@"\Record Header\", StringComparison.Ordinal)));
+        // Fewer paths than rows: each kind of a list's items has its own xEdit field for a field the kinds share (SCEN's
+        // FX and Player Dialogue Sound since C218; a quest's reference and location aliases, J108)
+        Assert.Equal(8352, p.DistinctPaths);
+        // One pair is left unmatched: MGEF's 1st Assoc. Item on a hand-written property (PairsIntoMutagensOwnProperties...)
+        Assert.Equal(1, p.Reasons.Values.Sum());
+        // The pairs file gives Mutagen's current names (J95: the pairing rerun on fixes.19). Until J95, 229 pairs named
+        // fields Mutagen had renamed since (C207, C218, C220) and matched only through a rename table in the matcher.
+        PairRow Pair(string sig, string xedit) => fx.Result.PairRows.Single(x => x.Sig == sig && x.XEditPath == xedit);
+        var pdStart = Pair("SCEN", @"\Actions\Action\Player Dialogue\WED0 - Sound\Event Set\Start Event/Form");
+        Assert.Equal(("Actions[*].Sound.StartEvent", "exact"), (pdStart.MutagenPath, pdStart.Match));
+        Assert.Equal("Actions[*].Sound.EventForm", Pair("SCEN", @"\Actions\Action\Player Dialogue\WED0 - Sound\Form Only\Start Form").MutagenPath);
+        Assert.Equal("Actions[*].Sound.ConditionForm", Pair("SCEN", @"\Actions\Action\FX\WED0 - Sound\Event Set\Condition").MutagenPath);
+        var tnam = Pair("AVMD", @"\TNAM - Name");
         Assert.Equal(("Name", "exact"), (tnam.MutagenPath, tnam.Match));
+        Assert.Equal("GravityScale", Pair("WRLD", @"\GNAM - Gravity Scale").MutagenPath);
+        Assert.Equal("Spline.SplineRadius", Pair("REFR", @"\XBSD - Bendable Spline\Thickness").MutagenPath);
+        // every sound reference's Start Form (71 in 35 record types, EventMapping until C218), SCEN's Player Dialogue sound
+        // (WED0 until C218) and its Radio voice override (J108)
+        Assert.Equal(73, fx.Result.PairRows.Count(x => x.MutagenPath.EndsWith(".EventForm", StringComparison.Ordinal) && x.Match == "exact"));
+        Assert.DoesNotContain(fx.Result.PairRows, x => x.MutagenPath is "TNAM" or "GNAM" || x.MutagenPath.Contains(".WED0.", StringComparison.Ordinal)
+            || x.MutagenPath.EndsWith(".EventMapping", StringComparison.Ordinal) || x.MutagenPath.EndsWith("Spline.Thickness", StringComparison.Ordinal));
         int byName = p.Exact + p.Flag + p.Component + p.Bytes + p.Count + p.WholeValue;
         Assert.True(byName >= 0.90 * p.Rows, $"Only {byName} of {p.Rows} pairs match by name ({100.0 * byName / p.Rows:F1}%).");
         Assert.True(p.Matched >= 0.90 * p.Rows);
@@ -127,6 +144,37 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
             Assert.False(string.IsNullOrWhiteSpace(row.Reason), $"{row.Sig} {row.MutagenPath} has no reason.");
             Assert.False(string.IsNullOrWhiteSpace(row.Detail), $"{row.Sig} {row.MutagenPath} has no detail.");
         }
+    }
+
+    [Fact]
+    public void TheFixes19RerunsChangesAreRight()
+    {
+        // J108 (GAPS S136): the pairs rerun on Mutagen 0.55.0-fixes.19 with xecmp's J108 fixes, taken whole
+        PairRow? Pair(string sig, string xedit) => fx.Result.PairRows.SingleOrDefault(x => x.Sig == sig && x.XEditPath == xedit);
+        string? Named(string sig, string path) => fx.Sql($"SELECT XEditPath FROM PairNames WHERE Sig = '{sig}' AND Path = '{path}'") is { Count: > 0 } r ? r[0][0] as string : null;
+        // Gains: NAVI's navmesh infos, the record flags fixes.19 named (C54), each kind's own fields
+        Assert.Equal(36, fx.Result.PairRows.Count(x => x.Sig == "NAVI" && x.MutagenPath.StartsWith("MapInfos[*].", StringComparison.Ordinal) && x.Match != null));
+        Assert.Equal("MajorFlags.Restricted", Pair("KYWD", @"\Record Header\Record Flags\Restricted")!.MutagenPath);
+        Assert.Equal("MajorFlags.HighResFirstPersonOnly", Pair("WEAP", @"\Record Header\Record Flags\High-Res 1st Person Only")!.MutagenPath);
+        Assert.Equal("Actions[*].VoiceOverride.EventForm", Pair("SCEN", @"\Actions\Action\Radio\WED0 - Voice Override\Form Only\Start Form")!.MutagenPath);
+        var loc = Pair("QUST", @"\Aliases\Location Alias\ALID - Alias Name")!;
+        Assert.Equal(("Aliases[*].Name", 981, 981), (loc.MutagenPath, loc.Checked, loc.Agree));
+        Assert.Equal("Aliases[*].Flags.IsCompanion", Pair("QUST", @"\Aliases\Location Alias\FNAM - Flags\Discard on shutdown if unused")!.MutagenPath);
+        Assert.Equal("Aliases[*].Flags.IsCompanion", Pair("QUST", @"\Aliases\Reference Alias\FNAM - Flags\Is Companion")!.MutagenPath);
+        // A path several kinds' fields name takes the one checked on the most records (Generator, PairNames)
+        Assert.Equal(@"\Aliases\Reference Alias\ALID - Alias Name", Named("QUST", "Aliases[*].Name"));
+        Assert.Equal(@"\Actions\Action\Dialogue\DATA - Topic", Named("SCEN", "Actions[*].Topic"));
+        // Wrong old pairs gone: a condition's Function never pairs with FirstParameter.Index (ALCH's agreed on 0 of 291);
+        // QUST's VMAD script flags each pair with their own script (1,051 and 1,012 of as many; before 742 and 484)
+        Assert.DoesNotContain(fx.Result.PairRows, x => x.XEditPath.EndsWith(@"CTDA - CTDA\Function", StringComparison.Ordinal) && x.MutagenPath.EndsWith("FirstParameter.Index", StringComparison.Ordinal));
+        Assert.Equal("VirtualMachineAdapter.Scripts[*].Flags", Pair("QUST", @"\VMAD - Virtual Machine Adapter\Scripts\Script\Flags")!.MutagenPath);
+        Assert.Equal("VirtualMachineAdapter.Script.Flags", Pair("QUST", @"\VMAD - Virtual Machine Adapter\Script Fragments\Script\Script Data\Flags")!.MutagenPath);
+        // XALD's Unused read as a half (C221)
+        Assert.Contains("003e=1.5", Pair("REFR", @"\XALD - Area Light\Unused")!.Translation, StringComparison.Ordinal);
+        // A condition list's names don't move with another record type's pairs (ContainerNames weighs each type's fields)
+        Assert.Equal(@"\Conditions\Condition", Named("BMMO", "Conditions[*]"));
+        Assert.Equal(@"\Conditions\Condition\CTDA - CTDA", Named("CAMS", "Conditions[*].Data"));
+        Assert.Equal(@"\Conditions\Conditions\Condition", Named("ACTI", "Conditions[*]"));
     }
 
     [Fact]
@@ -184,14 +232,17 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         Assert.Equal(("not data", "Mutagen's data type state"), (dstd.Match, dstd.Reason));
         Assert.Contains("xEdit's field is a value in DSTD", dstd.Detail);
         Assert.Equal(1, fx.Result.Pairs.NotData["Mutagen's data type state"]);
-        Assert.False(fx.Result.Pairs.Reasons.ContainsKey("property not in Mutagen's XML"));
+        // One pair names a property Mutagen writes by hand beside its XML field (J77, 2026-11-15): MGEF's 1st "Assoc.
+        // Item" is the archetype's association, which xecmp read as MagicEffectArchetype.AssociationKey (a FormKey view
+        // of the XML's Association)
+        var key = Assert.Single(fx.Result.PairRows, p => p.Match == null);
+        Assert.Equal(("MGEF", "Archetype.AssociationKey", "property not in Mutagen's XML"), (key.Sig, key.MutagenPath, key.Reason));
 
-        // Nothing is left unmatched since the pairs were made again on fixes.14 (2026-11-14) and row 8's properties
+        // Nothing else is left unmatched since the pairs were made again on fixes.14 (2026-11-14) and row 8's properties
         // became fields. The 20 pairs made on C174's names are gone.
         Assert.Equal(0, fx.Result.PairRows.Count(p => p.Match == null && p.Reason == "unknown field since named or split"));
-        Assert.Equal(0, fx.Result.PairRows.Count(p => p.Match == null));
         Assert.StartsWith("# xEdit pairs that match no field of Mutagen ", File.ReadLines(fx.Report).First());
-        Assert.EndsWith(": 0 of 7260.", File.ReadLines(fx.Report).First());
+        Assert.EndsWith($": 1 of {fx.Result.PairRows.Count}.", File.ReadLines(fx.Report).First());
     }
 
     [Fact]
@@ -206,13 +257,27 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         int majorFlag = objects.Count(o => o.Attribute("majorFlag")?.Value == "true");
         int versioning = objects.Count(o => Kids(FieldsOf(o), "Break").Any());
         int dataStates = objects.Sum(o => Kids(FieldsOf(o), "Data").Count(d => Kids(FieldsOf(d), "Break").Any() || Kids(FieldsOf(d), "Range").Any() || d.Attribute("optional")?.Value == "true"));
-        Assert.Equal((42, 13, 10), (majorFlag, versioning, dataStates));
+        // fixes.20 (C55) gave Key, Static, StaticCollection, LeveledBaseForm, Region, BiomeMarker, GenericBaseForm, Star and Projectile their MajorFlags: 42 -> 51
+        Assert.Equal((51, 13, 10), (majorFlag, versioning, dataStates));
         Assert.Equal(majorFlag, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Name = 'MajorFlags' AND Source IS NOT NULL"));
         Assert.Equal(versioning, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Name = 'Versioning' AND Source IS NOT NULL AND Ord = 1"));
         Assert.Equal(dataStates, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Name LIKE '%DataTypeState' AND Source IS NOT NULL"));
-        Assert.Equal(68L, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Source IS NOT NULL"));
-        Assert.Empty(fx.Result.Reflect.DerivedMissing);
-        Assert.Equal(68, fx.Result.Reflect.DerivedFound);
+        Assert.Equal(77L, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Source IS NOT NULL"));
+        // From Mutagen's property manifest (C60 W6), not the generator's rules applied again. Since fixes.24 (C80, GAPS S171
+        // fixed) each Loqui field of a block has its own place: MovementData's speeds and BiomeBTPS's items run one after
+        // another (the build fails on places that overlap)
+        foreach (var obj in new[] { "MovementData", "BiomeBTPS" })
+        {
+            var at = fx.Sql($"SELECT Offset FROM ObjectFields WHERE Object = '{obj}' AND Offset IS NOT NULL AND Kind <> 'Break' ORDER BY Ord").Select(r => Convert.ToInt64(r[0], System.Globalization.CultureInfo.InvariantCulture)).ToList();
+            Assert.True(at.Count >= 6 && at.Distinct().Count() == at.Count, $"{obj}: offsets {string.Join(",", at)}");
+        }
+        Assert.Equal(1L, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Object = 'MovementData' AND Path = 'MaxSpeedLeft' AND Offset IS NOT NULL"));
+        // C81: an object hand-written code enters names its readers (enteredBy, Objects.HandRead), its fields their filler
+        // (filledBy) and no offset. TraversalReference.Traversal (binary="Custom", its reader reads Flags at 40 and the link at
+        // 44) no longer takes its reader's start, 40, as its offset: the record XML's layoutOffset 44 places it
+        Assert.Equal(new object?[] { "APackageTarget.CreateFromBinary", null }, fx.Sql("SELECT FilledBy, Offset FROM ObjectFields WHERE Object = 'PackageTargetSpecificReference' AND Path = 'Reference'")[0]);
+        Assert.Contains("APackageTarget.CreateFromBinary", fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'PackageTargetSpecificReference'")[0][0] as string);
+        Assert.Equal(new object?[] { null, "44" }, fx.Sql("SELECT Offset, LayoutOffset FROM ObjectFields WHERE Object = 'TraversalReference' AND Path = 'Traversal'")[0]);
 
         // Each is a field of the right object, with the compiled enum and its members
         Assert.Equal(new object?[] { "Enum", "Weapon.MajorFlag", null, null }, fx.Sql("SELECT Kind, Enum, Subrecord, Offset FROM ObjectFields WHERE Object = 'Weapon' AND Path = 'MajorFlags'")[0]);
@@ -301,6 +366,8 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         // A struct inside a data block: the seven sounds of WAUD, 40 bytes each, then the sound level
         var rows = fx.Sql("SELECT Path, Subrecord, Offset FROM Fields WHERE Type = 'Weapon' AND Path IN ('PrimedExplosive.StopEvent', 'SoundLevel', 'PickupSound.StartEvent') ORDER BY Path");
         Assert.Equal(new object?[] { "PickupSound.StartEvent", "PUSH", 0L }, rows[0]);
+        // Since fixes.24 (C80, GAPS S171 fixed) each of the seven sounds (a SoundReference) has its own place: the sixth
+        // (PrimedExplosive) at 200, its StopEvent at 56 in it, counted from the struct's start
         Assert.Equal(new object?[] { "PrimedExplosive.StopEvent", "WAUD", 56L }, rows[1]);
         Assert.Equal(new object?[] { "SoundLevel", "WAUD", 280L }, rows[2]);
     }
@@ -344,13 +411,128 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         Assert.Equal(0L, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Path IN ('FirstUnusedStringParameter', 'SecondUnusedStringParameter') AND Subrecord IS NULL"));
     }
 
+    // ---- GAPS S59: an object that begins with a subrecord of its own is no struct ----
+
+    [Fact]
+    public void AnObjectWhoseFirstFieldIsASubrecordIsNoStruct()
+    {
+        // A container entry is a CNTO (ContainerItem) and a COED (ExtraData): each item of a container's list begins at its CNTO
+        Assert.Equal(0L, fx.Scalar("SELECT Struct FROM Objects WHERE Name = 'ContainerEntry'"));
+        Assert.Equal(new object?[] { 1L, null, 1L, null }, fx.Sql("SELECT a.StartsSubrecord, a.Offset, b.StartsSubrecord, b.Offset FROM ObjectFields a JOIN ObjectFields b ON b.Object = a.Object AND b.Path = 'Data' WHERE a.Object = 'ContainerEntry' AND a.Path = 'Item'")[0]);
+        // The others of the kind: lists of subrecords (BODS/BODV items behind BODC, naming rules behind VNAM, collection aliases' ALCS ...)
+        foreach (var o in new[] { "BlueprintComponentBODSRow", "InstanceNamingRuleSet", "QuestCollectionAlias", "WeaponInstanceNamingRules" })
+            Assert.Equal(0L, fx.Scalar($"SELECT Struct FROM Objects WHERE Name = '{o}'"));
+        // Objects whose bytes start inside their user's subrecord and that hold subrecords after them stay structs:
+        // a condition (CTDA, then the CIS1 and CIS2 some kinds of its data hold), a legendary item's LNAM entry (its
+        // conditions' CITC and CTDA after all the entries), both read by hand-written code
+        Assert.Equal(new object?[] { 1L, 1L }, fx.Sql("SELECT a.Struct, b.Struct FROM Objects a, Objects b WHERE a.Name = 'Condition' AND b.Name = 'LegendaryItemLnamEntry'")[0]);
+        // No struct is left whose first field (its bases' first) is an object or list of objects with a signature of its own
+        var left = fx.Sql(@"WITH first AS (
+                SELECT a.Object AS Obj, f.Object AS Owner, f.Path, f.RefObject,
+                       row_number() OVER (PARTITION BY a.Object ORDER BY a.Level DESC, f.Ord) AS n
+                FROM ObjectAncestors a JOIN ObjectFields f ON f.Object = a.Ancestor
+                WHERE f.Kind <> 'Break' AND f.Source IS NULL AND f.Path NOT LIKE '%[*]')
+            SELECT o.Name FROM Objects o JOIN first ON first.Obj = o.Name AND first.n = 1
+            JOIN ObjectFields i ON i.Object = first.Owner AND (i.Path = first.Path OR i.Path = first.Path || '[*]') AND i.RefObject IS NOT NULL
+            JOIN Objects r ON r.Name = i.RefObject
+            WHERE o.Struct = 1 AND r.Sig IS NOT NULL");
+        Assert.Empty(left);
+    }
+
+    // ---- GAPS S64: which BFCB text picks which component kind ----
+
+    [Fact]
+    public void EachComponentKindHasTheBfcbTextMutagenReadsItBy()
+    {
+        // Mutagen's XML says it since fixes.20 (C57 W4): selectedBy and selectorEnum on AComponent, selectorValue on each kind,
+        // "*" on UnknownComponent, the kind Mutagen's reader makes of any other BFCB text (C63)
+        Assert.Equal(new object?[] { "subrecord:BFCB:string", "AComponent.ComponentType" }, fx.Sql("SELECT SelectedBy, SelectorEnum FROM Objects WHERE Name = 'AComponent'")[0]);
+        Assert.Equal("*", fx.Sql("SELECT SelectorValue FROM Objects WHERE Name = 'UnknownComponent'")[0][0]);
+        var kinds = fx.Sql("SELECT o.Name, o.SelectorValue FROM Objects o JOIN ObjectAncestors a ON a.Object = o.Name AND a.Ancestor = 'AComponent' AND a.Level > 0 WHERE o.Abstract = 0 AND o.Name <> 'UnknownComponent'")
+            .ToDictionary(r => (string)r[0]!, r => (string?)r[1]);
+        var members = Enum.GetNames<Mutagen.Bethesda.Starfield.AComponent.ComponentType>();
+        Assert.Equal(66, kinds.Count);
+        Assert.Equal(members.Length, kinds.Count);
+        // The enum Mutagen parses the text as, member by member, with its values
+        Assert.Equal(members.Select(m => new object?[] { m, (long)(int)Enum.Parse<Mutagen.Bethesda.Starfield.AComponent.ComponentType>(m) }),
+            fx.Sql("SELECT Member, Value FROM Enums WHERE Enum = 'AComponent.ComponentType' ORDER BY Value"));
+        // Every kind's text is one member, and Mutagen's own reader makes that kind of component from it
+        var key = Mutagen.Bethesda.Plugins.ModKey.FromFileName("SchemaTestsComponents.esm");
+        var meta = new Mutagen.Bethesda.Plugins.Binary.Streams.ParsingMeta(Mutagen.Bethesda.Plugins.Meta.GameConstants.Starfield, key,
+            Mutagen.Bethesda.Plugins.Masters.SeparatedMasterPackage.Factory(Mutagen.Bethesda.GameRelease.Starfield, key, Mutagen.Bethesda.Plugins.MasterStyle.Full,
+                new Mutagen.Bethesda.Plugins.Masters.MasterReferenceCollection(key), null));
+        foreach (var (kind, text) in kinds)
+        {
+            Assert.NotNull(text);
+            Assert.Contains(text, members);
+            var bytes = new List<byte>();
+            bytes.AddRange("BFCB"u8.ToArray()); bytes.AddRange(BitConverter.GetBytes((ushort)(text!.Length + 1)));
+            bytes.AddRange(System.Text.Encoding.ASCII.GetBytes(text)); bytes.Add(0);
+            bytes.AddRange("BFCE"u8.ToArray()); bytes.Add(0); bytes.Add(0);
+            var frame = new Mutagen.Bethesda.Plugins.Binary.Streams.MutagenFrame(new Mutagen.Bethesda.Plugins.Binary.Streams.MutagenMemoryReadStream(bytes.ToArray(), meta));
+            Assert.Equal(kind, Mutagen.Bethesda.Starfield.AComponent.CreateFromBinary(frame, default).GetType().Name);
+        }
+        Assert.Equal(kinds.Count, kinds.Values.Distinct().Count());
+    }
+
+    // ---- GAPS S65: the model is safe to walk from many threads at once ----
+
+    [Fact]
+    public void TheModelWalkedFromEveryCoreAtOnceIsTheModelWalkedByOneThread()
+    {
+        // One thread: every record type's fields spelled out, every object's tables, every path looked up (a fresh model)
+        static List<string> Walk(SchemaModel m, string type)
+        {
+            var lines = new List<string>();
+            foreach (var r in m.Expand(type))
+                lines.Add($"{r.Path}|{r.Sort}|{r.Subrecord}|{r.Offset}|{r.Enum}|{r.InList}");
+            foreach (var o in m.Ancestry(type))
+            {
+                lines.Add(o.Name + ": " + string.Join(",", m.AllFields(o.Name).Select(x => x.F.Path + "/" + x.Level)));
+                lines.Add(o.Name + " kinds: " + string.Join(",", m.Variants(o.Name)) + " targets: " + string.Join(",", m.Targets(o.Name).Select(t => t.Name + t.Marker)));
+            }
+            return lines;
+        }
+        var one = SchemaDb.Load(fx.Db).Model;
+        var types = one.RecordTypes.Select(t => t.Name).ToList();
+        var want = types.ToDictionary(t => t, t => Walk(one, t), StringComparer.Ordinal);
+
+        // Every core at once, on fresh models, each type walked by several threads together, the big ones first
+        int cores = Environment.ProcessorCount;
+        for (int round = 0; round < 3; round++)
+        {
+            var many = SchemaDb.Load(fx.Db).Model;
+            var jobs = types.OrderByDescending(t => want[t].Count).SelectMany(t => Enumerable.Repeat(t, 4)).ToList();
+            var got = new System.Collections.Concurrent.ConcurrentBag<(string Type, List<string> Lines)>();
+            var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
+            using var start = new ManualResetEventSlim(false);
+            var threads = Enumerable.Range(0, cores).Select(c => new Thread(() =>
+            {
+                start.Wait();
+                // Before S65's fix the unlocked tables threw here ("Operations that change non-concurrent collections
+                // must have exclusive access") and took the test host down
+                try { for (int i = c; i < jobs.Count; i += cores) got.Add((jobs[i], Walk(many, jobs[i]))); }
+                catch (Exception e) { errors.Add(e.GetType().Name + ": " + e.Message); }
+            })).ToList();
+            threads.ForEach(t => t.Start());
+            start.Set();
+            threads.ForEach(t => t.Join());
+            Assert.Empty(errors);
+            Assert.Equal(jobs.Count, got.Count);
+            foreach (var (type, lines) in got)
+                Assert.True(want[type].SequenceEqual(lines), $"round {round}: {type} walked on {cores} threads differs from one thread's walk");
+        }
+    }
+
     // ---- Mutagen's layout attributes and hand-read layouts (C186, fixes.14; GAPS Part 2 row 30) ----
 
     [Fact]
     public void LayoutAttributesAndHandReadLayoutsAreInTheSchema()
     {
-        // Every layout attribute the XML has is a column of its field or object
-        var docs = Directory.EnumerateFiles(fx.RecordsDir, "*.xml", SearchOption.AllDirectories).Select(f => XDocument.Load(f)).ToList();
+        // Every layout attribute the XML has is a column of its field or object (Core's XML too: since fixes.20, C57 W2, it
+        // places the record header's fields with layoutSubrecord="header")
+        var docs = Directory.EnumerateFiles(fx.RecordsDir, "*.xml", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(Inputs.CheckPackage(fx.PackageDir, Reflect.AssemblyVersion()).Item1!.CoreRecordsDir, "*.xml", SearchOption.AllDirectories)).Select(f => XDocument.Load(f)).ToList();
         foreach (var (attr, column) in new[] { ("layoutOffset", "LayoutOffset"), ("layoutBits", "LayoutBits"), ("layoutSubrecord", "LayoutSubrecord"), ("layoutEncoding", "LayoutEncoding"),
                      ("layoutDroppedBits", "LayoutDroppedBits"), ("layoutPresentWhen", "LayoutPresentWhen"), ("layoutGroup", "LayoutGroup"), ("layoutMap", "LayoutMap") })
         {
@@ -359,8 +541,12 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
             // RegionData.DataType, a property the XML doesn't declare, is placed by the schema itself (GAPS Part 2 row 8)
             Assert.Equal(xml, fx.Scalar($"SELECT count(*) FROM ObjectFields WHERE {column} IS NOT NULL AND Path NOT LIKE '%[*]' AND Source IS NULL"));
         }
-        foreach (var (attr, column) in new[] { ("selectorValue", "SelectorValue"), ("conditionFunction", "ConditionFunction") })
-            Assert.Equal(docs.Sum(d => d.Descendants().Count(e => e.Name.LocalName == "Object" && e.Attribute(attr) != null)), fx.Scalar($"SELECT count(*) FROM Objects WHERE {column} IS NOT NULL"));
+        // Every object's selector value is the XML's, the component kinds' included since fixes.20 (C57 W4, GAPS S64)
+        foreach (var (attr, column) in new[] { ("selectorValue", "SelectorValue"), ("conditionFunction", "ConditionFunction"), ("selectorEnum", "SelectorEnum") })
+            Assert.Equal(docs.Sum(d => d.Descendants().Count(e => e.Name.LocalName == "Object" && e.Attribute(attr) != null)),
+                fx.Scalar($"SELECT count(*) FROM Objects WHERE {column} IS NOT NULL"));
+        Assert.Equal(docs.Sum(d => d.Descendants().Count(e => e.Name.LocalName != "Object" && e.Attribute("selectorEnum") != null)),
+            fx.Scalar("SELECT count(*) FROM ObjectFields WHERE SelectorEnum IS NOT NULL AND Path NOT LIKE '%[*]'"));
         Assert.Equal(612L, fx.Scalar("SELECT count(*) FROM Objects WHERE ConditionFunction IS NOT NULL"));
         // C200 (fixes.16, GAPS Part 2 row 33): UnknownConditionData is the catch-all ("*", kept as text) and places its Function itself
         Assert.Equal("*", fx.Sql("SELECT ConditionFunction FROM Objects WHERE Name = 'UnknownConditionData'")[0][0]);
@@ -387,11 +573,14 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         Assert.Equal(new Dictionary<long, string> { [1] = "Set", [2] = "Add", [3] = "Multiply" },
             SchemaDb.Load(fx.Db).Model.Objects["PerkEntryPointModifyValue"].Fields.Single(f => f.Name == "Modification").LayoutMapEntries);
 
-        // HandReadLayouts.xml: each Record, AnyRecord and Define, read back by SchemaDb
+        // HandReadLayouts.xml: each Header, Record, AnyRecord and Define, read back by SchemaDb
         var kinds = fx.Sql("SELECT Kind, count(*) FROM HandLayouts GROUP BY Kind ORDER BY Kind").ToDictionary(r => (string)r[0]!, r => (long)r[1]!);
-        Assert.Equal(new Dictionary<string, long> { ["AnyRecord"] = 1, ["Define"] = 8, ["Record"] = 20 }, kinds);
+        // fixes.18 (C47) added the hand-read lists SFSearch had copied; fixes.20 (C57) the record header and TES4's (two
+        // Headers and a TES4 Record) and NPC_'s race overrides with a SoundReference define
+        // fixes.24 (C84, C86): AnyRecord NVNM, XTRV, XCZR/XCZC/XCZA and XNSE, Record SFTR, Define Reflection
+        Assert.Equal(new Dictionary<string, long> { ["AnyRecord"] = 6, ["Define"] = 13, ["Header"] = 2, ["Record"] = 32 }, kinds);
         var m = SchemaDb.Load(fx.Db).Model;
-        Assert.Equal(29, m.HandLayouts.Count);
+        Assert.Equal(53, m.HandLayouts.Count);
         var perk = m.HandLayouts.Single(h => h.Kind == "Record" && h.Sig == "PERK");
         Assert.Equal("Perk", perk.Object);
         Assert.Equal(2, perk.Element.Descendants("Segments").Count());
@@ -404,6 +593,335 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         var e = Assert.Throws<SchemaException>(() => HandLayouts.Load(bad, fx.Result.Model));
         Assert.Contains("<U24>", e.Message);
         Assert.Contains("NoSuchClass", e.Message);
+    }
+
+    /// <summary>
+    /// GAPS S67, S88, WORKAROUNDS W2: since fixes.20 (C57) Mutagen's HandReadLayouts.xml lays out every hand-read list
+    /// SFSearch walks, the plugin header's master list and the record header included, so SFSearch keeps no layout file
+    /// of its own. The record header's fields are placed from its Header entries, and the views of its flags that Core's
+    /// hand-written MajorRecord adds come from the Header's Bits.
+    /// </summary>
+    [Fact]
+    public void TheRecordHeaderIsPlacedFromMutagensLayoutFile()
+    {
+        Assert.False(File.Exists(Path.Combine(fx.GenDir, "inputs", "hand-read-layouts.xml")));
+        var m = SchemaDb.Load(fx.Db).Model;
+        HandLayouts.HeaderField? At(string obj, string field) => HandLayouts.HeaderPlace(m, m.Objects[obj].Fields.Single(f => f.Name == field && f.Path == field));
+        // A record's header: MajorRecord's and StarfieldMajorRecord's fields, the views of its flags, a type's MajorFlags
+        Assert.Equal(new HandLayouts.HeaderField(8, 4, 0, null, false, null), At("MajorRecord", "MajorRecordFlagsRaw"));
+        Assert.Equal(new HandLayouts.HeaderField(12, 4, 0, null, false, null), At("MajorRecord", "FormKey"));
+        Assert.Equal(new HandLayouts.HeaderField(16, 4, 0, null, false, null), At("MajorRecord", "VersionControl"));
+        Assert.Equal(new HandLayouts.HeaderField(20, 2, 0, null, false, null), At("StarfieldMajorRecord", "FormVersion"));
+        Assert.Equal(new HandLayouts.HeaderField(22, 2, 0, null, false, null), At("StarfieldMajorRecord", "Version2"));
+        Assert.Equal(new HandLayouts.HeaderField(8, 4, 0x20, "MajorRecordFlagsRaw", false, null), At("MajorRecord", "IsDeleted"));
+        Assert.Equal(new HandLayouts.HeaderField(8, 4, 0x40000, "MajorRecordFlagsRaw", false, null), At("MajorRecord", "IsCompressed"));
+        Assert.Equal(new HandLayouts.HeaderField(8, 4, 0, "MajorRecordFlagsRaw", false, null), At("StarfieldMajorRecord", "StarfieldMajorRecordFlags"));
+        Assert.Equal(new HandLayouts.HeaderField(8, 4, 0, "MajorRecordFlagsRaw", true, null), At("Weapon", "MajorFlags"));
+        // The plugin header's (TES4)
+        Assert.Equal(new HandLayouts.HeaderField(8, 4, 0, null, false, "TES4"), At("StarfieldModHeader", "Flags"));
+        Assert.Equal(new HandLayouts.HeaderField(12, 4, 0, null, false, "TES4"), At("StarfieldModHeader", "FormID"));
+        Assert.Equal(new HandLayouts.HeaderField(16, 4, 0, null, false, "TES4"), At("StarfieldModHeader", "Version"));
+        Assert.Equal(new HandLayouts.HeaderField(20, 2, 0, null, false, "TES4"), At("StarfieldModHeader", "FormVersion"));
+        // A field of the same name elsewhere is no header field
+        Assert.Null(HandLayouts.HeaderPlace(m, m.Objects["Weapon"].Fields.First(f => f.Subrecord != null)));
+        // The record XML places the same fields (layoutSubrecord="header"), and the two hand-written views are fields
+        // derived from the Header's Bits
+        Assert.Equal(new object?[] { "header", "8" }, fx.Sql("SELECT LayoutSubrecord, LayoutOffset FROM ObjectFields WHERE Object = 'MajorRecord' AND Path = 'MajorRecordFlagsRaw'")[0]);
+        Assert.Equal(new object?[] { "Bool", "Derived" }, fx.Sql("SELECT Kind, (SELECT 'Derived' WHERE Source IS NOT NULL) FROM ObjectFields WHERE Object = 'MajorRecord' AND Path = 'IsCompressed'")[0]);
+        Assert.Contains("0x40000", (string)fx.Sql("SELECT Note FROM ObjectFields WHERE Object = 'MajorRecord' AND Path = 'IsCompressed'")[0][0]!);
+        Assert.Equal(Generator.Version, m.Meta["Generator"]);
+        Assert.False(m.Meta.ContainsKey("OwnHandLayoutsSha256"));
+
+        // The lists SFSearch's copies laid out until fixes.18 are the package's own (C47): a quest's aliases from ALST,
+        // ALLS, ALCS or ALMI to ALED, and the rest
+        foreach (var sig in new[] { "CELL", "GPOG", "IDLM", "INNR", "LGDI", "NAVI", "PACK", "PERS", "QUST", "REFR", "REGN", "SCEN", "TES4", "NPC_" })
+            Assert.Contains(m.HandLayouts, h => h.Kind == "Record" && h.Sig == sig);
+        Assert.Contains(m.HandLayouts, h => h.Kind == "AnyRecord" && h.Sig == "BFCB");
+        Assert.Contains(m.HandLayouts.Single(h => h.Kind == "Record" && h.Sig == "QUST").Element.Descendants("Segments"), x => x.Attribute("field")?.Value == "Aliases" && x.Attribute("start")?.Value == "ALST,ALLS,ALCS,ALMI" && x.Attribute("end")?.Value == "ALED");
+        // The quest's aliases list names ALED, the end marker its hand-written reader passes over
+        Assert.Contains("ALED", (string)fx.Sql("SELECT CustomSubrecords FROM ObjectFields WHERE Object = 'Quest' AND Path = 'Aliases'")[0][0]!);
+        // The forms fixes.20 added are known: Header, U64, Guid, View, Object class=
+        string forms = Path.Combine(fx.WorkDir, "new-forms.xml");
+        File.WriteAllText(forms, "<HandReadLayouts game=\"Starfield\" version=\"1\"><Header object=\"StarfieldMajorRecord\"><I32 field=\"MajorRecordFlagsRaw\" name=\"f\" /><View of=\"f\" field=\"MajorFlags\" optional=\"true\" /></Header>"
+            + "<Define name=\"X\"><U64 field=\"A\" /><Guid field=\"B\" /><Object field=\"C\" class=\"NoSuchClass\" /></Define></HandReadLayouts>");
+        var e = Assert.Throws<SchemaException>(() => HandLayouts.Load(forms, fx.Result.Model));
+        Assert.DoesNotContain("<U64>", e.Message);
+        Assert.DoesNotContain("<Guid>", e.Message);
+        Assert.DoesNotContain("<View>", e.Message);
+        Assert.Contains("Object class NoSuchClass", e.Message);
+    }
+
+    [Fact]
+    public void ItemOrderAndEntryLengthTheLinkWalkNeedsAreKept()
+    {
+        // J83 (GAPS S105): a race's subgraph reads its fields in any order until its last field that is never null
+        // (shortCircuitToLastRequired); a planet biome's flora has the length of an entry after its count
+        // (expectedLengthLength). Both are in the schema, so the link walk lays them out as Mutagen reads them.
+        Assert.Equal("ToLastRequired", (string)fx.Sql("SELECT ShortCircuit FROM Objects WHERE Name = 'Subgraph'")[0][0]!);
+        Assert.Equal(1, fx.Scalar("SELECT count(*) FROM Objects WHERE ShortCircuit IS NOT NULL"));
+        Assert.Contains("then the length of an entry (4 bytes)", (string)fx.Sql("SELECT Note FROM ObjectFields WHERE Object = 'PlanetBiome' AND Path = 'Flora'")[0][0]!);
+    }
+
+    [Fact]
+    public void ThePluginHeadersMastersAreFieldsAndItsMasterListIsLaidOut()
+    {
+        // MasterReference comes from Mutagen.Bethesda.Core's XML (in Core's package since fixes.18, C49; written by hand
+        // before), checked against the compiled IMasterReferenceGetter like every other object (GAPS S88)
+        Assert.Equal(new object?[] { "String", "MAST", "NullTerminate" }, fx.Sql("SELECT Kind, Subrecord, TextForm FROM ObjectFields WHERE Object = 'MasterReference' AND Path = 'Master'")[0]);
+        Assert.Equal(new object?[] { "UInt64", "DATA", 8L, 1L }, fx.Sql("SELECT Kind, Subrecord, Size, Nullable FROM ObjectFields WHERE Object = 'MasterReference' AND Path = 'FileSize'")[0]);
+        Assert.Equal("MasterReference", fx.Sql("SELECT RefObject FROM ObjectFields WHERE Object = 'StarfieldModHeader' AND Path = 'MasterReferences[*]'")[0][0]);
+        Assert.DoesNotContain("MasterReference", fx.Result.Reflect.NoType);
+        Assert.DoesNotContain(fx.Result.Reflect.Missing, x => x.StartsWith("MasterReference.", StringComparison.Ordinal));
+        Assert.Equal(1L, fx.Scalar("SELECT count(*) FROM Fields WHERE Type = 'StarfieldModHeader' AND Path = 'MasterReferences[*].Master'"));
+        // Its list is cut at each MAST by Mutagen's TES4 layout (C57), each item a MAST and the DATA after it when there is one
+        var tes4 = SchemaDb.Load(fx.Db).Model.HandLayouts.Single(h => h.Kind == "Record" && h.Sig == "TES4");
+        Assert.Equal("StarfieldModHeader", tes4.Object);
+        Assert.Contains(tes4.Element.Descendants("Segments"), x => x.Attribute("field")?.Value == "MasterReferences" && x.Attribute("start")?.Value == "MAST" && x.Attribute("reader")?.Value == "generated");
+    }
+
+    [Fact]
+    public void ThePluginHeadersFieldsHaveXEditsNames()
+    {
+        // GAPS S90: SF1Edit 4.1.5q's export of the 370 plugin headers in Data, paired with Mutagen's ModHeader of each
+        // (xedit-tes4-2026-11-15): every field Mutagen reads has its xEdit path, as every record type's fields do
+        string? XEdit(string path) => fx.Sql($"SELECT XEditPath FROM PairNames WHERE Sig = 'TES4' AND Path = '{path}'") is { Count: > 0 } r ? r[0][0] as string : null;
+        Assert.Equal(@"\HEDR - Header\Version", XEdit("Stats.Version"));
+        Assert.Equal(@"\HEDR - Header\Number of Records", XEdit("Stats.NumRecords"));
+        Assert.Equal(@"\HEDR - Header\Next Object ID", XEdit("Stats.NextFormID"));
+        Assert.Equal(@"\ONAM - Overridden Forms\Form #*", XEdit("OverriddenForms[*]"));
+        Assert.Equal(@"\Transient Types (CK only)\TNAM - Transient Type\FormType", XEdit("TransientTypes[*].FormType"));
+        Assert.Equal(@"\Record Header\Form Version", XEdit("FormVersion"));
+        Assert.Equal(@"\Record Header\Version Control Info 1", XEdit("Version"));
+        Assert.Equal(@"\CNAM - Author", XEdit("Author"));
+        Assert.Equal(@"\INCC - Interior Cell Count", XEdit("InteriorCellCount"));
+        // A master's MAST: xEdit's file name is the whole of Mutagen's ModKey (the field's compiled type), not a part of it
+        Assert.Equal(@"\Master Files\Master File\MAST - FileName", XEdit("MasterReferences[*].Master"));
+        var mast = fx.Result.PairRows.Single(p => p.Sig == "TES4" && p.Subrecord == "MAST");
+        Assert.Equal(("whole value", "FileName.String"), (mast.Match, mast.Part));
+        // The flags: each flag pairs with its member (xEdit's Small is Mutagen's Light), and the set of flags takes the
+        // name of the xEdit element they sit in, as every set of flags whose flags all sit in one element now does
+        Assert.Equal(@"\Record Header\Record Flags", XEdit("Flags"));
+        Assert.Equal("Record Flags", fx.Sql("SELECT XEdit FROM ObjectFields WHERE Object = 'StarfieldModHeader' AND Path = 'Flags'")[0][0]);
+        Assert.Equal("Small", fx.Sql("SELECT XEditName FROM Enums WHERE Enum = 'StarfieldModHeader.HeaderFlag' AND Member = 'Light'")[0][0]);
+        Assert.Equal(@"\XALG - Flags", fx.Sql("SELECT XEditPath FROM PairNames WHERE Sig = 'ACHR' AND Path = 'XalgFlags'")[0][0]);
+        Assert.True(fx.Result.Pairs.FlagFieldsNamed >= 141, $"{fx.Result.Pairs.FlagFieldsNamed} sets of flags named after their element");
+    }
+
+    [Fact]
+    public void EveryRecordsHeaderFieldsHaveXEditsNames()
+    {
+        // GAPS S97 (J73): xecmp pairs xEdit's \Record Header\... in every record type now (it did for TES4 only), and the
+        // pairs come in through the pairs file like any other: the four whole fields on every record of every type
+        string? XEdit(string sig, string path) => fx.Sql($"SELECT XEditPath FROM PairNames WHERE Sig = '{sig}' AND Path = '{path}'") is { Count: > 0 } r ? r[0][0] as string : null;
+        var whole = new (string Path, string XEdit)[]
+        {
+            ("FormKey", @"\Record Header\FormID"), ("VersionControl", @"\Record Header\Version Control Info 1"),
+            ("FormVersion", @"\Record Header\Form Version"), ("Version2", @"\Record Header\Version Control Info 2"),
+        };
+        var sigs = fx.Sql("SELECT DISTINCT Sig FROM Pairs WHERE XEditPath LIKE '\\Record Header%' AND Sig <> 'TES4'").Select(r => (string)r[0]!).ToList();
+        Assert.True(sigs.Count >= 175, $"{sigs.Count} record types have record header pairs");
+        foreach (var sig in sigs)
+            foreach (var (path, xedit) in whole)
+                Assert.Equal((sig, xedit), (sig, XEdit(sig, path)));
+        // Each pair agrees on every record it was checked on, and matches the schema's field exactly
+        var header = fx.Sql("SELECT Sig, MutagenPath, Checked, Agree, Match FROM Pairs WHERE XEditPath LIKE '\\Record Header\\%' AND Sig <> 'TES4' AND MutagenPath IN ('FormKey', 'VersionControl', 'FormVersion', 'Version2')");
+        Assert.Equal(sigs.Count * 4, header.Count);
+        Assert.All(header, r => Assert.Equal((r[0], r[1], r[2], "exact"), (r[0], r[1], r[3], r[4])));
+        // The flags: the whole field where xEdit shows it (records with none set), each flag by its name, and the set of
+        // flags named after the element it sits in
+        Assert.Equal(@"\Record Header\Record Flags", XEdit("WEAP", "MajorRecordFlagsRaw"));
+        Assert.Equal(@"\Record Header\Record Flags", XEdit("WEAP", "MajorFlags"));
+        Assert.Equal("Non-Playable", fx.Sql("SELECT XEditName FROM Enums WHERE Enum = 'Weapon.MajorFlag' AND Member = 'NonPlayable'")[0][0]);
+        // Once per field, the readable names are xEdit's
+        object?[] Names(string obj, string path) => fx.Sql($"SELECT Readable, XEdit FROM ObjectFields WHERE Object = '{obj}' AND Path = '{path}'")[0];
+        Assert.Equal(new object?[] { "FormID", "FormID" }, Names("MajorRecord", "FormKey"));
+        Assert.Equal(new object?[] { "Version Control Info 1", "Version Control Info 1" }, Names("MajorRecord", "VersionControl"));
+        Assert.Equal(new object?[] { "Record Flags", "Record Flags" }, Names("MajorRecord", "MajorRecordFlagsRaw"));
+        Assert.Equal(new object?[] { "Form Version", "Form Version" }, Names("StarfieldMajorRecord", "FormVersion"));
+        Assert.Equal(new object?[] { "Version Control Info 2", "Version Control Info 2" }, Names("StarfieldMajorRecord", "Version2"));
+        // TES4 keeps its own (J64's) header pairs
+        Assert.Equal(@"\Record Header\Version Control Info 1", XEdit("TES4", "Version"));
+        // describe gives them
+        var (exit, text) = fx.Describe("WEAP", "Record Flags");
+        Assert.Equal(0, exit);
+        Assert.Contains("MajorRecordFlagsRaw", text);
+        (exit, text) = fx.Describe("Weapon.FormKey");
+        Assert.Equal(0, exit);
+        Assert.Contains(@"- Readable name: FormID (xEdit's name; xEdit path \Record Header\FormID", text);
+    }
+
+    [Fact]
+    public void RecordTypesObjectsAndListsHaveXEditsNames()
+    {
+        const string BS = "\\";
+        // GAPS S98 (J74): xEdit's name for every record type (inputs/xedit-record-names-*.tsv), and for each record
+        // type's objects and lists the xEdit element their paired fields sit in
+        Assert.Equal(0L, fx.Scalar("SELECT count(*) FROM RecordTypes WHERE XEdit IS NULL"));
+        string Type(string sig) => (string)fx.Sql($"SELECT XEdit FROM RecordTypes WHERE Sig = '{sig}' LIMIT 1")[0][0]!;
+        Assert.Equal("Weapon", Type("WEAP"));
+        Assert.Equal("Main File Header", Type("TES4"));
+        Assert.Equal("Placed Object", Type("REFR"));
+        Assert.Equal("Non-Player Character", Type("NPC_"));
+        Assert.Equal(fx.Result.Model.RecordTypes.Count, fx.Result.RecordTypesNamed);
+
+        string? XEdit(string sig, string path) => fx.Sql($"SELECT XEditPath FROM PairNames WHERE Sig = '{sig}' AND Path = '{path}'") is { Count: > 0 } r ? r[0][0] as string : null;
+        // The plugin header's (the gap's own examples)
+        Assert.Equal(@"\HEDR - Header", XEdit("TES4", "Stats"));
+        Assert.Equal(@"\Master Files", XEdit("TES4", "MasterReferences"));
+        Assert.Equal(@"\Master Files\Master File", XEdit("TES4", "MasterReferences[*]"));
+        Assert.Equal(@"\ONAM - Overridden Forms", XEdit("TES4", "OverriddenForms"));
+        Assert.Equal(@"\Transient Types (CK only)\TNAM - Transient Type", XEdit("TES4", "TransientTypes[*]"));
+        // A list is the element its items sit in; an object the element its fields share
+        Assert.Equal(@"\Keywords\KWDA - Keywords", XEdit("WEAP", "Keywords"));
+        Assert.Equal(@"\OBND - Object Bounds", XEdit("WEAP", "ObjectBounds"));
+        Assert.Equal(@"\PUSH - Pickup Sound", XEdit("WEAP", "PickupSound"));
+        Assert.Equal(@"\SPED - Movement Data\Max Speed Right", XEdit("MOVT", "MovementData.MaxSpeedRight"));
+        // Components: each kind's data sits in a "Component Data - <kind>" element of its own, so the item is the element
+        // the kinds share, in a record type with one kind only too (COBJ)
+        foreach (var sig in new[] { "WEAP", "COBJ" })
+        {
+            Assert.Equal(@"\Base Form Components", XEdit(sig, "Components"));
+            Assert.Equal(@"\Base Form Components\Component", XEdit(sig, "Components[*]"));
+        }
+        // A few fields that nest differently on the two sides (a condition's CIS2) don't cut their containers short
+        Assert.Equal(@"\Objectives\Objective\Targets\Target", XEdit("QUST", "Objectives[*].Targets[*]"));
+        Assert.Equal(@"\Objectives\Objective\Targets", XEdit("QUST", "Objectives[*].Targets"));
+        // Every container's element holds three quarters of its paired fields at least (the rule), and is never the same
+        // as the element of the container it sits in
+        var rows = fx.Sql(@"SELECT DISTINCT pn.Sig, pn.Path, pn.XEditPath FROM PairNames pn JOIN Fields f ON f.Sig = pn.Sig AND f.PlainPath = pn.Path
+            WHERE f.Kind IN ('Object', 'List', 'Array', 'Array2D', 'Dictionary', 'Gendered') OR f.RefObject IS NOT NULL");
+        Assert.True(rows.Count >= 1400, $"{rows.Count} objects and lists of record types have xEdit's name");
+        // Each paired field's own element: the pair's path, or for a component (X, Y, Z) or a flag the element above it
+        static string Own(PairRow p) => p.Match is "component" or "flag" ? p.XEditPath[..p.XEditPath.LastIndexOf(BS)] : p.XEditPath;
+        static string Field(PairRow p) => p.Match is "component" or "flag" ? p.MutagenPath[..p.MutagenPath.LastIndexOf('.')] : p.MutagenPath.Split('#')[0];
+        var pairs = fx.Result.PairRows.Where(p => p.Match is "exact" or "whole value" or "component" or "flag").GroupBy(p => p.Sig).ToDictionary(g => g.Key, g => g.ToList());
+        int checkedRows = 0;
+        foreach (var r in rows)
+        {
+            string sig = (string)r[0]!, path = (string)r[1]!, el = (string)r[2]!;
+            var below = pairs.GetValueOrDefault(sig, new()).Where(p => Field(p).StartsWith(path + ".", StringComparison.Ordinal) || Field(p).StartsWith(path + "[", StringComparison.Ordinal))
+                .GroupBy(Field).Select(g => g.Any(p => Own(p).StartsWith(el + BS, StringComparison.Ordinal) || Own(p) == el)).ToList();
+            if (below.Count == 0) continue;
+            checkedRows++;
+            // A list's element comes from its items' (one level up), so its fields sit in it whenever its items' do
+            Assert.True(below.Count(x => x) * 4 >= below.Count * 3, $"{sig} {path} -> {el}: {below.Count(x => x)} of {below.Count} fields below it sit in it");
+        }
+        Assert.True(checkedRows >= 1000, $"{checkedRows} containers checked");
+        // Once per field (ObjectFields), and in the readable names
+        Assert.True(fx.Result.Pairs.ContainerFieldsNamed >= 1100, $"{fx.Result.Pairs.ContainerFieldsNamed} container fields named");
+        Assert.Equal("Base Form Components", fx.Sql("SELECT Readable FROM Fields WHERE Sig = 'WEAP' AND PlainPath = 'Components' LIMIT 1")[0][0]);
+        Assert.Equal("Links", fx.Sql("SELECT Readable FROM Fields WHERE Sig = 'TES4' AND PlainPath = 'TransientTypes[*].Links' LIMIT 1")[0][0]);
+        // describe: the record type's xEdit name, and where a list's name comes from
+        var (exit, text) = fx.Describe("TES4");
+        Assert.Equal(0, exit);
+        Assert.Contains("Record type. Signature TES4, Mutagen name StarfieldModHeader, xEdit name \"Main File Header\"", text);
+        Assert.Contains("| MasterReferences | ", text);
+        (exit, text) = fx.Describe("TES4", "Master");
+        Assert.Contains("Master Files", text);
+        (exit, text) = fx.Describe("StarfieldModHeader.MasterReferences");
+        Assert.Equal(0, exit);
+        Assert.Contains(@"- Readable name: Master Files (xEdit's name; xEdit path \Master Files; the xEdit element its items' paired fields sit in)", text);
+    }
+
+    [Fact]
+    public void XEditsUnknownIsNoReadableName()
+    {
+        // The user, 2026-11-15: "Keep SFSearch's name where xEdit's is Unknown". xEdit's name is the readable name
+        // everywhere except where it is "Unknown": there the readable name stays SFSearch's own (Mutagen's name spaced
+        // out), and xEdit's stays in the xEdit name.
+        // 1. Once per field: a readable name is "Unknown" only where Mutagen's own name is Unknown
+        var fields = fx.Sql("SELECT Object, Path, Name, Readable, XEdit FROM ObjectFields WHERE XEdit IS NOT NULL");
+        Assert.True(fields.Count > 3000);
+        var unknownXEdit = fields.Where(r => PairMatcher.IsUnknownName((string)r[4]!)).ToList();
+        Assert.True(unknownXEdit.Count >= 43, $"{unknownXEdit.Count} fields xEdit calls Unknown");
+        foreach (var r in unknownXEdit)
+            Assert.Equal(PairMatcher.SpacedOut((string)r[2]!), r[3]);
+        Assert.Empty(fields.Where(r => PairMatcher.IsUnknownName((string)r[3]!) && !PairMatcher.IsUnknownName(PairMatcher.SpacedOut((string)r[2]!)))
+            .Select(r => $"{r[0]}.{r[1]}"));
+        // 2. Per record type and path: the same, and xEdit's path stays whole
+        var pairs = fx.Sql("SELECT pn.Sig, pn.Path, pn.XEditPath, pn.Readable, f.Name FROM PairNames pn JOIN Fields f ON f.Sig = pn.Sig AND f.PlainPath = pn.Path GROUP BY pn.Sig, pn.Path");
+        var unknownPairs = pairs.Where(r => PairMatcher.IsUnknownName(PairMatcher.LastName((string)r[2]!))).ToList();
+        Assert.True(unknownPairs.Count >= 46, $"{unknownPairs.Count} paths xEdit calls Unknown");
+        foreach (var r in unknownPairs)
+            Assert.Equal(PairMatcher.SpacedOut((string)r[4]!), r[3]);
+        Assert.Empty(pairs.Where(r => PairMatcher.IsUnknownName((string)r[3]!) && !PairMatcher.IsUnknownName(PairMatcher.SpacedOut((string)r[4]!)))
+            .Select(r => $"{r[0]} {r[1]}"));
+        // 3. Fields the decision was made on: COBJ's RECF (J64's sets of flags), INFO's INTV (before J64), TES4's CHGL
+        object?[] Row(string sig, string path) => fx.Sql($"SELECT Readable, XEdit FROM Fields WHERE Sig = '{sig}' AND PlainPath = '{path}' LIMIT 1")[0];
+        Assert.Equal(new object?[] { "Flags", @"\RECF - Unknown" }, Row("COBJ", "Flags"));
+        Assert.Equal(new object?[] { "Start Scene Phase Index", @"\INTV - Unknown" }, Row("INFO", "StartScenePhaseIndex"));
+        Assert.Equal(new object?[] { "CHGL", @"\CHGL - Unknown" }, Row("TES4", "CHGL"));
+        Assert.Equal(new object?[] { "Flags", "Unknown" }, fx.Sql("SELECT Readable, XEdit FROM ObjectFields WHERE Object = 'ConstructibleObject' AND Path = 'Flags'")[0]);
+        // A real xEdit name stays the readable name: J64's sets of flags (other non-names: XEditsNonNamesGiveWayToABetterOwnName)
+        Assert.Equal("Flags", Row("ACHR", "XalgFlags")[0]);
+        Assert.Equal("General Flags", Row("PACK", "Flags")[0]);
+        // "Unknown": in any case, with or without the element's signature before it; nothing else
+        Assert.True(PairMatcher.IsUnknownName("RECF - Unknown"));
+        Assert.True(PairMatcher.IsUnknownName("unknown"));
+        Assert.False(PairMatcher.IsUnknownName("Unknown #*"));
+        Assert.False(PairMatcher.IsUnknownName("Unused"));
+        // describe gives both names
+        var (exit, text) = fx.Describe("ConstructibleObject.Flags");
+        Assert.Equal(0, exit);
+        Assert.Contains("- Readable name: Flags (Mutagen's name spaced out: xEdit calls it \"Unknown\"; xEdit path \\RECF - Unknown", text);
+    }
+
+    [Fact]
+    public void XEditsNonNamesGiveWayToABetterOwnName()
+    {
+        // The user, 2026-11-15, "Yes, as recommended": the first rule (XEditsUnknownIsNoReadableName) for every non-name.
+        // A non-name from xEdit ("Unknown", numbered "Unknown #n", "Unused", only a signature like "CTDA") never replaces a
+        // real SFSearch name; xEdit's stays in its xEdit field. Where SFSearch's own name is no better (Mutagen's "Unknown"
+        // beside "Unused", "NAM4" beside "Unknown #*"), xEdit's is kept. A list item's placeholder ("Keyword #*") is a name.
+        // 1. Once per field: every readable name by the rule, and no xEdit non-name where SFSearch's own name says more
+        var fields = fx.Sql("SELECT Object, Path, Name, Readable, XEdit FROM ObjectFields WHERE XEdit IS NOT NULL");
+        Assert.Empty(fields.Where(r => (string)r[3]! != PairMatcher.ReadableName((string)r[4]!, (string)r[2]!)).Select(r => $"{r[0]}.{r[1]}"));
+        Assert.Empty(fields.Where(r => r[3]!.Equals(r[4]) && PairMatcher.NameStrength((string)r[2]!) > PairMatcher.NameStrength((string)r[4]!))
+            .Select(r => $"{r[0]}.{r[1]}"));
+        var ownOverNonName = fields.Where(r => PairMatcher.IsNonName((string)r[4]!) && !PairMatcher.IsUnknownName((string)r[4]!) && !r[3]!.Equals(r[4])).ToList();
+        Assert.True(ownOverNonName.Count >= 219, $"{ownOverNonName.Count} fields with an xEdit non-name other than Unknown take their own name");
+        // The 215 conditions' FirstParameter: xEdit names the element, CTDA
+        var ctda = fields.Where(r => (string)r[1]! == "FirstParameter" && (string)r[4]! == "CTDA").ToList();
+        Assert.True(ctda.Count >= 215, $"{ctda.Count} conditions' FirstParameter");
+        Assert.All(ctda, r => Assert.Equal("First Parameter", r[3]));
+        // 2. Per record type and path: the same, with the Mutagen name of the field the path names
+        var pairs = fx.Sql("SELECT pn.Sig, pn.Path, pn.XEditPath, pn.Readable, f.Name FROM PairNames pn JOIN Fields f ON f.Sig = pn.Sig AND f.PlainPath = pn.Path GROUP BY pn.Sig, pn.Path");
+        Assert.Empty(pairs.Where(r => (string)r[3]! == PairMatcher.LastName((string)r[2]!) && PairMatcher.NameStrength((string)r[4]!) > PairMatcher.NameStrength((string)r[3]!))
+            .Select(r => $"{r[0]} {r[1]}"));
+        object?[] Row(string sig, string path) => fx.Sql($"SELECT Readable, XEdit FROM Fields WHERE Sig = '{sig}' AND PlainPath = '{path}' LIMIT 1")[0];
+        // Numbered "Unknown #*": a real own name wins; a signature ("NAM4", "QDU Ps" from QDUPs) is no better
+        Assert.Equal(new object?[] { "Connections", @"\FNAM - Connections\Unknown #*" }, Row("SFBK", "Connections[*]"));
+        Assert.Equal("Links", Row("TES4", "TransientTypes[*].Links[*]")[0]);
+        Assert.Equal("Unknown Strings", Row("PNDT", "Components[*].XMPM.UnknownStrings[*]")[0]);
+        Assert.Equal("Unknown #*", Row("WTHR", "NAM4[*]")[0]);
+        Assert.Equal("Unknown #*", Row("QUST", "QDUPs[*]")[0]);
+        // "Unused": MOVT's Sprint wins; Mutagen's "Unknown" is no better
+        Assert.Equal(new object?[] { "Sprint", @"\SPED - Movement Data\Max Speed Back\Unused" }, Row("MOVT", "MovementData.MaxSpeedBack.Sprint"));
+        Assert.Equal("Unused", Row("MOVT", "MovementData.MaxSpeedForward.Unknown")[0]);
+        Assert.Equal("Unused", Row("FACT", "VendorValues.Unknown")[0]);
+        Assert.Equal(new object?[] { "Sprint", "Unused" }, fx.Sql("SELECT Readable, XEdit FROM ObjectFields WHERE Object = 'MovementSpeeds' AND Path = 'Sprint'")[0]);
+        // WRLD's LodWaterHeight is the record's NAM4, xEdit's LOD Water Height: no longer paired with the planet content
+        // manager component's NAM4 "Debug Color\Unused" (a wrong pair, fixed in the coverage project's xecmp, 2026-11-15)
+        Assert.Equal(new object?[] { "LOD Water Height", @"\LOD Data\NAM4 - LOD Water Height" }, Row("WRLD", "LodWaterHeight"));
+        Assert.Equal(0L, fx.Scalar(@"SELECT count(*) FROM Pairs WHERE XEditPath LIKE '\Base Form Components\%' AND MutagenPath NOT LIKE 'Components%'"));
+        // A list item's placeholder stays
+        Assert.Equal("Keyword #*", fx.Sql("SELECT Readable FROM ObjectFields WHERE Object = 'AObjectModification' AND Path = 'AttachParentSlots[*]'")[0][0]);
+        // 3. The rule's edges
+        Assert.Equal(0, PairMatcher.NameStrength("RECF - unknown"));
+        foreach (var n in new[] { "Unknown #*", "Unknown #2", "Unknown 1", "Unknown2", "Unused", "unused 2", "CTDA", "NAM4", "QDUPs", "FNAM - CTDA" })
+            Assert.True(PairMatcher.NameStrength(n) == 1, n);
+        foreach (var n in new[] { "First Parameter", "Unknown Strings", "Keyword #*", "Name", "Type", "Sprint", "Unused Male" })
+            Assert.True(PairMatcher.NameStrength(n) == 2, n);
+        Assert.Equal("First Parameter", PairMatcher.ReadableName("CTDA", "FirstParameter"));
+        Assert.Equal("Unused", PairMatcher.ReadableName("Unused", "Unknown"));
+        Assert.Equal("Unknown #*", PairMatcher.ReadableName("Unknown #*", "NAM4"));
+        Assert.Equal("XILS", PairMatcher.ReadableName("Unknown", "XILS"));
+        Assert.Equal("Unknown", PairMatcher.ReadableName("Unknown", "Unknown"));
+        Assert.Equal("Base Damage", PairMatcher.ReadableName("Base Damage", "Unknown"));
+        // describe gives both names
+        Assert.Contains("- Readable name: Sprint (Mutagen's name spaced out: xEdit calls it \"Unused\"", fx.Describe("MovementSpeeds.Sprint").Text);
+        Assert.Contains("- Readable name: First Parameter (Mutagen's name spaced out: xEdit calls it \"CTDA\"", fx.Describe("BiomeHasKeywordConditionData.FirstParameter").Text);
+        Assert.Contains("- Readable name: Unused (xEdit's name", fx.Describe("VendorValues.Unknown").Text);
     }
 
     [Fact]
@@ -482,7 +1000,7 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         var byForm = texts.GroupBy(e => e.Attribute("binaryType")?.Value ?? "NullTerminate").ToDictionary(g => g.Key, g => (long)g.Count());
         Assert.True(byForm.Count >= 7, string.Join(", ", byForm.Keys));
         foreach (var (form, n) in byForm)
-            Assert.Equal(n, fx.Scalar($"SELECT count(*) FROM ObjectFields WHERE TextForm = '{form}' AND {OneRowPerElement} AND Object <> 'MajorRecord'")); // its EDID is written by hand
+            Assert.Equal(n, fx.Scalar($"SELECT count(*) FROM ObjectFields WHERE TextForm = '{form}' AND {OneRowPerElement} AND Object NOT IN ('MajorRecord', 'MasterReference')")); // their EDID and MAST are written by hand
         Assert.Equal(0, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE (TextForm IS NOT NULL) <> (Kind IN ('String', 'AssetLink'))"));
         Assert.Equal("PrependLengthUShort", fx.Sql("SELECT TextForm FROM ObjectFields WHERE Object = 'PlanetModelComponentXMPMSubItem' AND Path = 'ResourceID'")[0][0]);
         Assert.Equal("NullTerminate", fx.Sql("SELECT TextForm FROM ObjectFields WHERE Object = 'PlanetModelComponentXMPMSubItem' AND Path = 'Extension'")[0][0]);
@@ -495,13 +1013,16 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
     {
         // No field Mutagen's generated reader skips (binary="NoGeneration") has an offset
         Assert.Equal(0, fx.Scalar("SELECT count(*) FROM ObjectFields f WHERE f.Offset IS NOT NULL AND f.Note LIKE 'read by hand-written Mutagen code%' AND f.Kind <> 'CustomLogic'"));
-        // A condition's CTDA: the XML-order offsets (CompareOperator 0, Flags 4, Unused1 (now Unknown1) 5, Data.RunOnType 0, …) are gone
-        Assert.Equal(0, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Object IN ('Condition', 'ConditionFloat', 'ConditionGlobal', 'ConditionData') AND Offset IS NOT NULL"));
+        // A condition's CTDA: the places Mutagen's property manifest gives (C60 W6): the byte its Flags reader reads (0), Unknown1
+        // (1-3) and the step that reads the rest (4); none of the XML-order ones (CompareOperator 0, Flags 4, Data.RunOnType 0, …)
+        Assert.Equal(new object?[] { "Flags", 0L, "FunctionParse", 4L, "Unknown1", 1L }, fx.Sql("SELECT Path, Offset FROM ObjectFields WHERE Object IN ('Condition', 'ConditionFloat', 'ConditionGlobal', 'ConditionData') AND Offset IS NOT NULL ORDER BY Path").SelectMany(r => r).ToArray());
         Assert.Equal(0, fx.Scalar("SELECT count(*) FROM Fields WHERE Type = 'ConstructibleObject' AND Path LIKE 'Conditions[*].%' AND Offset IS NOT NULL"));
         // A perk effect's PRKE: Rank and Priority (the file has the kind of effect at 0, the rank at 1, the priority at 2)
         Assert.Equal(0, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Object = 'APerkEffect' AND Offset IS NOT NULL"));
-        // An object template's include sits after the keywords in OBTS, where the hand-written reader puts it
-        Assert.Equal(0, fx.Scalar("SELECT count(*) FROM Fields WHERE Type = 'Weapon' AND Path LIKE 'ObjectTemplates[*].Includes[*].%' AND Offset IS NOT NULL"));
+        // An object template's include sits after the keywords in OBTS, where the hand-written reader puts it; since fixes.24
+        // (C81) the manifest says the include's own generated reader reads it from its start: its fields' offsets count from
+        // the include (Mod 0, AttachPointIndex 4, Optional 5, DontUseAll 6), not from OBTS
+        Assert.Equal(new object?[] { "AttachPointIndex", 4L, "DontUseAll", 6L, "Mod", 0L, "Optional", 5L }, fx.Sql("SELECT Path, Offset FROM ObjectFields WHERE Object = 'ObjectTemplateInclude' AND Offset IS NOT NULL ORDER BY Path").SelectMany(r => r).ToArray());
         // Where the generated reader reads, offsets stay: a custom field with a byteLength takes it (Book's DNAM)
         Assert.Equal(5L, fx.Sql("SELECT Offset FROM ObjectFields WHERE Object = 'Book' AND Path = 'TextOffsetX'")[0][0]);
         Assert.Equal(4L, fx.Sql("SELECT Offset FROM ObjectFields WHERE Object = 'SnapLink' AND Path = 'Links'")[0][0]);
@@ -515,24 +1036,107 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
                 {
                     if (f.Ancestors().Any(a => a.Name.LocalName is "List" or "RefList" or "Array" or "Dict" or "Gendered")) continue; // an item, not a field
                     custom++;
-                    if (model.Objects[o.Attribute("name")!.Value].HandRead?.Contains($"BinaryCreateTranslation.FillBinary{f.Attribute("name")!.Value}Custom") == true) found++;
+                    if (model.Objects[o.Attribute("name")!.Value].HandRead?.Contains($"{o.Attribute("name")!.Value}'s hand-written reader of {f.Attribute("name")!.Value}") == true) found++;
                 }
         Assert.True(custom > 60, $"{custom} custom fields in the XML");
         Assert.Equal(custom, found);
         Assert.Equal(fx.Result.HandReadObjects, fx.Scalar("SELECT count(*) FROM Objects WHERE HandRead IS NOT NULL"));
-        Assert.Equal("ConditionBinaryCreateTranslation.FillBinaryFlagsCustom; ConditionBinaryCreateTranslation.FillBinaryFunctionParseCustom",
+        Assert.Equal("Condition's hand-written reader of Flags; Condition's hand-written reader of FunctionParse",
             fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'Condition'")[0][0]);
-        Assert.Equal("via PerkRank.Effects (PerkRankBinaryCreateTranslation.FillBinaryEffectsCustom)", fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'APerkEffect'")[0][0]);
-        Assert.Equal("via Condition.Data", fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'GetGlobalValueConditionData'")[0][0]);
+        Assert.Equal("via PerkRank.Effects (PerkRank's hand-written reader of Effects)", fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'APerkEffect'")[0][0]);
+        // Since fixes.24 (C81) which objects hand-written code enters is the manifest's enteredBy: a condition's data kind is
+        // made by Condition's reader, which then hands it to the kind's generated reader from its start, so it isn't one;
+        // ConditionData's own fields read by hand (its RunOnType, Reference ...) still name the code
+        Assert.Null(fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'GetGlobalValueConditionData'")[0][0]);
+        Assert.Equal("hand-written Mutagen code", fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'ConditionData'")[0][0]);
+        Assert.Equal("via APackageTarget.CreateFromBinary", fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'PackageTargetSpecificReference'")[0][0]);
         Assert.Null(fx.Sql("SELECT HandRead FROM Objects WHERE Name = 'Weapon'")[0][0]); // the record header's flags move nothing
 
         // describe says it on the object, and for a field gives no offset and names the code
-        Assert.Contains("\nRead in part by hand-written Mutagen code: ConditionBinaryCreateTranslation.FillBinaryFlagsCustom; ConditionBinaryCreateTranslation.FillBinaryFunctionParseCustom.", fx.Describe("Condition").Text);
-        Assert.Contains("| CompareOperator | CTDA | Enum CompareOperator, 4 B |  | read by hand-written Mutagen code; Mutagen's layout: offset 0, bits 5-7 |", fx.Describe("Condition").Text);
+        Assert.Contains("\nRead in part by hand-written Mutagen code: Condition's hand-written reader of Flags; Condition's hand-written reader of FunctionParse.", fx.Describe("Condition").Text);
+        Assert.Contains("| CompareOperator | CTDA | Enum CompareOperator, 4 B |  | read by hand-written Mutagen code; Mutagen's layout: offset 0, bits 5-7; filled by Mutagen's hand-written reader of Flags |", fx.Describe("Condition").Text);
         Assert.Contains("entered through PerkRank.Effects", fx.Describe("APerkEffect").Text);
-        Assert.Contains("- File address: CTDA (no offset: Mutagen's hand-written code places it: ConditionFloatBinaryCreateTranslation.CustomBinaryEndImport; ConditionBinaryCreateTranslation.FillBinaryFlagsCustom",
+        Assert.Contains("- File address: CTDA (no offset: Mutagen's hand-written code places it: ConditionFloat's customBinaryEnd (Normal), filling Data.StringParameter1, Data.StringParameter2; Condition's hand-written reader of Flags",
             fx.Describe("ConditionFloat.ComparisonValue").Text);
         Assert.DoesNotContain("Read in part by hand-written", fx.Describe("WEAP").Text);
+    }
+
+    /// <summary>
+    /// GAPS S38: every CustomLogic step names the subrecords it reads (the XML's recordType and &lt;RecordType&gt; items;
+    /// a step inside a subrecord, that subrecord), and the fields its compiled reader fills carry them. A PERS's Items
+    /// (from DAT2, with XXXX long forms) had no subrecord in the schema.
+    /// </summary>
+    [Fact]
+    public void EveryCustomLogicStepNamesItsSubrecordsAndTheFieldsItFills()
+    {
+        var model = SchemaDb.Load(fx.Db).Model;
+        int steps = 0, own = 0;
+        foreach (var d in XmlDocs())
+            foreach (var o in d.Descendants().Where(e => e.Name.LocalName == "Object"))
+                foreach (var step in o.Descendants().Where(e => e.Name.LocalName == "CustomLogic"))
+                {
+                    steps++;
+                    var sigs = new[] { step.Attribute("recordType")?.Value }.Concat(step.Elements().Where(e => e.Name.LocalName == "RecordType").Select(e => e.Value.Trim()))
+                        .Where(s => s is { Length: > 0 }).Distinct().ToList();
+                    var row = model.Objects[o.Attribute("name")!.Value].Fields.Single(f => f.Kind == "CustomLogic" && f.Name == step.Attribute("name")!.Value);
+                    if (sigs.Count > 0) { own++; Assert.Equal(string.Join(",", sigs), row.CustomSubrecords); }
+                    else if (model.Objects[row.Object].ObjType == "Group") Assert.Null(row.CustomSubrecords);
+                    else Assert.NotNull(row.CustomSubrecords); // inside its object's subrecord
+                }
+        var hf = fx.Result.HandFills;
+        Assert.Equal(40, steps);
+        Assert.Equal((40, 29, 9, 2), (hf.Steps, hf.OwnSubrecords, hf.InSubrecord, hf.GroupHeader));
+        Assert.Equal(own, hf.OwnSubrecords);
+        Assert.Equal(steps - hf.GroupHeader, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Kind = 'CustomLogic' AND CustomSubrecords IS NOT NULL"));
+        // The steps whose reader fills no field of its object: Mutagen drops what they read (BFCB, TIFC, IDLC, XPPA,
+        // NAM3), or other code reads it (EPFT by the perk rank's effects, PTDA by the package data, MGEF's associated
+        // item by the archetype). Any other step fills fields
+        Assert.Equal(new[] { "AComponent.BFCBString (BFCB)", "APackageTarget.DataParse (PTDA)", "APerkEffect.FunctionParameters (EPFT)", "DialogTopic.InfoListCount (TIFC)",
+            "IdleMarker.AnimationCount (IDLC)", "MagicEffect.AssociatedItem (DATA)", "Patrol.PatrolScriptMarker (XPPA)", "Race.NAM3 (NAM3)" }, hf.FillNothing);
+        Assert.Equal(30, hf.StepsFilling);
+        Assert.Equal(steps - hf.GroupHeader - hf.FillNothing.Count, fx.Scalar("SELECT count(*) FROM ObjectFields WHERE Kind = 'CustomLogic' AND CustomFills IS NOT NULL"));
+        // Every field Mutagen reads by hand outside a subrecord's bytes has a reader that fills it, or its subrecord, or a
+        // layout attribute: Mutagen's files (and the compiled readers) leave none unsaid. C63's UnknownComponent says so
+        // since fixes.22 (C73, GAPS S163): its ReadRaw fills TypeName (the BFCB text) and Data (the subrecords up to BFCE)
+        Assert.Empty(hf.FieldsNoStep);
+
+        // Fields and their subrecords
+        string? Row(string obj, string field, string col) => fx.Sql($"SELECT {col} FROM ObjectFields WHERE Object = '{obj}' AND Path = '{field}'")[0][0] as string;
+        Assert.Equal(("XXXX,DAT2", "ItemsParse"), (Row("PERS", "Items", "CustomSubrecords"), Row("PERS", "Items", "FilledBy")));
+        Assert.Equal("Items", Row("PERS", "ItemsParse", "CustomFills"));
+        // The step names five; Mutagen's QUST layout adds ALED, the end marker the reader passes over (GAPS S67; SFSearch's
+        // own copy until fixes.18)
+        Assert.Equal(("ANAM,ALST,ALLS,ALCS,ALMI,ALED", "AliasParse"), (Row("Quest", "Aliases", "CustomSubrecords"), Row("Quest", "Aliases", "FilledBy")));
+        Assert.Equal(("QNAM,PNAM,JNAM,NAM1", "CloudXSpeeds,CloudColors,CloudAlphas,DisabledCloudLayers"), (Row("Weather", "Clouds", "CustomSubrecords"), Row("Weather", "Clouds", "FilledBy")));
+        Assert.Equal("Clouds", Row("Weather", "CloudColors", "CustomFills")); // reads FormVersion to pick its layout, doesn't fill it
+        Assert.Equal(("DNAM,SNAM,PNAM", "TypeParse,DataParse"), (Row("Note", "Data", "CustomSubrecords"), Row("Note", "Data", "FilledBy")));
+        Assert.Equal(("NAME", "TrapForm"), (Row("PlacedArrow", "Projectile", "CustomSubrecords"), Row("PlacedArrow", "Projectile", "FilledBy"))); // a kind of the step's object
+        Assert.Equal(("ONA2", "FlagParse"), (Row("NpcRaceOverride", "Movement", "CustomSubrecords"), Row("NpcRaceOverride", "Movement", "FilledBy"))); // inside ONA2
+        Assert.Equal(("PKCU", "PackageTemplate"), (Row("Package", "DataInputVersion", "CustomSubrecords"), Row("Package", "DataInputVersion", "FilledBy"))); // a binary="Custom" field's reader
+        Assert.Equal(("ReadRaw", "ReadRaw"), (Row("UnknownComponent", "TypeName", "FilledBy"), Row("UnknownComponent", "Data", "FilledBy"))); // the XML's handReadFills (C73)
+        // FSTS's Count step names XCNT and DATA itself since fixes.18 (C36): the five lists are in DATA. (Before, only
+        // HandReadLayouts.xml named DATA.) So does a package's DataInputNames step name UNAM, BNAM and PNAM (C38)
+        Assert.Equal(("XCNT,DATA", "Count"), (Row("FootstepSet", "WalkFootsteps", "CustomSubrecords"), Row("FootstepSet", "WalkFootsteps", "FilledBy")));
+        Assert.Equal("XCNT,DATA", Row("FootstepSet", "Count", "CustomSubrecords"));
+        Assert.Equal("UNAM,BNAM,PNAM", Row("Package", "DataInputNames", "CustomSubrecords"));
+        // Mutagen's layouts (C47; SFSearch's own copies until fixes.18, GAPS S67) add the subrecords its hand-written
+        // readers go on to read: a package's data input blocks (a target's CITC, as FillPackageData reads it), a quest's
+        // unused conditions' CTDA and its aliases' ALED
+        Assert.Equal(new[] { "ANAM", "CNAM", "TPIC", "STSC", "PTDA", "CITC", "PDTO" }.Select(x => $"Package.Data {x}")
+            .Concat(new[] { "Quest.UnusedConditions CTDA", "Quest.Aliases ALED" }), hf.FromLayouts);
+        // A step's fills= may name a property Mutagen's hand-written code adds beyond its XML (C51)
+        Assert.Equal(new[] { "Package.DataInputNames: ProcedureTreeDataOrder" }, hf.FillsBeyondXml);
+        Assert.Equal(HandFills.CustomEnd, Row("Cell", "Temporary", "FilledBy")); // the record's child group
+        Assert.Null(Row("Cell", "Temporary", "CustomSubrecords"));
+
+        // describe: the step, the field, and the field by its subrecord
+        var pers = fx.Describe("PERS").Text;
+        Assert.Contains("| ItemsParse | (XXXX DAT2) | CustomLogic |  | read by hand-written Mutagen code; a parsing step, not a value: no property; reads XXXX, DAT2; fills Items |", pers);
+        Assert.Contains("| Items | (XXXX DAT2) | List |  | **unknown**; read by hand-written Mutagen code; filled by Mutagen's hand-written code (ItemsParse) from XXXX, DAT2;", pers);
+        Assert.Contains("- File address: PERS/XXXX, PERS/DAT2, read by Mutagen's hand-written code (ItemsParse)", fx.Describe("PERS.Items").Text);
+        var (exit, dat2) = fx.Describe("PERS/DAT2");
+        Assert.Equal(0, exit);
+        Assert.Contains("\n| Items | (XXXX DAT2) | List |", dat2);
     }
 
     // ---- stored once, worked out on request ----
@@ -807,19 +1411,31 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         Assert.True(src.Files >= 238, $"{src.Files} XML files"); // 237 record files and Layouts\HandReadLayouts.xml in fixes.14
         Assert.NotNull(src.LayoutsFile);
 
-        // A copy of the package's folder: as restored it passes; another commit, another version, an XML file edited or
-        // missing after the restore, or a package without its record XML, each fails
-        string copy = Path.Combine(fx.WorkDir, "package-copy");
+        // Core's record XML is read from the Core package beside it (fixes.18, C49): MajorRecord and MasterReference
+        Assert.EndsWith($"mutagen.bethesda.core/{src.Version}/loqui/Mutagen.Bethesda.Core/Plugins/Records", src.CoreRecordsDir.Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Equal("Mutagen.Bethesda.Core/Plugins/Records/MajorRecord.xml", fx.Sql("SELECT File FROM Objects WHERE Name = 'MajorRecord'")[0][0]);
+
+        // A copy of the packages' folders (NuGet's layout: <id>\<version>): as restored it passes; another commit, another
+        // version, an XML file edited or missing after the restore, a package without its record XML, or Core's package
+        // missing, each fails
+        string root = Path.Combine(fx.WorkDir, "packages-copy");
+        string copy = Path.Combine(root, Inputs.PackageId, src.Version);
+        string coreDir = Path.GetFullPath(Path.Combine(src.CoreRecordsDir, "..", "..", "..", ".."));
+        void CopyPackage(string from, string to)
+        {
+            foreach (var f in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories)
+                         .Where(f => f.EndsWith(".nuspec", StringComparison.Ordinal) || f.EndsWith(".nupkg", StringComparison.Ordinal) || Path.GetRelativePath(from, f).StartsWith("loqui", StringComparison.Ordinal)))
+            {
+                string target = Path.Combine(to, Path.GetRelativePath(from, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(f, target);
+            }
+        }
         void Fresh()
         {
-            if (Directory.Exists(copy)) Directory.Delete(copy, true);
-            foreach (var f in Directory.EnumerateFiles(fx.PackageDir, "*", SearchOption.AllDirectories)
-                         .Where(f => f.EndsWith(".nuspec", StringComparison.Ordinal) || f.EndsWith(".nupkg", StringComparison.Ordinal) || Path.GetRelativePath(fx.PackageDir, f).StartsWith("loqui", StringComparison.Ordinal)))
-            {
-                string to = Path.Combine(copy, Path.GetRelativePath(fx.PackageDir, f));
-                Directory.CreateDirectory(Path.GetDirectoryName(to)!);
-                File.Copy(f, to);
-            }
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+            CopyPackage(fx.PackageDir, copy);
+            CopyPackage(coreDir, Path.Combine(root, Inputs.CorePackageId, src.Version));
         }
         string nuspec = Path.Combine(copy, Inputs.PackageId + ".nuspec");
         Fresh();
@@ -835,6 +1451,11 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         Assert.Contains(Inputs.CheckPackage(copy, version).Problems, p => p.Contains("Weapon.xml is in the package's .nupkg but missing"));
         Directory.Delete(Path.Combine(copy, Inputs.LoquiFolder), true);
         Assert.Contains(Inputs.CheckPackage(copy, version).Problems, p => p.Contains("doesn't carry its record definitions"));
+        Fresh();
+        File.AppendAllText(Path.Combine(root, Inputs.CorePackageId, src.Version, Inputs.CoreRecordsPath, "MajorRecord.xml"), "<!-- edited -->");
+        Assert.Contains(Inputs.CheckPackage(copy, version).Problems, p => p.Contains("MajorRecord.xml differs"));
+        Directory.Delete(Path.Combine(root, Inputs.CorePackageId), true);
+        Assert.Contains(Inputs.CheckPackage(copy, version).Problems, p => p.Contains("There is no restored Mutagen.Bethesda.Core"));
 
         // And the build itself refuses
         var o = fx.Options(Path.Combine(fx.WorkDir, "never.db"));

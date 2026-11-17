@@ -155,14 +155,49 @@ public sealed partial class RecordEngine : IDisposable
     /// </summary>
     public LoadedRecord Load(RecordRef r) => Load(r, Index.Describe(r));
 
+    /// <summary>
+    /// The same, and a record that holds others (a cell, a worldspace, a quest) is read alone: its children group isn't
+    /// laid out as stubs. Its own fields and links are the same; only <see cref="LoadedRecord.Children"/> is 0 and the
+    /// fields Mutagen fills from the children group's header (a cell's group timestamps) are left at their defaults.
+    /// For the link confirmation of a byte search (refs), where a big cell's thousands of stubs cost more than the cell.
+    /// A top-level record of a type with one Mutagen class is read from its own bytes too (as <see cref="PreferDirect"/>
+    /// does), so its plugin's overlay isn't opened for it: Starfield.esm's takes about 1.5 s to open.
+    /// </summary>
+    public LoadedRecord LoadAlone(RecordRef r) => Load(r, Index.Describe(r), childStubs: false, direct: true);
+
+    /// <summary>
+    /// Opens, on this thread, everything that reading these records on many threads needs: each plugin's session and the
+    /// top-level groups their records are read through. <see cref="PluginSessions"/> is for one caller at a time; after
+    /// this, <see cref="Load(RecordRef)"/> of these records can run on many threads at once.
+    /// </summary>
+    /// <param name="alone">The records will be read with <see cref="LoadAlone"/>: only the groups of types with several
+    /// Mutagen classes (OMOD, GMST) are needed.</param>
+    public void OpenForThreads(IEnumerable<RecordRef> records, bool alone = false)
+    {
+        var done = new HashSet<(int Plugin, int Signature)>();
+        foreach (var r in records)
+        {
+            var p = Index.Plugins[r.Plugin];
+            var e = p.Segment![r.Entry];
+            if (!done.Add((r.Plugin, e.Signature))) continue;
+            var session = Sessions.Get(p.Name);
+            var info = Index.Describe(r);
+            if (Schema.TypesOf(info.Signature).Count == 0 || IsDirect(info) || (alone || PreferDirect) && Schema.TypesOf(info.Signature).Count == 1) continue;
+            // The group's record cache is made at its first use: made here, not by several threads at once
+            if (session.TopLevelGroup(TypeFor(info.Signature)) is { } group) _ = group.RecordCache.Count;
+        }
+    }
+
     /// <summary>The same, for a caller that already has the header index's line for the record.</summary>
-    public LoadedRecord Load(RecordRef r, RecordInfo info)
+    public LoadedRecord Load(RecordRef r, RecordInfo info) => Load(r, info, childStubs: true, direct: false);
+
+    LoadedRecord Load(RecordRef r, RecordInfo info, bool childStubs, bool direct)
     {
         if (info.Unresolved) throw new RecordException($"The record at 0x{info.Offset:X} of {info.Plugin} has a FormID that can't be resolved: a master of {info.Plugin} is missing.");
         var session = Sessions.Get(info.Plugin);
         if (HeavyNote(r) is { } heavy) throw new RecordException(heavy);
         string type = TypeFor(info.Signature);
-        if (!IsDirect(info) && !(PreferDirect && Schema.TypesOf(info.Signature).Count == 1))
+        if (!IsDirect(info) && !((PreferDirect || direct) && Schema.TypesOf(info.Signature).Count == 1))
         {
             var group = session.TopLevelGroup(type);
             if (group != null)
@@ -179,7 +214,7 @@ public sealed partial class RecordEngine : IDisposable
                 throw new RecordException($"{info.Label} is a {info.Signature} at 0x{info.Offset:X} of {info.Plugin}, but Mutagen's {type} group doesn't give it (the plugin may hold the FormKey twice). Its raw subrecords can still be shown.");
         }
         bool holder = Schema.HoldsRecords(type);
-        var obj = (IMajorRecordGetter)session.ReadDirect(type, info.Offset, holder, out int stubs);
+        var obj = (IMajorRecordGetter)session.ReadDirect(type, info.Offset, holder && childStubs, out int stubs);
         return new LoadedRecord { Ref = r, Info = info, Type = RecordSerializer.TypeName(obj), Record = obj, Route = ReadRoute.Direct, Session = session, Children = stubs };
     }
 
@@ -197,11 +232,15 @@ public sealed partial class RecordEngine : IDisposable
     /// The record as Mutagen.Bethesda.Serialization's full-profile JSON. Records nested in it are not part of it:
     /// each is a <c>{"$Child": "FormKey"}</c> marker, and a record of its own.
     /// </summary>
-    public JsonObject Json(LoadedRecord rec)
+    public JsonObject Json(LoadedRecord rec) => Json(rec.Record, rec.Type);
+
+    /// <summary>The same for a record of this Mutagen type that no plugin holds as it is (a partial form merged over the
+    /// version before it).</summary>
+    public JsonObject Json(IMajorRecordGetter record, string type)
     {
-        var json = RecordSerializer.ToJsonObject(rec.Record, rec.Type);
+        var json = RecordSerializer.ToJsonObject(record);
         // Only a record that holds others has anything to split out
-        if (Schema.HoldsRecords(rec.Type)) RecordSplit.Split(json, null);
+        if (Schema.HoldsRecords(type)) RecordSplit.Split(json, null);
         return json;
     }
 
@@ -358,7 +397,7 @@ public sealed partial class RecordEngine : IDisposable
     public Evidence Evidence(LoadedRecord rec, string field) =>
         FieldLookup.Evidence(Schema, Card(rec), Raw(rec.Ref), field, id => Label(rec.Session, id),
             formIdOf: key => key == "Null" ? 0u : HeaderIndex.TryParseFormKey(key, out var plugin, out var id) ? rec.Session.FormIds.Raw(plugin, id) : null,
-            textOf: rec.Session.Localized ? rec.Session.StringsFor : null);
+            textOf: rec.Session.Localized ? rec.Session.StringsFor : null, positionsOf: rec.Session.Positions);
 
     /// <summary>The one-record verify, for records of one plugin.</summary>
     public List<VerifyResult> Verify(IReadOnlyList<RecordRef> records) => new Verifier(this).Verify(records);

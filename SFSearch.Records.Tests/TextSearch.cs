@@ -81,13 +81,16 @@ static class TextSearch
             foreach (var a in m.SharedRead) lines.Add($"shared, read: {sig} {a}");
             foreach (var p in m.All.OrderBy(p => p.Within ?? "").ThenBy(p => p.Subrecord, StringComparer.Ordinal)) lines.Add($"{sig} {p.Subrecord}{(p.Within != null ? $" (in {p.Within})" : "")} {p.Field}{(p.Translated ? " translated" : "")}");
         }
-        // Only VMAD (scripts' properties) is left out; every other shared subrecord is read
-        static bool Vmad(string a) => a.Split(' ')[1].TrimEnd(':') == "VMAD";
-        Check(ambiguous.All(Vmad), $"left out besides VMAD: {string.Join("; ", ambiguous.Where(a => !Vmad(a)).Take(5))}");
+        // Nothing is left out (GAPS S32, fix J10): a script's properties (VMAD) are read through Mutagen too, an object
+        // modification's properties by their string values' place
+        Check(ambiguous.Count == 0, $"left out: {string.Join("; ", ambiguous.Take(5))}");
+        var vmad = PlaceOf("ACTI", "VMAD"); var omod = PlaceOf("OMOD", "DATA");
+        Check(vmad is { Shared: RecordTexts.SharedKind.Script, Translated: false } && vmad.TextPaths.Contains("VirtualMachineAdapter.Scripts[*].Properties[*].Data") && vmad.TextPaths.Contains("VirtualMachineAdapter.Scripts[*].Name"), $"ACTI VMAD should be a script's strings told by Mutagen's reading; it is {vmad}");
+        Check(omod is { Shared: RecordTexts.SharedKind.ModProperty, Translated: false, Field: "Properties[*].Value" }, $"OMOD DATA should be an object modification's string properties; it is {omod}");
         int sharedRead = lines.Count(l => l.StartsWith("shared, read: ", StringComparison.Ordinal));
         int sharedTop = lines.Count(l => l.StartsWith("shared, read: ", StringComparison.Ordinal) && !l.Contains("(in ", StringComparison.Ordinal));
         ctx.WriteReport("text-places.txt", lines.Concat(ambiguous.Select(a => "left out (another field fills it too): " + a)));
-        return $"{N(types)} record types have {N(places)} text subrecords ({N(translated)} translated); {N(sharedRead)} of them shared with other values and told apart ({sharedTop} the records' own: GMST DATA by the EditorID, the rest by Mutagen's reading; {sharedRead - sharedTop} inside components); {N(ambiguous.Count)} left out, every one VMAD (scripts' properties). " +
+        return $"{N(types)} record types have {N(places)} text subrecords ({N(translated)} translated); {N(sharedRead)} of them shared with other values and told apart ({sharedTop} the records' own: GMST DATA by the EditorID, the rest by Mutagen's reading; {sharedRead - sharedTop} inside components); {N(ambiguous.Count)} left out; {N(s.Signatures.Count(sig => RecordTexts.PlacesOf(s, sig).All.Any(p => p.Shared == RecordTexts.SharedKind.Script)))} types' VMAD (scripts' strings) read through Mutagen. " +
             string.Join("; ", lines.Take(want.Length)) + $"; GMST DATA: {gmst?.Shared}; PERK EPFD: {epfd?.Shared} ({epfd?.Field}); QUST CNAM: {cnam?.Field}";
     }
 
@@ -237,7 +240,7 @@ static class TextSearch
 
         // ---- 3. String IDs shared by two strings files of one plugin, and the whole load order's cost
         clock.Restart();
-        int localized = 0, files = 0, shared = 0, stamped = 0; long strings = 0; var sharedIn = new List<string>(); var stampDiffers = new List<string>();
+        int localized = 0, files = 0, shared = 0, stamped = 0, resolvedTables = 0; long strings = 0; var sharedIn = new List<string>(); var stampDiffers = new List<string>();
         foreach (var p in plugins.Where(RecordTexts.IsLocalized))
         {
             localized++;
@@ -256,11 +259,19 @@ static class TextSearch
                 bool sameFiles = en.Count == fs.Count && en.All(sf => fs.Any(m => m.Name.Equals(sf.Name, StringComparison.OrdinalIgnoreCase)
                     && (sf.InArchive ? m.From.StartsWith(sf.From, StringComparison.OrdinalIgnoreCase) : m.From.Equals(sf.From, StringComparison.OrdinalIgnoreCase))));
                 if (!sameFiles) stampDiffers.Add($"{p.Name}: stamp [{string.Join(", ", en.Select(f => f.Name + " in " + f.From))}], Mutagen [{string.Join(", ", fs.Select(f => f.From))}]");
+                // Every language: the stamp's files are the sources Mutagen resolves for the plugin alone (ResolveSources,
+                // C58 W10); the stamp takes them from Mutagen's pass over the whole load order (C74, GAPS S167)
+                var resolved = Mutagen.Bethesda.Strings.StringsFolderLookupOverlay.ResolveSources(Mutagen.Bethesda.GameRelease.Starfield, Mutagen.Bethesda.Plugins.ModKey.FromFileName(p.Name), ctx.Data,
+                    StringFiles.ReadParameters(p.Path, p.Name, ctx.Data, Language.English));
+                var want = resolved.Select(r => Path.GetFileName((r.ArchiveEntryPath ?? r.SourcePath).Replace('/', '\\')).ToLowerInvariant() + "|" + (r.ArchivePath ?? r.SourcePath).ToLowerInvariant()).OrderBy(x => x, StringComparer.Ordinal).ToList();
+                var have = p.Strings.Files.Select(f => f.Name.ToLowerInvariant() + "|" + f.From.ToLowerInvariant()).OrderBy(x => x, StringComparer.Ordinal).ToList();
+                if (!want.SequenceEqual(have)) stampDiffers.Add($"{p.Name}: stamp [{string.Join(", ", have)}], Mutagen's ResolveSources [{string.Join(", ", want)}]");
+                resolvedTables += want.Count;
             }
         }
         double filesMs = clock.Elapsed.TotalMilliseconds;
         Check(stampDiffers.Count == 0, $"the strings stamp and Mutagen's EnumerateTables name other files for {stampDiffers.Count} plugins: {string.Join("; ", stampDiffers.Take(3))}");
-        parts.Add($"{localized} localized plugins, {files} English strings files, {N(strings)} strings read in {filesMs / 1000:F2} s (listed by Mutagen's EnumerateTables and EnumerateStrings; the strings stamp names the same files for all {stamped} stamped); IDs in two files of one plugin: {shared}{(sharedIn.Count > 0 ? " (" + string.Join(", ", sharedIn.Take(6)) + ")" : "")}");
+        parts.Add($"{localized} localized plugins, {files} English strings files, {N(strings)} strings read in {filesMs / 1000:F2} s (listed by Mutagen's EnumerateTables and EnumerateStrings; the strings stamp names the same files for all {stamped} stamped, and the same {resolvedTables} tables of every language as Mutagen's ResolveSources); IDs in two files of one plugin: {shared}{(sharedIn.Count > 0 ? " (" + string.Join(", ", sharedIn.Take(6)) + ")" : "")}");
         clock.Restart();
         long all = 0;
         foreach (var p in plugins) all += RecordTexts.Search(p, Searched(p.Segment!), schema, nonAscii, Language.English, ctx.Data, RecordTexts.From.Both).Hits.Count;
@@ -268,6 +279,200 @@ static class TextSearch
         // ---- 4. GAPS S32: game settings, perk entry points, quest log entries, map markers
         parts.Add(Shared(ctx, plugins, report));
         ctx.WriteReport("text-search.txt", report);
+        return string.Join("; ", parts);
+    }
+
+    /// <summary>
+    /// Plain text fields and scripts' strings (GAPS S32, fix J10). (1) Every string of a script's properties (VMAD)
+    /// Mutagen reads, held against what the search finds: each VMAD record of every plugin (at most 2,000 a plugin) read
+    /// through Mutagen's reader, its strings at the schema's paths; the search offers a VMAD only when a run of bytes after
+    /// a 2-byte length could be the text, then reads it through Mutagen too; both must give the same strings. (2) find's
+    /// plain search: a script's string property, a quest log entry's note in Starfield.esm, a component's rig file. (3)
+    /// The cost over the whole load order, and how many records check2's stored-text rule reads through Mutagen.
+    /// </summary>
+    public static string Plain(Ctx ctx)
+    {
+        var index = ctx.DataIndex; var schema = ctx.Schema;
+        var plugins = index.Plugins.Where(p => p.Segment != null && p.Header != null).ToList();
+        var parts = new List<string>();
+        var report = new List<string>();
+        var plainEncoding = RecordNames.EncodingOf(false, Language.English);
+        var any = new Regex("(?s).", RegexOptions.CultureInvariant);
+        const int MostRecords = 2000;
+
+        // ---- 1. Scripts' strings: the search against Mutagen's reading of every VMAD
+        var clock = Stopwatch.StartNew();
+        var truth = new SortedSet<string>(StringComparer.Ordinal); var searched = new SortedSet<string>(StringComparer.Ordinal);
+        int records = 0, capped = 0, offered = 0, outsideRecords = 0, outsideOffered = 0; long vmads = 0;
+        var examples = new List<(IndexedPlugin P, int Entry, string Path, string Text)>();
+        var notRun = new List<string>();
+        foreach (var p in plugins)
+        {
+            var all = RecordTexts.Walk(p, Searched(p.Segment!), schema, place => place.Shared == RecordTexts.SharedKind.Script, (place, data) => true);
+            if (all.Found.Count == 0) continue;
+            vmads += all.Found.Count;
+            var some = all.Found.Take(MostRecords).ToList();
+            if (all.Found.Count > MostRecords) capped++;
+            using var reader = RecordTexts.Reader(p, Language.English, ctx.Data);
+            foreach (var f in some)
+            {
+                object rec;
+                try { rec = reader.Read(f.Entry); records++; }
+                catch (RecordException x) { Check(false, $"{p.Name} entry {f.Entry}: {x.Message}"); continue; }
+                bool high = false;
+                // Each string is one of the runs the search offers a VMAD by (after a 2-byte length, reading as text)
+                var runs = RecordTexts.ScriptStrings(f.Data).Select(r => plainEncoding.GetString(f.Data.AsSpan(r.Start, r.Length))).ToHashSet(StringComparer.Ordinal);
+                foreach (var t in RecordTexts.TextsAt(rec, f.Place.TextPaths).Where(t => t.Text.Length > 0))
+                {
+                    truth.Add($"{p.Name}|{f.Entry}|{t.Path}|{t.Text}");
+                    if (!runs.Contains(t.Text)) notRun.Add($"{p.Name}|{f.Entry}|{t.Path}|{t.Text}");
+                    if (t.Text.Any(c => c > 0x7F)) high = true;
+                    if (!RecordTexts.IsLocalized(p) && examples.Count < 400 && t.Text.Length >= 8 && Indexed.Replace(t.Path, "[*]").EndsWith("Properties[*].Data", StringComparison.Ordinal)) examples.Add((p, f.Entry, t.Path, t.Text));
+                }
+                if (high) { outsideRecords++; if (RecordTexts.CouldHoldOutsideAscii(f.Place, f.Data)) outsideOffered++; }
+            }
+            // The search's way: offered by the bytes, then told by Mutagen's reading
+            var candidates = some.Where(f => RecordTexts.CouldHold(f.Place, f.Data, plainEncoding, any)).ToList();
+            offered += candidates.Count;
+            var c = RecordTexts.Confirm(candidates, reader.Read, Language.English, t => !t.Translated && t.StringId == null && t.Text.Length > 0);
+            foreach (var t in c.Texts) searched.Add($"{p.Name}|{t.Found.Entry}|{t.Text.Path}|{t.Text.Text}");
+        }
+        var onlyMutagen = truth.Except(searched).ToList(); var onlySearch = searched.Except(truth).ToList();
+        report.Add($"# VMAD strings: Mutagen {truth.Count}, the search {searched.Count}");
+        report.AddRange(onlyMutagen.Take(200).Select(x => "only Mutagen: " + x)); report.AddRange(onlySearch.Take(200).Select(x => "only the search: " + x));
+        Check(onlyMutagen.Count == 0 && onlySearch.Count == 0, $"scripts' strings: {onlyMutagen.Count} only in Mutagen's reading ({string.Join("; ", onlyMutagen.Take(3))}), {onlySearch.Count} only in the search ({string.Join("; ", onlySearch.Take(3))})");
+        Check(notRun.Count == 0, $"{notRun.Count} strings Mutagen reads aren't a run after a 2-byte length that reads as text: {string.Join("; ", notRun.Take(3))}");
+        Check(outsideOffered == outsideRecords, $"check2 offers {outsideOffered} of the {outsideRecords} VMAD records with a string outside ASCII");
+        parts.Add($"scripts' strings (VMAD): {N(truth.Count)} strings in {N(records)} records read through Mutagen's reader ({N(vmads)} VMAD in Data, at most {MostRecords} a plugin, {capped} plugins capped), the same {N(searched.Count)} the search finds, each one a run of bytes after a 2-byte length that reads as text; {N(offered)} records offered by their bytes for /(?s)./; {outsideRecords} records with a string outside ASCII, every one offered to check2; {clock.Elapsed.TotalSeconds:F1} s");
+
+        // ---- 1b. The other shared subrecords' plain texts (a planet's details, components' rig files and source
+        // EditorIDs, object modifications' string properties ...), the same way: at most 300 records a plugin and kind
+        {
+            const int MostOfKind = 300;
+            clock.Restart();
+            var truthOther = new SortedSet<string>(StringComparer.Ordinal); var searchedOther = new SortedSet<string>(StringComparer.Ordinal);
+            var kinds = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            int read = 0, offeredOther = 0, highOther = 0, highOffered = 0;
+            foreach (var p in plugins)
+            {
+                var all = RecordTexts.Walk(p, Searched(p.Segment!), schema, place => place.ByMutagen && place.Shared != RecordTexts.SharedKind.Script, (place, data) => true);
+                if (all.Found.Count == 0) continue;
+                var some = all.Found.GroupBy(f => (p.Segment!.SignatureOf(p.Segment[f.Entry]), f.Place.Subrecord, f.Place.Within))
+                    .SelectMany(g => g.GroupBy(f => f.Entry).Take(MostOfKind).SelectMany(e => e)).ToList();
+                using var reader = RecordTexts.Reader(p, Language.English, ctx.Data);
+                foreach (var e in some.GroupBy(f => f.Entry))
+                {
+                    object rec;
+                    try { rec = reader.Read(e.Key); read++; }
+                    catch (RecordException x) { Check(false, $"{p.Name} entry {e.Key}: {x.Message}"); continue; }
+                    // check2 reads every stored text of these subrecords (a localized plugin's translated ones are string IDs)
+                    var texts = RecordTexts.TextsAt(rec, e.SelectMany(f => f.Place.TextPaths).Distinct(StringComparer.Ordinal));
+                    if (texts.Any(t => t.StringId == null && t.Text.Any(ch => ch > 0x7F)))
+                    {
+                        highOther++;
+                        if (e.Any(f => RecordTexts.CouldHoldOutsideAscii(f.Place, f.Data))) highOffered++;
+                    }
+                    foreach (var t in texts.Where(t => !t.Translated && t.Text.Length > 0))
+                    {
+                        truthOther.Add($"{p.Name}|{e.Key}|{t.Path}|{t.Text}");
+                        string k = $"{p.Segment!.SignatureOf(p.Segment[e.Key])} {Indexed.Replace(t.Path, "[*]")}";
+                        kinds[k] = kinds.GetValueOrDefault(k) + 1;
+                    }
+                }
+                var candidates = some.Where(f => RecordTexts.CouldHold(f.Place, f.Data, plainEncoding, any)).ToList();
+                offeredOther += candidates.Select(f => f.Entry).Distinct().Count();
+                var c = RecordTexts.Confirm(candidates, reader.Read, Language.English, t => !t.Translated && t.StringId == null && t.Text.Length > 0);
+                foreach (var t in c.Texts) searchedOther.Add($"{p.Name}|{t.Found.Entry}|{t.Text.Path}|{t.Text.Text}");
+            }
+            var onlyM = truthOther.Except(searchedOther).ToList(); var onlyS = searchedOther.Except(truthOther).ToList();
+            report.Add($"# Other shared subrecords' plain texts: Mutagen {truthOther.Count}, the search {searchedOther.Count}");
+            report.AddRange(onlyM.Take(200).Select(x => "only Mutagen: " + x)); report.AddRange(onlyS.Take(200).Select(x => "only the search: " + x));
+            Check(highOffered == highOther, $"check2 offers {highOffered} of the {highOther} records whose shared subrecords hold a text outside ASCII");
+            Check(onlyM.Count == 0 && onlyS.Count == 0, $"other shared subrecords: {onlyM.Count} only in Mutagen's reading ({string.Join("; ", onlyM.Take(3))}), {onlyS.Count} only in the search ({string.Join("; ", onlyS.Take(3))})");
+            parts.Add($"other shared subrecords' plain texts: {N(truthOther.Count)} in {N(read)} records read through Mutagen's reader (at most {MostOfKind} a plugin and kind), the same {N(searchedOther.Count)} the search finds ({N(offeredOther)} records offered for /(?s)./); {highOther} records with a stored text outside ASCII there, every one offered to check2; {string.Join(", ", kinds.OrderByDescending(k => k.Value).Take(6).Select(k => $"{k.Key} {N(k.Value)}"))}; {clock.Elapsed.TotalSeconds:F1} s");
+        }
+
+        // ---- 2. find's plain search, end to end
+        // A script's string property: found with plain, never without
+        {
+            var ex = examples.GroupBy(e => e.Text).Where(g => g.Count() == 1).Select(g => g.First()).FirstOrDefault();
+            Check(ex.P != null, "no string property of 8 characters or more, found once, in a plugin with no strings files");
+            if (ex.P != null)
+            {
+                var pattern = new Regex("^" + Regex.Escape(ex.Text) + "$", RegexOptions.CultureInvariant);
+                using var reader = RecordTexts.Reader(ex.P, Language.English, ctx.Data);
+                var with = RecordTexts.Search(ex.P, Searched(ex.P.Segment!), schema, pattern, Language.English, ctx.Data, RecordTexts.From.Both, reader.Read, plain: true);
+                var without = RecordTexts.Search(ex.P, Searched(ex.P.Segment!), schema, pattern, Language.English, ctx.Data, RecordTexts.From.Both, reader.Read);
+                var hit = with.Hits.FirstOrDefault(h => h.Entry == ex.Entry && h.Field == ex.Path);
+                string label = index.Describe(new RecordRef(ex.P.Id, ex.Entry)).Label;
+                Check(hit is { Plain: true, File: null, Subrecord: "VMAD" } && hit.Text == ex.Text, $"the string property {label} {ex.Path} \"{ex.Text}\": the plain search gives {string.Join("; ", with.Hits.Select(h => h.Field + " " + h.Text))}");
+                Check(!without.Hits.Any(h => h.Subrecord == "VMAD"), "a script's string is found without plain");
+                parts.Add($"string property: {label} {ex.Path} \"{ex.Text}\" ({ex.P.Name}) found with plain, not without ({with.TypedRead} record(s) read through Mutagen)");
+            }
+        }
+        // A quest log entry's note (QUST NAM2, plain text in a localized plugin): MQ_TutorialQuest_Misc06 "Quest Complete"
+        {
+            var sf = index.Plugin("Starfield.esm")!; var seg = sf.Segment!;
+            var mask = seg.Signatures.Select(x => x.Signature == "QUST").ToArray();
+            var pattern = new Regex("^Quest Complete$", RegexOptions.CultureInvariant);
+            using var reader = RecordTexts.Reader(sf, Language.English, ctx.Data);
+            var c2 = Stopwatch.StartNew();
+            var with = RecordTexts.Search(sf, mask, schema, pattern, Language.English, ctx.Data, RecordTexts.From.Both, reader.Read, plain: true);
+            double ms = c2.Elapsed.TotalMilliseconds;
+            var without = RecordTexts.Search(sf, mask, schema, pattern, Language.English, ctx.Data, RecordTexts.From.Both, reader.Read);
+            var notes = with.Hits.Where(h => h.Field == "Stages[*].LogEntries[*].Note").ToList();
+            var first = notes.FirstOrDefault();
+            string label = first == null ? "-" : index.Describe(new RecordRef(sf.Id, first.Entry)).Label;
+            var mutagen = first == null ? new List<RecordTexts.TypedText>() : RecordTexts.TextsAt(ReadOne(sf, ctx, first.Entry), new[] { "Stages[*].LogEntries[*].Note" });
+            Check(first is { Plain: true, File: null } && label == "MQ_TutorialQuest_Misc06 (00118F:Starfield.esm)" && mutagen.Any(t => t.Text == "Quest Complete"), $"the quest log entry note: {notes.Count} hits, first {label}");
+            Check(!without.Hits.Any(h => h.Field == "Stages[*].LogEntries[*].Note"), "a log entry's note is found without plain");
+            parts.Add($"quest log entry note (QUST NAM2, plain text of a localized plugin): \"Quest Complete\" in {notes.Count} of Starfield.esm's quests, {label} first, the same as Mutagen's reading; {ms:F0} ms");
+        }
+        // A component's rig file (BNAM, shared with a surface block: told by Mutagen's reading)
+        {
+            var sf = index.Plugin("Starfield.esm")!; var seg = sf.Segment!;
+            var mask = seg.Signatures.Select(x => x.Signature == "STAT").ToArray();
+            var pattern = new Regex(@"^genericbehaviors\\genericrig\\characterassets\\skeleton\.rig$", RegexOptions.CultureInvariant);
+            using var reader = RecordTexts.Reader(sf, Language.English, ctx.Data);
+            var with = RecordTexts.Search(sf, mask, schema, pattern, Language.English, ctx.Data, RecordTexts.From.Both, reader.Read, plain: true);
+            var rig = with.Hits.Where(h => Indexed.Replace(h.Field, "[*]") == "Components[*].RigFile").ToList();
+            var labels = rig.Select(h => index.Describe(new RecordRef(sf.Id, h.Entry)).Label).ToList();
+            Check(labels.Contains("Miniature_Stroud_Engine_01 (0013D7:Starfield.esm)") && rig.All(h => h.Plain), $"the rig file: {string.Join(", ", labels.Take(4))}");
+            parts.Add($"component rig file (BNAM): {rig.Count} statics, {string.Join(", ", labels.Take(2))} among them ({with.TypedRead} records read through Mutagen)");
+        }
+
+        // ---- 3. The cost over the whole load order, stored text with and without plain (no strings files read)
+        {
+            var nonAscii = new Regex(@"[^\x00-\x7F]", RegexOptions.CultureInvariant);
+            var cost = new List<string>();
+            foreach (bool plain in new[] { false, true })
+            {
+                var c3 = Stopwatch.StartNew(); long hits = 0, fields = 0; int typed = 0, vm = 0;
+                foreach (var p in plugins)
+                {
+                    using var reader = RecordTexts.Reader(p, Language.English, ctx.Data);
+                    var r = RecordTexts.Search(p, Searched(p.Segment!), schema, nonAscii, Language.English, ctx.Data, RecordTexts.From.Stored, reader.Read, plain);
+                    hits += r.Hits.Count; fields += r.Texts; typed += r.TypedRead; vm += r.Hits.Count(h => h.Subrecord == "VMAD");
+                }
+                cost.Add($"{(plain ? "with plain" : "without")} {N(hits)} texts ({vm} in VMAD), {N(fields)} fields, {N(typed)} records read through Mutagen, {c3.Elapsed.TotalSeconds:F2} s");
+            }
+            parts.Add("[^\\x00-\\x7F] over the stored text of the whole load order: " + string.Join("; ", cost));
+        }
+        // check2's shared subrecords offered to Mutagen's reader: by a byte over 0x7F anywhere (before), by a run that
+        // could be a text holding one (now)
+        foreach (bool old in new[] { true, false })
+        {
+            var where = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            var c4 = Stopwatch.StartNew();
+            foreach (var p in plugins)
+            {
+                var walked = RecordTexts.Walk(p, Searched(p.Segment!), schema, place => place.ByMutagen, (place, data) => old ? place.Shared != RecordTexts.SharedKind.Script && data.IndexOfAnyInRange((byte)0x80, (byte)0xFF) >= 0 : RecordTexts.CouldHoldOutsideAscii(place, data));
+                foreach (var f in walked.Found) { string k = $"{p.Segment!.SignatureOf(p.Segment[f.Entry])} {f.Place.Subrecord}{(f.Place.Within != null ? " in " + f.Place.Within : "")}"; where[k] = where.GetValueOrDefault(k) + 1; }
+            }
+            if (!old) Check(where.Values.Sum() < 20000, $"check2 offers {where.Values.Sum()} shared subrecords to Mutagen's reader");
+            parts.Add($"check2's shared subrecords offered to Mutagen's reader, {(old ? "a byte over 0x7F anywhere (before)" : "a run that could be a text outside ASCII (now)")}: {N(where.Values.Sum())} ({string.Join(", ", where.OrderByDescending(w => w.Value).Take(5).Select(w => $"{w.Key} {N(w.Value)}"))}), walk {c4.Elapsed.TotalSeconds:F1} s");
+        }
+        ctx.WriteReport("text-plain.txt", report);
         return string.Join("; ", parts);
     }
 
@@ -378,7 +583,7 @@ static class TextSearch
             foreach (var p in plugins)
             {
                 bool localized = RecordTexts.IsLocalized(p);
-                var walked = RecordTexts.Walk(p, Searched(p.Segment!), schema, place => place.Shared == RecordTexts.SharedKind.Typed, (place, data) => { foreach (byte b in data) if (b > 0x7F) return true; return false; });
+                var walked = RecordTexts.Walk(p, Searched(p.Segment!), schema, place => place.ByMutagen, RecordTexts.CouldHoldOutsideAscii);
                 if (walked.Found.Count == 0) continue;
                 offered += walked.Found.Count;
                 foreach (var f in walked.Found) { string k = $"{p.Segment!.SignatureOf(p.Segment[f.Entry])} {f.Place.Subrecord}{(f.Place.Within != null ? " in " + f.Place.Within : "")}"; where[k] = where.GetValueOrDefault(k) + 1; }

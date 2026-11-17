@@ -10,7 +10,7 @@ Every answer below is real, cut with "…" where long. The examples are written 
 |---|---|---|
 | kgcDoom_WEAP_CrucibleBlade | Crucible Blade | 37 |
 | kgcDoom_WEAP_SuperShotgun | Super Shotgun | 80 |
-[source] kgcdoom.esm 3.5 MB, key 9561e0c8
+[source] kgcdoom.esm 3.5 MB, key 9561e0c8, strings 2d590079
 [cost] 139 ms; read Weapon (2) from kgcdoom.esm in 14 ms
 ```
 
@@ -22,9 +22,11 @@ Every answer below is real, cut with "…" where long. The examples are written 
 | `Weapon_ObjectTemplates_Includes`, … | A list inside a list | The same, with `Idx2` for the inner position |
 | `Npc_Flags`, … | A flags field as a list of names | `FormKey`, `EditorID`, `Plugin`, `Idx`, `Value` |
 | `ObjectModification`, `GameSetting` | All record types of one signature together (OMOD has 8) | The typed view's columns, and `Type` |
-| `Forms` | Every record of the scope from the header index, read or not | `FormKey`, `Sig`, `Type`, `EditorID`, `Plugin`, `Parent`, `IsWinner`, `IsOverride`, `Pos`, `LoadOrder` |
+| `Forms` | Every record of the scope from the header index, read or not | `FormKey`, `Sig`, `Type`, `EditorID`, `Plugin`, `Parent`, `IsWinner`, `IsOverride`, `Pos`, `LoadOrder`, `Size`, `DataSize`, `Compressed`, `Flags`, `FlagNames` |
 | `Records` | Every record **read so far** in this scope | `FormKey`, `Type`, `Sig`, `EditorID`, `Name`, `Plugin`, `IsOverride`, `Json` |
 | `Links` | The links of the record types **read so far** | `FromKey`, `FromType`, `Field`, `Idx`, `ToKey`, `Path`, `Plugin` |
+| `Conditions` | Every condition (CTDA) of the record types **read so far**, one row each | `FormKey`, `Type`, `EditorID`, `Plugin`, `Field`, `Idx`, `Path`, `Function` (the index, 961), `FunctionName`, `RunOn`, `Reference`, `Comparison`, `Value`, `Global`, `Flags`, `FlagsRaw`, `Param1`, `Param2`, `Param3`, `Json` |
+| `Plugins` | Every plugin in Data, one row each, read from each file's header alone (whatever the scope) | `Plugin`, `LoadOrder`, `Slot`, `Size` (Full, Medium, Light), `Flags`, `FlagNames`, `FormVersion`, `Version`, `NumRecords`, `NextFormID` (HEDR), `MasterCount`, `Masters` (a JSON list), `Author`, `Description`, `OverriddenCount`, `InteriorCellCount`, `Subrecords`, `HeaderSize`, `FileSize` |
 | `schema.Fields`, `schema.RecordTypes`, `schema.Enums`, … | The schema `sfs_describe` reads | See "The schema tables" |
 
 - **Column names are Mutagen's field names.** A field inside an object joins the names with `_`: `ObjectBounds_First`, `Model_File`, `Transforms_InventoryIcon`. `sfs_describe WEAP` lists a type's fields; never guess.
@@ -32,8 +34,22 @@ Every answer below is real, cut with "…" where long. The examples are written 
 - **`IsOverride`** is 1 when the plugin changes a record of one of its masters, 0 for its own record.
 - **`Json`** is the whole record as Mutagen's JSON. Read a field that has no column with `Json ->> '$.Path'`.
 - **Enums are names, flags are a JSON list of names** (`["AutoCalcStats"]`); the flags' list view has one row per name.
+- **Each flags column also comes as its number,** `<Field>Raw`, right after it (`EntryTypes`, `EntryTypesRaw`): every bit that is set, named or not, as an integer of the enum's width (bit 31 is 2147483648). Test a bit by its number: `(EntryTypesRaw & 0x80000000) <> 0`, the same in every type. The record header's flags have theirs already (`MajorRecordFlagsRaw`, `Forms.Flags`); `Conditions` has `FlagsRaw`.
+```text
+> query2 Starfield.esm "SELECT count(*) AS Markers, sum((EntryTypesRaw & 0x80000000) <> 0) AS EntryBit31, sum((ExitTypesRaw & 0x80000000) <> 0) AS ExitBit31 FROM Furniture_MarkerParameters;"
+| Markers | EntryBit31 | ExitBit31 |
+|---|---|---|
+| 976 | 976 | 976 |
+[source] Starfield.esm 1.36 GB, key d1c0e07a, strings 4b75842f
+[cost] 6.47 s; read Furniture (899) from Starfield.esm in 2.67 s
+```
 - **`Forms.Parent`** is the record a record sits under: a placed reference's cell, a topic's quest.
-- **`Records` and `Links` hold only the types a query has named so far.** A type is read when a query names its own view. To count every record, use `Forms`. A note says so when a query names `Records` or `Links`.
+- **`Forms.DataSize`** is a record's subrecords in bytes as read (inflated when compressed; `Size` is as stored): the biggest records of a type are `SELECT EditorID, FormKey, DataSize FROM Forms WHERE Type = 'Cell' ORDER BY DataSize DESC LIMIT 5`.
+- **`Forms.Flags`** is the record header's flags as the file stores them (bytes 8-11), so a bit is counted by type without reading a record: `SELECT Sig, count(*) FROM Forms WHERE Flags & 0x40000000 GROUP BY Sig`. `FlagNames` names them by Mutagen's enum for the record's type (`NonPlayable`), plus `Deleted` and `Compressed`; a bit Mutagen has no name for is its number (`0x40000000`).
+- **`Conditions`** reads what a statement narrows it to (`WHERE Type = 'Perk'`, `FormKey`, `EditorID`), or, narrowed to nothing, every type of the scope that can hold a condition (its cost said first). Functions by count: `SELECT Function, FunctionName, count(*) FROM Conditions GROUP BY 1, 2 ORDER BY 3 DESC`. Across many plugins at once (`@official`, `@all`) the census is `profile --conditions`.
+- **`Plugins`** is the plugins' headers: which are light or medium, which have the most records or masters, which need a given master (`json_each(Masters)`). It reads no record.
+- **A list view of a huge type (`PlacedObject_Traversals`, `Cell_Traversals`, `NavigationMeshInfoMap_MapInfos_Traversals`) reads only the records that hold the list's subrecord**, found in the plugin's bytes, when the query names no column of the type's own view: joins of two such lists across many plugins run in minutes, not "Not run". A note says how many records held it.
+- **`Records` and `Links` hold only the types a query has named so far.** A type is read when a query names its own view. To count every record, use `Forms`. A note says so when a query names `Records` or `Links`. A query narrowed by `ToKey`, `FromKey` or `FromType` reads first the types it needs (for `ToKey`, the types whose records link to it, from the link index and the schema), and says which.
 - **A query may make temporary tables and indexes of its own,** in several statements. The last `SELECT`'s rows are the answer. It can't change anything else: `Error: a query may read, and may make temporary tables and indexes of its own; it can't run ATTACH.`
 
 ## The three scopes
@@ -43,7 +59,7 @@ Every answer below is real, cut with "…" where long. The examples are written 
 | `winners` | For each record, the version the game uses: the last loaded plugin that holds it | The default when no plugin is named |
 | `versions` | Every copy in every loaded plugin. Every typed view also has `LoadOrder` and `IsWinner` | On request |
 
-`plugins` takes names in Data separated by commas, or the full path of one plugin file elsewhere. A file outside Data is read with its masters from Data, and `[source]` shows its path.
+`plugins` takes names in Data separated by commas, names with `*` (`sfta*.esm`), a set: `@official` (the game's own plugins and Bethesda's Creations, 33 here), `@loaded` (every plugin the load order enables), `@all` (every plugin in Data), `@winners` (the winners scope); or the full path of one plugin file elsewhere. A set's plugin that can't be read is left out, with a note, and `[source]` starts with how the set was named: `@official (33 plugins)`. `find --in`, `refs2 --in`, `saved run --plugins` (and `plugin=`), `scripts2`, `indexes --in` and `profile --in` take the same forms. A file outside Data is read with its masters from Data, and `[source]` shows its path.
 ```text
 > query2 kgcdoom.esm,atom74.esm "SELECT Plugin, count(*) AS Weapons FROM Weapon GROUP BY Plugin ORDER BY 1;"
 | Plugin | Weapons |
@@ -55,7 +71,8 @@ Every answer below is real, cut with "…" where long. The examples are written 
 | N |
 |---|
 | 1579 |
-[source] Starfield.esm 1.36 GB, key d1c0e07a; Constellation.esm 38 KB, key a7ae4650; … and 218 more plugins (811.8 MB); load order of 2026-11-10 06:48 (224 loaded plugins)
+[notes] MissionsGalore.esm is left out: Mutagen refuses it: DuplicateFormKeyException: MissionsGalore.esm refused: 2 pairs of its records share a FormKey (the plugin was probably written for another master list); …
+[source] Starfield.esm 1.36 GB, key d1c0e07a, strings 4b75842f; Constellation.esm 38 KB, key a7ae4650, strings 446208fc; … and 218 more plugins (811.8 MB); load order of 2026-11-10 06:48 (224 loaded plugins)
 [cost] 2.51 s; read Weapon (1,753) from 72 plugins in 2.43 s
 
 > query2 "SELECT EditorID, Plugin, LoadOrder, IsWinner FROM InstanceNamingRules WHERE FormKey = '2377CF:Starfield.esm' ORDER BY LoadOrder;" --scope versions
@@ -121,7 +138,7 @@ Every list of a record type is a view with one row per entry. Don't unpack `Json
 | Razorback | 51 |
 | UrbanEagle | 39 |
 …
-[source] Starfield.esm 1.36 GB, key d1c0e07a
+[source] Starfield.esm 1.36 GB, key d1c0e07a, strings 4b75842f
 [cost] 81 ms; read Weapon (406) from Starfield.esm in 31 ms
 
 > query2 kgcdoom.esm "SELECT count(*) AS N FROM Weapon_Keywords WHERE edid(Value) = 'kgcDoom_Tag_WeaponTypeDoom';"
@@ -164,12 +181,44 @@ A temporary table forgets that FormKeys compare without regard to case. Where a 
 > query2 kgcdoom.esm "SELECT edid(FromKey) AS Record, FromType, Field, Path FROM Links WHERE ToKey = '0076BE:kgcdoom.esm' ORDER BY 1;"
 | Record | FromType | Field | Path |
 |---|---|---|---|
+| kgcDoom_MGEF_EnchShotgunCloak | MagicEffect | VirtualMachineAdapter.Scripts[*].Properties[*].Object | VirtualMachineAdapter.Scripts[0].Properties[2].Object |
+| kgcDoom_Perk_BonusDamageToPredators | Perk | Ranks[*].Effects[*].Conditions[*].Conditions[*].Data.FirstParameter | Ranks[0].Effects[0].Conditions[0].Conditions[0].Data.FirstParameter |
 | kgcDoom_WEAP_CrucibleBlade | Weapon | Keywords | Keywords[7] |
 | kgcDoom_WEAP_SuperShotgun | Weapon | Keywords | Keywords[7] |
-[notes] Links holds the links of the record types read so far in this scope (1: Weapon). It is not a search of every type: name a type in the query to have it read.
+[notes] Read first, because Links holds only the record types read: 10 types, PlacedNpc, Cell, MagicEffect, NavigationMeshInfoMap, NavigationMesh, Perk, PlacedObject, SurfaceBlock, Weapon, Worldspace (the types whose records link to 0076BE:kgcdoom.esm (link index), and those the index doesn't cover that can (schema)).
+```
+```text
+> query2 "SELECT Plugin, Size, NumRecords, MasterCount FROM Plugins ORDER BY MasterCount DESC, Plugin;" --rows 5
+| Plugin | Size | NumRecords | MasterCount |
+|---|---|---|---|
+| PandaWorks AutoLoot - Watchtower.esm | Light | 5 | 10 |
+| SVF-Watchtower-Patch.esm | Light | 21 | 10 |
+| df_weaponmod_tapatch.esm | Light | 195 | 10 |
+| PandaWorks AutoLoot.esm | Light | 980 | 8 |
+| atbb_watchtower.esm | Light | 46 | 8 |
+[more] 5 of 370 rows shown. Next: cursor "f887c6-5".
+
+> query2 "SELECT p.Plugin FROM Plugins p, json_each(p.Masters) m WHERE m.value = 'darkstar.esm' ORDER BY 1;" --rows 5
+| Plugin |
+|---|
+| DarkStarTGO_Fixes.esm |
+| GB_SBCX_DSTGO.esm |
+| darkstarpatch_aa50longwatch.esm |
+| darkstarpatch_aseveil.esm |
+| darkstarpatch_astra19.esm |
+[more] 5 of 58 rows shown. Next: cursor "ec9f21-5".
+
+> query2 kgcdoom.esm "SELECT Function, FunctionName, count(*) AS N FROM Conditions GROUP BY 1, 2 ORDER BY 3 DESC, 1;" --rows 3
+| Function | FunctionName | N |
+|---|---|---|
+| 874 | IsResearchComplete | 30 |
+| 426 | GetIsVoiceType | 13 |
+| 629 | GetVMQuestVariable | 12 |
+[more] 3 of 15 rows shown. Next: cursor "66147f-3".
+[notes] Read first, because Conditions holds only the record types read: 53 types, PlacedNpc, Activator, ArmorAddon, … (every record type that can hold a condition of these plugins, because the query narrows to none …
 ```
 - `Links.Field` is the field with list positions left out (`Keywords`, `ObjectTemplates[*].Includes[*].Mod`); `Path` is the exact place; `Idx` the innermost list position.
-- **For "what points at this record" use `sfs_refs`,** which searches every type. `Links` is for joins inside a query.
+- **For "what points at this record" use `sfs_refs`,** which searches every type. `Links` is for joins inside a query. `Links WHERE ToKey = '…'` also gives the links from world records (placed objects, cells, navmeshes) of the plugins that have a world link index (`sfs_run ["indexes", "build", "world"]`); without one, world types are left out unless the query names them.
 - A cursor belongs to its query: pass it with the same SQL and scope.
 
 ## World data and heavy queries
@@ -185,10 +234,24 @@ Every record type can be queried, placed objects, cells and dialogue included. A
 ```
 The game's own is not. A read estimated over 10 s or 2 GB, or of a million records or more, is announced and not started:
 ```text
-> query2 "SELECT count(*) FROM PlacedObject WHERE Base = '0002F6:Starfield.esm';" --plugins Starfield.esm
-Not run. PlacedObject in Starfield.esm is 3,291,860 records (304.5 MB): about 9 s and under 1 GB to read (only the column the query names: Base). Call again with allow_heavy=true (command line: --allow-heavy).
+> query2 "SELECT count(*) FROM Cell WHERE Flags IS NOT NULL;" --plugins Starfield.esm
+Not run. Cell in Starfield.esm is 30,717 records (473.4 MB): about 27 s and about 1.5 GB to read (only the column the query names: Flags, out of each record's JSON; rate measured on Starfield.esm's Cell, 2026-11-15). Call again with allow_heavy=true (command line: --allow-heavy) to run it now. …
 ```
-With `allow_heavy` that query ran in 3.89 s. A type too big to read whole is read for the columns the query names only. A query that needs nothing of the records (`SELECT count(*) FROM PlacedObject`) is answered from the header index.
+Such an answer gives three answers: `allow_heavy: true` runs it; leaving it out runs nothing; and where the world link index would make that kind of question fast (`Links WHERE ToKey` over world data), `allow_heavy: "save_index"` runs it and then saves the index, with its size and build time. Otherwise the line says no index would help, as here.
+
+A type too big to read whole is read for the columns the query names only; a column the records' own bytes give (a cell's Location, a placed object's Base) is read from them in about a second, and `col = 'literal'` on it keeps only the matching rows, with no `allow_heavy` needed: `SELECT count(*) FROM PlacedObject WHERE Base = '00003B:Starfield.esm'` 0.55 s on Starfield.esm, 1.2 s over the whole load order (winners or versions). A query that needs nothing of the records (`SELECT count(*) FROM PlacedObject`) is answered from the header index.
+
+A query is held to the memory one command may use (`workerMaxMB`, 1.5 GB on an 8 GB PC; settings that allow all memory let it use all of it). Big sorts and groups go to temporary files instead of memory, so they finish on any PC. A statement that would still pass the limit, or whose temporary files would fill the drive, stops with what to do:
+```text
+Error: the query was stopped: it took this command to 1.4 GB of memory, and one command may use 1.5 GB. Fix: narrow it: fewer rows into the join or the GROUP BY (a WHERE on a plugin, a FormKey or a column), fewer columns, and no Json (or a column of it) in a GROUP BY over a join; or raise workerMaxMB in sfsearch.json if this PC has the memory to spare.
+```
+`Json` itself in a grouped join (in the result, in an aggregate such as `max(c.Json)`, in GROUP BY) keeps each record's whole JSON for every row of the join. Such a query is said before it runs, with its size, when its temporary files would pass what one query may write (4 times `workerMaxMB`, 4 to 32 GB):
+```text
+Not run. This query's GROUP BY would keep the whole Json of Cell for each of its 29,141 rows: about 34.1 GB of temporary files, about 3 min to write and sort. One query may write 6.0 GB (4 times what one command may use). Narrow it: name the fields you need instead of Json (a typed column, or Json ->> '$.Field'), or fewer rows into the sort (a WHERE on a plugin, a FormKey or a column). Call again with allow_heavy=true (command line: --allow-heavy) to run it now. No saved index would make this faster: a sort's temporary files hold the rows it sorts, and SFSearch keeps indexes only of where records and links are.
+```
+`allow_heavy: true` runs it when the drive has room (half its free space, keeping 10 GB free); when it hasn't, the answer says so and allow_heavy won't run it. The same holds for an ORDER BY or DISTINCT whose result has `Json` itself (or `*`). A column of the typed view (`c.Location`), or `Json` named only in WHERE, is not kept. The estimate looks at every SELECT of the statement: a sort inside a CTE or a subquery, the parts of a compound SELECT (`UNION`, `ORDER BY` after the last part), a DISTINCT (each distinct row once), and the other big columns (a list view's entry `Json`, a typed view's JSON columns) as well as a record's `Json`; the answer says where ("This query's GROUP BY in its CTE x …", "… ORDER BY in part 1 of 2 …"). A big value a subquery or CTE hands up (`SELECT * FROM (SELECT c.FormKey, c.Json FROM …) ORDER BY 1`) is counted with the sort of the SELECT around it ("… would keep x.j (the whole Json of Cell) …"). What it can't see before running stops with "its temporary files passed … GB" when the files pass the limit: a correlated subquery, a recursive CTE, and a value SQLite only knows once made (an aggregate's result such as `group_concat`, or an expression's such as `Json ->> '$.Field'`).
+
+A join that names a typed view's `Json` (or one of its JSON columns) makes each record's JSON once, not once per row of the join, and what the statement works out of one record's JSON alone (`length(c.Json)`, `c.Json ->> '$.EditorID'`, `json_array_length(c.Json, '$.Traversals')`, `c.Json LIKE '%x%'`, `coalesce(c.Json, '{}') ->> '$.X'`, `c.Json IS NULL`, a `CASE` over it) is worked out once per record too, in any join: grouped, a LEFT JOIN, a FROM with subqueries, a correlated subquery, or through a subquery that hands the Json up (`length(x.Json)` over `(SELECT FormKey, Plugin, Json FROM Cell) x`). Over the cell NAViewport's 6 MB JSON and its 29,070 traversals `length(c.Json)` takes under a second (163 s before). What needs the whole JSON on each row is still made on each row, as the answer holds it there: `SELECT c.Json`, `GROUP BY c.Json`, `max(c.Json)`, `json_each(c.Json)`, `c.*`, or an expression that also names another table's column.
 
 ## The checks before a query runs
 1. **Names.** A table or column that doesn't exist stops the query with the nearest real names:
@@ -289,7 +352,7 @@ shipped.cobj (plugins kgcdoom.esm; plugin=kgcdoom.esm): The recipes (Constructib
 | 00B9F7:kgcdoom.esm | kgcDoom_co_CharacterPlushie_Arachnatron | kgcDoom_Plushy_Arachnatron | 00772B:kgcdoom.esm | MiscItem | 1 | WorkbenchIndustrialKeyword | 2 ResOrgCommonFiber, 1 ResOrgUncommonOrnamental |  | GetVMQuestVariable(kgcDoom_PlushieQuest, bArachnatron) = 1.0 |  | A craftable memory of your time battling Cultists on Mars. | 0 | kgcdoom.esm |
 …
 [more] 3 of 55 rows shown. Next: cursor "t1:e55f30-3".
-[source] kgcdoom.esm 3.5 MB, key 9561e0c8
+[source] kgcdoom.esm 3.5 MB, key 9561e0c8, strings 2d590079
 [cost] 90 ms; read ConstructibleObject (55) from kgcdoom.esm in 25 ms
 
 > saved run kw
@@ -326,6 +389,6 @@ user.heavy-guns (plugins Starfield.esm; plugin=Starfield.esm; min=100): The weap
 - **A parameter is a value.** The SQL names it `:name`; it is bound, never pasted in. Kinds: `text`, `number`, `pattern` (`*` any text, `?` one character; write `EditorID LIKE :name ESCAPE '\'`).
 - **An optional parameter that isn't given is NULL:** `(:record IS NULL OR EditorID = :record)`.
 - **Scopes:** `plugins`, `plugins with masters` (one plugin, its masters read with it), `winners`, `versions`.
-- **A query over `Records` or `Links` needs a `-- reads:` line** that says which types to read first (`-- reads: Weapon, Armor`, `-- reads: every type`).
+- **A query over `Records`, `Links` or `Conditions` needs a `-- reads:` line** that says which types to read first (`-- reads: Weapon, Armor`, `-- reads: every type`).
 - **`save` checks first** and writes nothing when the check fails. Yours live in `queries\` of the SFSearch home; an add-on `X.dll` brings `X.queries\` beside it.
 - The whole format, with every header line, is in `queries\README.md` of the repo.

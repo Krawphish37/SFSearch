@@ -239,7 +239,7 @@ public static class Describe
         // ---- cells ----
 
         string XEditName(FieldRow r)
-            => r.Sig.Length > 0 && db.PairNames.TryGetValue((r.Sig, r.PlainPath), out var pn) ? pn.Readable : r.Def.XEdit ?? "";
+            => r.Sig.Length > 0 && db.PairNames.TryGetValue((r.Sig, r.PlainPath), out var pn) ? PairMatcher.LastName(pn.XEditPath) : r.Def.XEdit ?? "";
 
         /// <summary>The Creation Kit's field a Mutagen field is (to-do F30), when the schema knows it and has the CK's names.</summary>
         CkField? CkOf(FieldDef f)
@@ -301,7 +301,7 @@ public static class Describe
             o.WriteLine($"| {firstColumn ?? "Path"} | Sig | Type | xEdit name | Notes |");
             o.WriteLine("|---|---|---|---|---|");
             foreach (var (r, cut) in rows)
-                o.WriteLine($"| {r.Path} | {r.Subrecord} | {TypeCell(r)} | {XEditName(r)} | {NotesCell(r, cut)} |");
+                o.WriteLine($"| {r.Path} | {SigCell(r)} | {TypeCell(r)} | {XEditName(r)} | {NotesCell(r, cut)} |");
         }
 
         // ---- a filter: ranked, the repeats put together ----
@@ -427,7 +427,7 @@ public static class Describe
             o.WriteLine($"# {Label(t)}");
             o.WriteLine();
             o.WriteLine(record
-                ? $"Record type. Signature {t.Sig}, Mutagen name {t.Name}, defined in {t.File}."
+                ? $"Record type. Signature {t.Sig}, Mutagen name {t.Name}{(t.XEditName != null ? $", xEdit name \"{t.XEditName}\"" : "")}, defined in {t.File}."
                 : $"{(t.Abstract ? "Base object (abstract)" : "Object")}{(t.Sig != null ? $", subrecord {t.Sig}" : "")}{(t.Base != null ? $", based on {t.Base}" : "")}, defined in {t.File}.{(t.FixedSize != null ? $" Always {t.FixedSize} bytes." : "")}");
             o.WriteLine($"{rows.Count} rows below; {real.Count} fields, {real.Count(d => d.Unknown)} of them unknown, {real.Count(d => d.XEdit != null)} with a name from xEdit.");
             if (t.LinkInterfaces.Count > 0) o.WriteLine($"Links to these also accept it: {string.Join(", ", t.LinkInterfaces)}.");
@@ -535,6 +535,12 @@ public static class Describe
             return found > 0 ? 0 : Fail($"None of the {types.Count} has a field with \"{filter}\" in its path, its xEdit name or its signature.");
         }
 
+        // The Sig column: the field's own subrecord, or the subrecords Mutagen's hand-written code fills it from (GAPS S38)
+        // (in brackets: the XML names them on the step, not on the field), on the field's own row and on the step's
+        static string SigCell(FieldRow r) => r.Subrecord
+            ?? (r.Def.CustomSubrecords != null && (r.Def.Kind == "CustomLogic" || r.Def.FilledBy != null) && r.Def.Path == r.Def.Name
+                ? $"({string.Join(" ", r.Def.CustomSubrecordList)})" : "");
+
         // ---- a file address ----
 
         int Address(List<ObjDef> types, string address)
@@ -545,7 +551,9 @@ public static class Describe
             int found = 0;
             foreach (var t in types)
             {
-                var rows = m.Expand(t.Name).Where(r => (r.Subrecord ?? "").Equals(sub, NoCase) && (offset == null || r.Offset == offset)).ToList();
+                // A field Mutagen's hand-written code fills from that subrecord (its CustomSubrecords, GAPS S38) is found too
+                var rows = m.Expand(t.Name).Where(r => (offset == null || r.Offset == offset) && ((r.Subrecord ?? "").Equals(sub, NoCase)
+                    || offset == null && r.Subrecord == null && r.Def.Kind != "CustomLogic" && r.Def.FilledBy != null && r.Def.CustomSubrecordList.Contains(sub, StringComparer.OrdinalIgnoreCase))).ToList();
                 if (rows.Count == 0) continue;
                 found += rows.Count;
                 o.WriteLine($"# {Label(t)}, subrecord {sub.ToUpperInvariant()}{(offset != null ? $", offset {offset}" : "")}: {Count(rows.Count)}");
@@ -554,7 +562,8 @@ public static class Describe
                 o.WriteLine();
             }
             if (found > 0) return 0;
-            var subs = types.SelectMany(t => m.Expand(t.Name)).Select(r => r.Subrecord).Where(s => s != null).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
+            var subs = types.SelectMany(t => m.Expand(t.Name)).SelectMany(r => r.Def.Kind != "CustomLogic" && r.Def.FilledBy != null ? r.Def.CustomSubrecordList.Append(r.Subrecord) : new[] { r.Subrecord })
+                .Where(s => s != null).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
             return Fail($"{string.Join(", ", types.Select(Label))} has no field in a subrecord \"{sub}\"{(offset != null ? $" at offset {offset}" : "")}. Its subrecords: {string.Join(" ", subs)}.");
         }
 
@@ -587,7 +596,12 @@ public static class Describe
             if (found.Match == "flag") o.WriteLine($"A member of the enum {r.Enum}, held by the field below.");
             if (found.Match == "component") o.WriteLine($"One part ({found.Part}) of the {f.Kind} value below.");
             o.WriteLine($"- Mutagen path: {t.Name}.{r.Path}");
-            string address = r.Subrecord == null ? "no subrecord of its own is known" : $"{(r.Sig.Length > 0 ? r.Sig + "/" : "")}{r.Subrecord}";
+            // A field Mutagen's hand-written code fills from subrecords the XML names on its CustomLogic step (GAPS S38)
+            string address = r.Subrecord == null
+                ? f.CustomSubrecords != null && f.FilledBy != null
+                    ? $"{string.Join(", ", f.CustomSubrecordList.Select(s => (r.Sig.Length > 0 ? r.Sig + "/" : "") + s))}, read by Mutagen's hand-written code ({f.FilledBy.Replace(",", ", ")})"
+                    : "no subrecord of its own is known"
+                : $"{(r.Sig.Length > 0 ? r.Sig + "/" : "")}{r.Subrecord}";
             if (r.Subrecord != null && r.Offset != null) address += $", offset {r.Offset}";
             string? placedBy = r.Offset == null && r.Subrecord != null && f.Size != null && !f.Translated ? PlacedBy(r) : null;
             if (placedBy != null) address += $" (no offset: {placedBy})";
@@ -597,9 +611,15 @@ public static class Describe
             string xe = XEditName(r);
             if (xe.Length > 0)
             {
-                string line = $"- Readable name: {xe} (xEdit's name";
+                // xEdit's non-names ("Unknown", "Unused", "CTDA") give way to a better own name (PairMatcher.ReadableName)
+                string readable = r.Sig.Length > 0 && db.PairNames.TryGetValue((r.Sig, r.PlainPath), out var own) ? own.Readable : f.Readable ?? PairMatcher.SpacedOut(f.Name);
+                bool ownName = !readable.Equals(xe, StringComparison.Ordinal);
+                string line = ownName ?$"- Readable name: {readable} (Mutagen's name spaced out: xEdit calls it \"{xe}\"" : $"- Readable name: {xe} (xEdit's name";
                 if (r.Sig.Length > 0 && db.PairNames.TryGetValue((r.Sig, r.PlainPath), out var pn)) line += $"; xEdit path {pn.XEditPath}";
                 if (db.PairChecks.TryGetValue((f.Object, f.Ord), out var chk)) line += $"; checked on {chk.Checked} records, {chk.Agree} agree";
+                // An object or a list no pair names: xEdit's element its paired fields sit in (GAPS S98)
+                else if (PairMatcher.IsContainer(r)) line += r.Def.Kind is "List" or "Array" or "Array2D" or "Dictionary"
+                    ? "; the xEdit element its items' paired fields sit in" : "; the xEdit element its paired fields sit in";
                 o.WriteLine(line + ")");
             }
             else o.WriteLine($"- Readable name: {f.Readable} (Mutagen's name spaced out; no checked xEdit pair)");
@@ -657,7 +677,7 @@ public static class Describe
             bool Loose(FieldDef f) => f.Name.Contains(name, NoCase) || (f.Readable ?? "").Contains(name, NoCase) || (f.XEdit ?? "").Contains(name, NoCase) || (f.CkName ?? "").Contains(name, NoCase);
             var fields = m.Objects.Values.SelectMany(x => x.Fields).Where(f => f.Kind is not ("Break" or "Marker")).ToList();
             // A record type's own xEdit name for a path counts too ("Base Damage" may be the name only in WEAP)
-            var byPair = db.PairNames.Where(p => p.Value.Readable.Equals(name, NoCase)).Select(p => p.Key).ToHashSet();
+            var byPair = db.PairNames.Where(p => p.Value.Readable.Equals(name, NoCase) || PairMatcher.LastName(p.Value.XEditPath).Equals(name, NoCase)).Select(p => p.Key).ToHashSet();
             var hits = fields.Where(f => Exact(f) || (uses.TryGetValue(f, out var u) && u.Any(r => byPair.Contains((r.Sig, r.PlainPath))))).ToList();
             string how = "is the name of";
             if (hits.Count == 0 || anyPart) { hits = fields.Where(Loose).ToList(); how = "is part of the name of"; }

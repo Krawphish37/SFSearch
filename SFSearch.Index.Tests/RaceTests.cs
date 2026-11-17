@@ -43,11 +43,31 @@ static class RaceTests
 
     static IndexOptions Options(Ctx ctx, string version) => new() { ScratchFolder = ctx.Scratch, VersionText = Ctx.Version + "/" + version, PluginsTxt = "", Ccc = "" };
 
+    /// <summary>A plugin of Data of 80 to 350 MB (only read): a refresh that reads it first takes a while over it.</summary>
+    internal static string SlowPlugin(Ctx ctx) =>
+        Directory.EnumerateFiles(ctx.Data, "*.esm").Select(f => new FileInfo(f)).Where(f => !HandsOff(f.Name) && f.Length is > 80_000_000 and < 350_000_000)
+            .OrderByDescending(f => f.Length).FirstOrDefault()?.FullName ?? throw new TestFailed("no plugin in Data between 80 and 350 MB to read first");
+
+    /// <summary>
+    /// One thread and a new, empty scratch folder: the plugins are read one at a time, biggest first, each really read (no
+    /// segment kept from before). A smaller plugin is stamped at the start and read only after the big one, so a test can
+    /// change it in between from another thread (J37: the index has no hook for tests).
+    /// </summary>
+    internal static IndexOptions SlowOptions(Ctx ctx, string name)
+    {
+        string scratch = Path.Combine(ctx.Work, "scratch-slow-" + name);
+        if (Directory.Exists(scratch)) Directory.Delete(scratch, true);
+        Directory.CreateDirectory(scratch);
+        return new() { ScratchFolder = scratch, VersionText = Ctx.Version + "/slow-" + name, PluginsTxt = "", Ccc = "", Threads = 1 };
+    }
+
     /// <summary>
     /// The crash of S43, made to happen: a plugin that has no header yet when the refresh looks at it (an empty file, as
-    /// a patcher's output is when it starts writing), and is written in full while it is read. The refresh reads it again,
+    /// a patcher's output is when it starts writing), and is written in full before it is read. The refresh reads it again,
     /// with the masters its new header names. Before the fix, the masters' sizes were kept from the first look (none),
-    /// and the reading key indexed past their end: ArgumentOutOfRangeException out of Parallel.ForEach.
+    /// and the reading key indexed past their end: ArgumentOutOfRangeException out of Parallel.ForEach. No hook in the
+    /// index (J37): the refresh runs on one thread with a big plugin of Data read first (<see cref="SlowOptions"/>), and
+    /// the file is written from another thread meanwhile. Empty when it was stamped, it is indexed only by its second read.
     /// </summary>
     public static string LateHeader(Ctx ctx)
     {
@@ -56,27 +76,28 @@ static class RaceTests
         string late = Path.Combine(folder, "late.esm");
         MustBeACopy(ctx, late);
         File.WriteAllBytes(late, Array.Empty<byte>());
-        int calls = 0;
-        using var index = new HeaderIndex(PluginSource.Folder(folder), Options(ctx, "late"));
-        index.AfterReadForTests = name =>
-        {
-            if (name == "late.esm" && Interlocked.Increment(ref calls) == 1)
-            {
-                File.Copy(source, late, overwrite: true);
-                File.SetLastWriteTimeUtc(late, DateTime.UtcNow);
-            }
-        };
+        string slow = SlowPlugin(ctx);
+        using var index = new HeaderIndex(PluginSource.FromFiles(new[] { slow, late }), SlowOptions(ctx, "late"));
         RefreshReport report;
+        var clock = Stopwatch.StartNew();
+        var writer = Task.Run(() =>
+        {
+            Thread.Sleep(150);
+            File.Copy(source, late, overwrite: true);
+            File.SetLastWriteTimeUtc(late, DateTime.UtcNow);
+            return clock.ElapsedMilliseconds;
+        });
         try { report = index.Refresh(); }
         catch (Exception e) { throw new TestFailed($"the refresh crashed: {e.GetType().Name}: {e.Message} (inner: {e.InnerException?.GetType().Name}: {e.InnerException?.Message})"); }
+        long took = clock.ElapsedMilliseconds, wroteAt = writer.Result;
+        Check(took > wroteAt + 50, $"the refresh took {took} ms and late.esm was written at {wroteAt} ms: the big plugin's read was too short to hold the write");
         var p = index.Plugin("late.esm");
         Check(p != null, "late.esm isn't in the index");
-        Check(calls == 2, $"late.esm was read {calls} time(s); written during the first read, it should be read twice");
         Check(p!.Segment != null && p.Problems.ReadError == null, $"late.esm, written in full during the first read, should be indexed; it says: {p.Problems.ReadError}");
         Check(p.Header != null && p.Header.Masters.Count == header.Masters.Count && p.MasterStyles.Count == header.Masters.Count, $"late.esm has {p.Header?.Masters.Count} masters and {p.MasterStyles.Count} master sizes; its header names {header.Masters.Count}");
         Check(p.ContentKey == Keys.Content(late), "what is indexed isn't the file as it is now");
-        Check(report.Added.SequenceEqual(new[] { "late.esm" }), $"added: {string.Join(", ", report.Added)}; expected late.esm");
-        return $"late.esm, empty when the refresh looked at it, then written as a copy of {Path.GetFileName(source)} ({header.Masters.Count} masters) during its read: read again, no crash, indexed with {p.Segment!.Count:N0} records and {p.MasterStyles.Count} master sizes";
+        Check(report.Added.Contains("late.esm", StringComparer.OrdinalIgnoreCase), $"added: {string.Join(", ", report.Added)}; expected late.esm among them");
+        return $"late.esm, empty when the refresh stamped it, then written as a copy of {Path.GetFileName(source)} ({header.Masters.Count} masters) {wroteAt} ms into a refresh of {took} ms ({Path.GetFileName(slow)} read first, one thread): read again, no crash, indexed with {p.Segment!.Count:N0} records and {p.MasterStyles.Count} master sizes";
     }
 
     /// <summary>

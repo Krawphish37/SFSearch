@@ -64,6 +64,7 @@ namespace SFSearch.Engine
             if (pr.Refused != null) parts.Add($"Mutagen refuses it ({pr.Refused.TrimEnd('.')}). It is left out of queries and of the winners, as Mutagen's load order leaves it out: the version before each of its overrides wins. record (every view) and check2 still read it, with Mutagen's read for diagnosis (DuplicateFormKeys = KeepLater: of each pair, the later record).");
             else if (pr.Duplicates > 0) parts.Add($"{pr.Duplicates:N0} record(s) repeat a FormKey the plugin already holds (of two in one group, Mutagen reads the later one only).");
             if (pr.MasterRefused != null) parts.Add($"its master {pr.MasterRefused} is refused by Mutagen, so it is left out of queries and of the winners too, as Mutagen's load order leaves it out.");
+            if (pr.MasterUnreadable != null) parts.Add($"its master {pr.MasterUnreadable} can't be loaded (a master of it isn't in Data), so it can't be loaded either: it is left out of queries and of the winners, as Mutagen's load order leaves it out.");
             if (pr.MastersNotLoaded.Count > 0) parts.Add($"master(s) not loaded: {string.Join(", ", pr.MastersNotLoaded)}.");
             if (pr.MastersLoadedAfter.Count > 0) parts.Add($"master(s) load after it: {string.Join(", ", pr.MastersLoadedAfter)}.");
             if (pr.BothSizeFlags) parts.Add("its header has both the Light (Small) and the Medium flag; it is read as Light.");
@@ -82,6 +83,7 @@ namespace SFSearch.Engine
             if (pr.Refused != null) parts.Add("refused by Mutagen");
             if (pr.Duplicates > 0) parts.Add($"{pr.Duplicates:N0} repeated FormKeys");
             if (pr.MasterRefused != null) parts.Add($"master refused by Mutagen: {pr.MasterRefused}");
+            if (pr.MasterUnreadable != null) parts.Add($"master can't be loaded: {pr.MasterUnreadable}");
             if (pr.MastersNotLoaded.Count > 0) parts.Add("master not loaded: " + string.Join(", ", pr.MastersNotLoaded));
             if (pr.MastersLoadedAfter.Count > 0) parts.Add("master loads later: " + string.Join(", ", pr.MastersLoadedAfter));
             if (pr.BothSizeFlags) parts.Add("both size flags");

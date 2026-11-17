@@ -20,6 +20,23 @@ namespace SFSearch.Reports.Tests;
 
 static class MaterialDatabaseTests
 {
+    /// <summary>Every material's textures together: how many materials, and the textures they name (was
+    /// MaterialContents.AllMaterialTextures in the library, kept there for these tests until J37).</summary>
+    static (int Materials, HashSet<string> Textures, int Unresolved) AllMaterialTextures(MaterialContents contents, MaterialContents? game)
+    {
+        var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int materials = 0, unresolved = 0;
+        for (int i = 0; i < contents.Objects; i++)
+        {
+            var n = new MaterialContents.Node(contents, i);
+            if (!n.IsMaterial) continue;
+            materials++;
+            all.UnionWith(contents.TexturesOf(n, game, out int lost));
+            unresolved += lost;
+        }
+        return (materials, all, unresolved);
+    }
+
     static void Check(bool ok, string what) => Ctx.Check(ok, what);
     static string N(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
     static string MB(long n) => (n / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture) + " MB";
@@ -155,7 +172,7 @@ static class MaterialDatabaseTests
         using (var s = new BufferedStream(file.AsStream(), 1 << 20)) whole = MaterialContents.Read(s, file.Size);
         Check(whole.BytesRead == whole.Size && whole.Objects > 400_000 && whole.Components > 1_000_000,
             $"the game's database read whole: {whole.BytesRead} of {whole.Size} bytes, {whole.Objects} objects, {whole.Components} components");
-        var (materials, textures, lost) = whole.AllMaterialTextures(whole);
+        var (materials, textures, lost) = AllMaterialTextures(whole, whole);
         Check(materials == game.Count, $"the whole read finds {materials} materials, the material list {game.Count}");
         // Each texture a game material names is looked for in the game's own archives: nearly all are there
         var gameNames = store.AllInData().Where(a => Path.GetFileName(a).StartsWith("Starfield - ", StringComparison.OrdinalIgnoreCase)).Select(a => store.Names(a)).ToList();
@@ -184,7 +201,7 @@ static class MaterialDatabaseTests
                 dbs++; seconds += c!.Seconds;
                 Check(MaterialDatabase.GameReads(cdb, archive), $"{cdb} in {Path.GetFileName(archive)}: a database the game doesn't read, by the rule");
                 if (db.IsGame) continue;
-                var (m, t, l) = c.AllMaterialTextures(store.Contents(store.Database(gameArchive, gamePath)));
+                var (m, t, l) = AllMaterialTextures(c, store.Contents(store.Database(gameArchive, gamePath)));
                 Check(m == db.Count, $"{cdb}: the whole read finds {m} materials, the list {db.Count}");
                 mods++; modMaterials += m; modTextures += t.Count; modLost += l;
                 log.Append($"{Path.GetFileName(archive)}\t{cdb}\twhole\t{c.Objects} objects\t{c.Seconds:0.000} s\t{c.Allocated} allocated\t{c.Kept} kept\t{m} materials\t{t.Count} textures\t{l} unresolved\n");
@@ -264,6 +281,36 @@ static class MaterialDatabaseTests
             parts.Add($"S33f: {exeName} (code at RVA 0x{found[0].CodeRva:x}) registers BSMaterial::MRTextureChannel as MaterialsView.Slots, then Count {e[^1].Value}; {e.Count(x => x.Value != null)} of {e.Count} values read as numbers, in {clock.Elapsed.TotalSeconds:0.0} s");
         }
     }
+
+    /// <summary>S8 (j811): the rule of the databases the game reads (MaterialDatabase.GameReads), held against the
+    /// game's own code: the file listener for materials (ExeListener) keeps the extension ".cdb" and, for each archive
+    /// opened, matches its name against the pattern GameReads uses.</summary>
+    internal static void RuleFromExe(Ctx ctx, List<string> parts, StringBuilder log)
+    {
+        const string pattern = @".* - Main[0-9]*\.ba2";
+        string game = Path.GetDirectoryName(ctx.Data.TrimEnd('\\', '/'))!;
+        foreach (var (exeName, cls) in new[] { ("Starfield.exe", "MaterialAndParticleFileListener"), ("CreationKit.exe", "MaterialFileListener") })
+        {
+            string exe = Path.Combine(game, exeName);
+            if (!File.Exists(exe)) { parts.Add($"S8: {exeName} not in {game}: the database rule not read from its code"); continue; }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var l = ExeListener.Read(exe, cls);
+            Check(l != null, $"S8: {exeName} has no class {cls} with a vtable");
+            var ctor = l!.Constructors.Where(c => c.Strings.Contains(".cdb")).ToList();
+            log.Append($"S8: {exeName}: {l.ClassName}, vtable at RVA 0x{l.VtableRva:x}, method 1 at 0x{l.MethodRva:x} loads {string.Join(", ", l.MethodStrings)}; the code that stores the vtable: {string.Join("; ", l.Constructors.Select(c => $"0x{c.Rva:x} loads {string.Join(", ", c.Strings)}"))}\n");
+            Check(l.MethodStrings.SequenceEqual(new[] { pattern }) && ctor.Count == 1,
+                $"S8: {exeName}'s {l.ClassName}: method 1 loads {string.Join(", ", l.MethodStrings)} (expected only {pattern}); {ctor.Count} constructors load \".cdb\"");
+            parts.Add($"S8: {exeName}'s {cls} keeps \".cdb\" (its constructor at RVA 0x{ctor[0].Rva:x}{(ctor[0].Strings.Contains(".blob") ? ", with \".blob\"" : "")}) and matches each archive's name against {pattern} (method 1 at 0x{l.MethodRva:x}), in {clock.Elapsed.TotalSeconds:0.0} s");
+        }
+        // GameReads is that pattern, whole and case ignored (std::regex flag 0x100), with the game's own database by its path
+        Check(MaterialDatabase.GameReads(@"materials\a\b.cdb", @"C:\x\Mod - MAIN.ba2") && MaterialDatabase.GameReads(@"x\y.cdb", @"C:\x\Mod - Main12.ba2")
+            && !MaterialDatabase.GameReads(@"materials\a\b.cdb", @"C:\x\Mod - Main.ba2.bak") && !MaterialDatabase.GameReads(@"materials\a\b.cdb", @"C:\x\Mod - MainA.ba2")
+            && !MaterialDatabase.GameReads(@"materials\a\b.cdb", @"C:\x\Mod - Textures.ba2") && !MaterialDatabase.GameReads(@"materials\a\b.cdb", null),
+            "S8: GameReads doesn't follow the pattern the game's code matches");
+    }
+
+    /// <summary>The game's materials with a path: without the plugins' records, and with everything the gather reads.</summary>
+    const int Told0 = 47_983, Told = 48_644;
 
     static void Parts(Ctx ctx, string gamePath, string gameArchive, List<string> parts, StringBuilder log)
     {
@@ -355,7 +402,7 @@ static class MaterialDatabaseTests
             && MaterialsView.SlotOf("BSMaterial::MRTextureFile", 21) == "slot 21",
             $"slot names: {string.Join(", ", Enumerable.Range(0, 22).Select(i => MaterialsView.SlotOf("BSMaterial::MRTextureFile", i)))}");
         var ending = new Dictionary<int, Dictionary<string, int>>();
-        foreach (var (cls, index, tex) in gameC.OwnTextures())
+        foreach (var (cls, index, tex) in OwnTextures(gameC))
         {
             if (cls != "BSMaterial::MRTextureFile" || tex.Length == 0) continue;
             string stem = Path.GetFileNameWithoutExtension(tex.Replace('/', '\\').Split('\\')[^1]).ToLowerInvariant();
@@ -370,11 +417,12 @@ static class MaterialDatabaseTests
             $"the game's textures by slot, the most common ending: {string.Join("; ", ending.OrderBy(x => x.Key).Select(x => $"{x.Key} {MaterialsView.Slots.ElementAtOrDefault(x.Key)} {Top(x.Key)} ({x.Value.Values.Sum()})"))}");
         parts.Add($"S33d: 21 slot names from the game's enum; textures in Mask (slot 10) end {Top(10)}, in DepthOffset (slot 12) {Top(12)}");
         SlotsFromExe(ctx, parts, log);
+        RuleFromExe(ctx, parts, log);
 
         // Which compiled materials use a texture: the search held against a walk of every material of the game's.
         // A plain call gathers nothing (fix-s33h): nothing is kept yet, as in a new process on an empty scratch folder
         string scratch = ctx.Session.Compare.ScratchFolder;
-        MaterialPaths.Forget(scratch);
+        Forget(scratch);
         var plainClock = System.Diagnostics.Stopwatch.StartNew();
         var users = view.Texture(@"Data\Textures\water\FoamDefault_color.dds");
         double plainSeconds = plainClock.Elapsed.TotalSeconds;
@@ -410,21 +458,22 @@ static class MaterialDatabaseTests
         // S33a: the paths of the game's materials, told from what Data names. Every path told has both hashes of
         // the material; the cheap tries alone give fix-f10's 39,434
         // S33g: first without the plugins' records (as before), then with them
-        var types = MaterialPaths.RecordTypes;
-        MaterialPaths.RecordTypes = new HashSet<string>();
+        var types = MaterialPaths.RecordTypes.ToArray();
+        MaterialPaths.RecordTypes.Clear();
         var sw0 = System.Diagnostics.Stopwatch.StartNew();
-        var cov0 = new MaterialsView(ctx.Session).GamePathCoverage();
+        (int Materials, int Cheap, int Told, List<(MaterialContents.Node Node, string? Path)> Paths) cov0;
+        try { cov0 = GamePathCoverage(new MaterialsView(ctx.Session)); }
+        finally { MaterialPaths.RecordTypes.UnionWith(types); }
         double cov0Seconds = sw0.Elapsed.TotalSeconds;
-        var e0 = MaterialPaths.Current!;
-        MaterialPaths.RecordTypes = types;
-        MaterialPaths.Forget(scratch);
+        var e0 = KeptNow()!;
+        Forget(scratch);
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var cov = view.GamePathCoverage();
+        var cov = GamePathCoverage(view);
         double covSeconds = sw.Elapsed.TotalSeconds;
-        var e1 = MaterialPaths.Current!;
+        var e1 = KeptNow()!;
         var before = cov0.Paths.Where(x => x.Path != null).Select(x => x.Node.At).ToHashSet();
         var onlyRecords = cov.Paths.Where(x => x.Path != null && !before.Contains(x.Node.At)).Select(x => x.Path!).OrderBy(x => x, StringComparer.Ordinal).ToList();
-        Check(cov0.Told == 47_654 && e0.Records == 0 && e1.RecordPlugins > 100 && e1.RecordTexts > 13_000 && cov.Told >= 48_600 && onlyRecords.Count == cov.Told - cov0.Told,
+        Check(cov0.Told == Told0 && e0.Records == 0 && e1.RecordPlugins > 100 && e1.RecordTexts > 13_000 && cov.Told == Told && onlyRecords.Count == cov.Told - cov0.Told,
             $"S33g: the game's materials with a path: {N(cov0.Told)} without the plugins' records, {N(cov.Told)} with them ({N(e1.Records)} records of {N(e1.RecordPlugins)} plugins, {N(e1.RecordTexts)} .mat texts); {onlyRecords.Count} told only by them");
         // A plugin saved since the gather: --all-paths (and the service) gather again; a plain call still takes the kept
         // gather, whose paths all still hold (the archives are the same), and says a plugin changed
@@ -449,9 +498,32 @@ static class MaterialDatabaseTests
         Check(cov.Materials == gameDb.Count && cov.Cheap == 39_434 && cov.Told >= 47_000 && wrongHash == 0 && glassNode.Path != null,
             $"S33a: of the game's {N(cov.Materials)} materials, {N(cov.Cheap)} get a path from the cheap tries and {N(cov.Told)} with what Data names; {wrongHash} told paths don't hash to their material");
         parts.Add($"S33a: the game's materials with a path: {N(cov.Told)} of {N(cov.Materials)} (was {N(cov.Cheap)}), in {covSeconds:0.0} s");
+        // j811: the paths told by the particle files, the databases' own names, and a record's text whose folder ends
+        // in "Materials" (the gather cut it at "Materials\" before); no two paths Data writes share both hashes; the
+        // materials left without a path, each in the log
+        string? PathOfName(string name) => cov.Paths.FirstOrDefault(x => x.Node.OwnName == name).Path;
+        var toldJ811 = new Dictionary<string, string>
+        {
+            ["BloodSpurt_Medium_01"] = @"materials\effects\blood\bloodspurt_medium_01.mat",                         // sfbgs00b's completepsfx.blob
+            ["MGoulet_Pattern05_Test"] = @"materials\test\test\mgoulet_pattern05_test.mat",                          // SFBGS007's database: a name
+            ["Test_ShipScreen_Avionics01_Decal"] = @"materials\test\additive_multiply\test_shipscreen_avionics01_decal.mat",
+            ["Neon_MetalRust01"] = @"materials\architecture\city\neon\basematerials\neon_metalrust01.mat",           // Starfield.esm's LMSW
+            ["NeonPaintedScuffed01_Base"] = @"materials\architecture\city\neon\basematerials\neonpaintedscuffed01_base.mat", // its folder
+        };
+        var wrongJ811 = toldJ811.Where(w => PathOfName(w.Key) != w.Value).Select(w => $"{w.Key}: {PathOfName(w.Key) ?? "none"}").ToList();
+        Check(wrongJ811.Count == 0 && e1.Blobs > 30 && e1.DatabaseNames > 0, $"j811: paths told: {string.Join("; ", wrongJ811)}; {e1.Blobs} particle files, {e1.DatabaseNames} database names read");
+        Check(e1.Collisions.Count == 0 && e1.PathTexts > 30_000, $"S8: {e1.Collisions.Count} pairs of material paths share both hashes ({string.Join("; ", e1.Collisions.Take(3))}) among {e1.PathTexts}");
+        var left = cov.Paths.Where(x => x.Path == null).ToList();
+        foreach (var (n, _) in left)
+        {
+            var (dir, file, _) = n.Id;
+            var folder = cov.Paths.FirstOrDefault(x => x.Path != null && x.Node.Id.Dir == dir).Path;
+            log.Append($"S33a left\t{n.IdText}\t{n.OwnName ?? "(no name)"}\t{(n.OwnName != null && MaterialDatabase.ResourceId(n.OwnName + ".mat").File == file ? "its name is its file's" : "no name of its file")}\t{(folder != null ? "folder known: " + Path.GetDirectoryName(folder) : "folder 0x" + dir.ToString("X8") + " named nowhere in Data")}\n");
+        }
+        parts.Add($"j811: {e1.Blobs} particle files ({MB(e1.BlobBytes)}) and {N(e1.DatabaseNames)} database names read; {N(cov.Materials - left.Count)} told, {left.Count} left; no two of the {N(e1.PathTexts)} material paths Data writes share both hashes");
         // fix-f10's answer left 16 of them without a path. A plain call in a new process (or another worker): the
         // process's memory forgotten, the gather is taken from the scratch folder, nothing is read again
-        MaterialPaths.Forget(null);
+        Forget(null);
         var fresh = new MaterialsView(ctx.Session);
         var keptClock = System.Diagnostics.Stopwatch.StartNew();
         var users2 = fresh.Texture(@"textures\water\foamdefault_color.dds");
@@ -504,10 +576,64 @@ static class MaterialDatabaseTests
             && Tex(back.Trees.First(t => t.Source.StartsWith("the game's", StringComparison.Ordinal)).Tree).Select(t => t.Path).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(shown),
             $"S33e: --material after the databases were let go: {store.ContentsRead.Count} read again, {back.Trees.Count} trees");
         // The gather (the service's indexer job) lets go of the databases it read whole itself
-        MaterialPaths.Forget(scratch);
+        Forget(scratch);
         ArchiveStore.ReleaseContents();
         string warm = new MaterialsView(ctx.Session).WarmPaths();
         Check(warm.Contains("let go of the 21 databases it read whole", StringComparison.Ordinal) && ArchiveStore.ContentsHeld().Databases == 0, $"S33e: the gather's line: {warm}; {ArchiveStore.ContentsHeld().Databases} databases still held");
         parts.Add($"S33e: {held.Databases} databases read whole ({MB(held.Kept)}) let go after an idle time: this process {MB(privBefore)} -> {MB(privAfter)} private (let go and compacted in {letSeconds:0.00} s); read again when next needed ({back.Seconds:0.00} s); the gather lets go of what it read ({warm})");
+    }
+
+    // ---------------------------------------------------------------- Helpers moved out of SFSearch.Reports (J81)
+    // They were test-only members of the library (MaterialsView.GamePathCoverage, MaterialContents.OwnTextures,
+    // MaterialPaths.Current and Forget). They read the library's own internals through InternalsVisibleTo.
+
+    /// <summary>What this process holds of the material paths' evidence now (was MaterialPaths.Current).</summary>
+    static MaterialPathEvidence? KeptNow() { lock (MaterialPaths.Gate) return MaterialPaths._kept; }
+
+    /// <summary>Forget what this process holds, as a new process (or another worker) would start, and with
+    /// <paramref name="scratch"/> also the scratch file (was MaterialPaths.Forget).</summary>
+    static void Forget(string? scratch)
+    {
+        lock (MaterialPaths.Gate)
+        {
+            MaterialPaths._kept = null;
+            if (scratch != null) File.Delete(Path.Combine(scratch, MaterialPaths.FileName));
+        }
+    }
+
+    /// <summary>Every texture an object of the database sets itself (not what it inherits), with its component's class
+    /// and index: for the test of the slot names against the textures' own file names (was MaterialContents.OwnTextures).</summary>
+    static IEnumerable<(string Class, int Index, string Texture)> OwnTextures(MaterialContents db)
+    {
+        for (int o = 0; o < db.Objects; o++)
+            for (int c = db._compStart[o]; c < db._compStart[o + 1]; c++)
+                for (int e = db._compEntry[c]; e < db._compEntry[c + 1]; e++)
+                    if (db._entries[e].Texture) yield return (MaterialContents.ClassName((int)(db._compKey[c] >> 16)), (int)(db._compKey[c] & 0xFFFF), db.Text((int)db._entries[e].Value));
+    }
+
+    /// <summary>S33a: how many of the game's materials get a path from the cheap tries, and how many with what Data
+    /// names; and the path told for each material (was MaterialsView.GamePathCoverage). Turns the view's AllPaths on.</summary>
+    static (int Materials, int Cheap, int Told, List<(MaterialContents.Node Node, string? Path)> Paths) GamePathCoverage(MaterialsView view)
+    {
+        var probe = new MaterialPartsAnswer { Material = "" };
+        var finder = view.Finder(null, false, probe, out _);
+        var dbs = view.Databases(finder, probe);
+        view.AllPaths = true;
+        var gameDb = dbs.First(d => d.Db.IsGame && d.Db.Error == null).Db;
+        var game = view._s.Archives.Contents(gameDb) ?? throw new InvalidDataException("the game's database couldn't be read whole");
+        int materials = 0, cheap = 0, told = 0;
+        var paths = new List<(MaterialContents.Node, string?)>();
+        for (int i = 0; i < game.Objects; i++)
+        {
+            var n = new MaterialContents.Node(game, i);
+            if (!n.IsMaterial) continue;
+            materials++;
+            string? p = MaterialsView.PathOf(n, game, null);
+            if (p != null) cheap++;
+            p ??= view.More(n, finder, dbs);
+            if (p != null) told++;
+            paths.Add((n, p));
+        }
+        return (materials, cheap, told, paths);
     }
 }

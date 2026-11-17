@@ -176,6 +176,7 @@ public sealed partial class QueryEngine
                 {
                     "Records" => $"Records holds only the record types read so far in this scope ({string.Join(", ", _files.SelectMany(f => _done[f].Keys).Where(k => k != FormsDone).Select(_e.LabelOf).Distinct().Take(8).DefaultIfEmpty("none yet"))}): narrow it (WHERE Type = '…', FormKey = '…' or EditorID = '…') and that type is read first, or name a type's own table",
                     "Links" => "Links holds only the links of the record types read so far in this scope: narrow it (WHERE ToKey = '…', FromKey = '…' or FromType = '…') and the types that needs are read first",
+                    "Conditions" => "Conditions holds only the conditions of the record types read so far in this scope: narrow it (WHERE Type = '…', FormKey = '…' or EditorID = '…') and that type is read first",
                     _ => $"the filter matched nothing among the {_members.Sum(p => (long)p.Segment!.Count):N0} records of the header index for this scope",
                 });
             if (reasons.Count == 0) reasons.Add("the query names no record table");
@@ -203,7 +204,7 @@ public sealed partial class QueryEngine
                 string sig = _e._schema.SignatureOf(typed.Types[0])!;
                 using var cmd = _con.CreateCommand();
                 cmd.CommandText = !_done[f].ContainsKey(sig) && _projections.TryGetValue((f, typed.Types[0]), out var proj)
-                    ? $"SELECT count(*) FROM {f.Alias}.{SqlText.Name(proj.Table)}"
+                    ? $"SELECT count(*) FROM {f.Alias}.{SqlText.Name(proj.Table)}{(f.IsSet && _winners ? " WHERE IsWinner = 1" : "")}"
                     : $"SELECT count(*) FROM {f.Alias}.Rec WHERE Type IN ({types}){(f.IsSet && _winners ? " AND IsWinner = 1" : "")}";
                 rows += Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
             }

@@ -74,6 +74,8 @@ public sealed class ArchiveNames : ArchiveStamp
     public bool Has(string path) => Array.BinarySearch(Hashes, ArchiveStore.Hash(path)) >= 0;
     /// <summary>The compiled material databases (.cdb) the archive holds, by path.</summary>
     public IReadOnlyList<string> Databases { get; internal set; } = Array.Empty<string>();
+    /// <summary>How many compiled scripts (.pex) the archive holds: one with none needn't be opened for scripts.</summary>
+    public int Scripts { get; internal set; }
 }
 
 /// <summary>The paths an archive holds, in its own order, without the entries' sizes or data (<see cref="ArchiveStore.PathsOf"/>).</summary>
@@ -105,11 +107,17 @@ public sealed class ArchiveStore
     /// <summary>How many archives' names a report looked in since the last <see cref="Begin"/> (<see cref="Names"/>),
     /// read now or taken from memory.</summary>
     public int NamesUsed => _checkedNow.Count;
+    /// <summary>How many of those were read now, not taken from memory.</summary>
+    public int NamesUsedReadNow => _checkedNow.Values.Count(n => _readNow.Contains(n.Path));
+    /// <summary>How many archives <see cref="ReadAhead"/> read in this report that it then didn't look in.</summary>
+    public int ReadAheadUnused => _aheadNow.Count;
+    /// <summary>Archives this store's <see cref="ReadAhead"/> read since the last <see cref="Begin"/>, until they are looked in.</summary>
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _aheadNow = new(StringComparer.OrdinalIgnoreCase);
 
     public ArchiveStore(string dataFolder) { DataFolder = System.IO.Path.GetFullPath(dataFolder); }
 
     /// <summary>At the start of a report: the loose files are looked at again, and the count of lists read starts over.</summary>
-    public void Begin() { _loose = null; _readNow.Clear(); _checkedNow.Clear(); _databasesReadNow.Clear(); _contentsReadNow.Clear(); }
+    public void Begin() { _loose = null; _aheadNow.Clear(); _readNow.Clear(); _checkedNow.Clear(); _databasesReadNow.Clear(); _contentsReadNow.Clear(); }
 
     readonly Dictionary<string, ArchiveNames> _checkedNow = new(StringComparer.OrdinalIgnoreCase);
 
@@ -152,6 +160,7 @@ public sealed class ArchiveStore
         {
             Path = path, Length = info.Length, WriteUtc = info.WriteUtc, Hashes = hashes, Error = info.Error,
             Databases = info.Files.Where(f => f.Path.EndsWith(".cdb", StringComparison.OrdinalIgnoreCase)).Select(f => f.Path).ToArray(),
+            Scripts = info.Files.Count(f => f.Path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase)),
         };
 
         _lists[path] = info; _recent.AddLast(path); _keptFiles += info.Files.Count;
@@ -173,7 +182,99 @@ public sealed class ArchiveStore
         if (_checkedNow.TryGetValue(path, out var known)) return known;
         string full = System.IO.Path.GetFullPath(path);
         if (!(_names.TryGetValue(full, out var have) && have.SameCopy(new FileInfo(full)))) { PathsOf(full); have = _names[full]; }
+        else if (_aheadNow.TryRemove(full, out _) | _readBefore.TryRemove(full, out _)) _readNow.Add(full);
         return _checkedNow[path] = have;
+    }
+
+    /// <summary>
+    /// Starts reading the names of several archives, each on a thread of its own, from its name table as
+    /// <see cref="Names"/> would, and returns at once: one task per archive, true when it read the names now (false
+    /// when they were in memory with the same size and date, when Mutagen can't read the table, which
+    /// <see cref="Names"/> then reads whole for its error, or when <paramref name="stop"/> came first). Only the path
+    /// hashes are made, no path's text. The assets report reads a few archives ahead of where its search stands and
+    /// stops the rest once every file is found (GAPS S30). Call <see cref="NoteRead"/> for each one it uses.
+    /// </summary>
+    /// <param name="before">True when no report runs yet (<see cref="AssetsReport.Prepare"/>): the first report that
+    /// uses such an archive counts it as read now.</param>
+    public IReadOnlyList<Task<bool>> ReadAhead(IReadOnlyList<string> paths, CancellationToken stop, bool before = false)
+    {
+        var tasks = new List<Task<bool>>();
+        foreach (var p in paths)
+        {
+            string full = System.IO.Path.GetFullPath(p);
+            var fi = new FileInfo(full);
+            if (_names.TryGetValue(full, out var have) && have.SameCopy(fi) || _lists.ContainsKey(full)) { tasks.Add(Task.FromResult(false)); continue; }
+            // A read already under way for the archive is waited for, not started again
+            Lazy<Task<bool>>? mine = null;
+            mine = new Lazy<Task<bool>>(() => Task.Run(() =>
+            {
+                try
+                {
+                    bool read = ReadHashes(full, fi, stop, before);
+                    if (read && !before) _aheadNow[full] = 0;
+                    return read;
+                }
+                finally { _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<bool>>>(full, mine!)); }
+            }));
+            tasks.Add(_inFlight.GetOrAdd(full, mine).Value);
+        }
+        return tasks;
+    }
+
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<bool>>> _inFlight = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Archives whose names were read before any report ran (<see cref="ReadAhead"/>'s before).</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _readBefore = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Counts an archive <see cref="ReadAhead"/> read as read in this report.</summary>
+    public void NoteRead(string path)
+    {
+        string full = System.IO.Path.GetFullPath(path);
+        _readBefore.TryRemove(full, out _);
+        _aheadNow.TryRemove(full, out _);
+        _readNow.Add(full);
+    }
+
+    static bool ReadHashes(string path, FileInfo fi, CancellationToken stop, bool before)
+    {
+        try
+        {
+            var hashes = new List<ulong>();
+            var databases = new List<string>();
+            int n = 0;
+            foreach (var p in Archive.CreateReader(GameRelease.Starfield, path).EnumerateFilePaths())
+            {
+                if ((++n & 4095) == 0 && stop.IsCancellationRequested) return false;
+                hashes.Add(HashOfStored(p));
+                if (p.AsSpan().Trim().EndsWith(".cdb", StringComparison.OrdinalIgnoreCase)) databases.Add(Normalize(p));
+            }
+            var sorted = hashes.ToArray();
+            Array.Sort(sorted);
+            // Marked before the names are kept, so a report that finds them in memory counts them as read now
+            if (before) _readBefore[path] = 0;
+            _names[path] = new ArchiveNames
+            {
+                Path = path, Length = fi.Exists ? fi.Length : 0, WriteUtc = fi.Exists ? fi.LastWriteTimeUtc : default, Hashes = sorted, Databases = databases.ToArray(),
+            };
+            return true;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or NotImplementedException or ArgumentException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary><see cref="Hash"/> of <see cref="Normalize"/> of a path as an archive stores it, without making the
+    /// normalized text: trimmed, slashes as backslashes, no leading one, lower case.</summary>
+    public static ulong HashOfStored(string stored)
+    {
+        var t = stored.AsSpan().Trim();
+        int start = 0;
+        while (start < t.Length && t[start] is '\\' or '/') start++;
+        t = t[start..];
+        Span<char> lower = t.Length <= 256 ? stackalloc char[t.Length] : new char[t.Length];
+        int len = t.ToLowerInvariant(lower);
+        for (int i = 0; i < len; i++) if (lower[i] == '/') lower[i] = '\\';
+        return XxHash3.HashToUInt64(MemoryMarshal.AsBytes(lower[..len]));
     }
 
     /// <summary>
@@ -199,6 +300,13 @@ public sealed class ArchiveStore
             paths = ReadNameTable(path);
             if (paths == null) { var whole = Open(path); paths = whole.Files.Select(f => f.Path).ToList(); error = whole.Error; }
         }
+        Keep(path, length, written, paths, error);
+        return new ArchivePaths { Path = path, Length = length, WriteUtc = written, Paths = paths, Error = error };
+    }
+
+    /// <summary>Keeps an archive's path hashes for the whole process (<see cref="Names"/>).</summary>
+    static void Keep(string path, long length, DateTime written, IReadOnlyList<string> paths, string? error)
+    {
         var hashes = new ulong[paths.Count];
         for (int i = 0; i < hashes.Length; i++) hashes[i] = Hash(paths[i]);
         Array.Sort(hashes);
@@ -206,8 +314,8 @@ public sealed class ArchiveStore
         {
             Path = path, Length = length, WriteUtc = written, Hashes = hashes, Error = error,
             Databases = paths.Where(f => f.EndsWith(".cdb", StringComparison.OrdinalIgnoreCase)).ToArray(),
+            Scripts = paths.Count(f => f.EndsWith(".pex", StringComparison.OrdinalIgnoreCase)),
         };
-        return new ArchivePaths { Path = path, Length = length, WriteUtc = written, Paths = paths, Error = error };
     }
 
     /// <summary>

@@ -3,6 +3,8 @@
 // and an NPC in the faction (Npc.Factions) sells it. sources reads this once per run, from the factions of the
 // searched plugins and their masters, and only when it first meets a container, or a master's list that nothing
 // searched holds, or a list a script adds to.
+// The factions' merchant containers and the chests' bases are first read from the files' bytes (the VENC and NAME
+// subrecords, all cores); Mutagen then reads only the factions and chests a question needs, and decides (GAPS S70).
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using SFSearch.Compare;
@@ -26,6 +28,8 @@ public sealed class VendorChest
     public bool VendorFlag { get; init; }
     /// <summary>The NPCs in the faction (FormKeys), filled when first asked for.</summary>
     public List<string> Npcs { get; } = new();
+    /// <summary>Its place among the factions, by their FormKeys.</summary>
+    internal int Order { get; init; }
 
     public JsonObject ToJson() => new()
     {
@@ -43,8 +47,14 @@ public sealed class VendorIndex
     readonly List<(RecordEngine Engine, IndexedPlugin Plugin)> _plugins;
     readonly LinkWalker _walker;
     List<VendorChest>? _all;
-    Dictionary<string, List<VendorChest>>? _byContainer;
-    Dictionary<string, List<(VendorChest Vendor, List<string> Path)>>? _byList;
+    readonly Dictionary<string, List<VendorChest>> _byContainer = new(StringComparer.OrdinalIgnoreCase);
+    // The factions with a merchant container and their chests' bases, told from the bytes (see Map)
+    List<Candidate>? _candidates;
+    Dictionary<string, List<Candidate>>? _byBase;
+    readonly List<Candidate> _baseUnknown = new();
+    int _withVenc, _chests, _bases;
+    // Internal (J81): sfsreport-tests' SourcesTests.FirstHeldList reads it through InternalsVisibleTo
+    internal Dictionary<string, List<(VendorChest Vendor, List<string> Path)>>? _byList;
     bool _npcsRead;
     int _factions, _factionsRead, _chestsRead, _listsRead, _npcsRead2, _npcsSieved, _unread;
     double _seconds;
@@ -84,8 +94,8 @@ public sealed class VendorIndex
     }
 
     /// <summary>What reading the vendors cost, for the answer's notes. Null while nothing was read.</summary>
-    public string? Cost => _all == null ? null :
-        $"{_factionsRead:N0} of {_factions:N0} factions of {_plugins.Count:N0} plugins had a merchant container: {_all.Count:N0} vendor chests on {_byContainer!.Count:N0} containers" +
+    public string? Cost => _candidates == null ? null :
+        $"{_withVenc:N0} of {_factions:N0} factions of {_plugins.Count:N0} plugins had a merchant container: {_chests:N0} vendor chests on {_bases:N0} containers (from the files' bytes; {_factionsRead:N0} factions and {_chestsRead:N0} chests read through Mutagen)" +
         (_byList != null ? $", {_listsRead:N0} containers and lists read for their stock" : "") +
         (_npcsRead ? $", {_npcsSieved:N0} NPCs looked through for a vendor faction's FormID and {_npcsRead2:N0} of them read" : "") +
         (_unread > 0 ? $", {_unread:N0} records couldn't be read" : "") + $" ({_seconds:F1} s)";
@@ -93,8 +103,11 @@ public sealed class VendorIndex
     /// <summary>The vendors whose chest is a placed copy of this container.</summary>
     public IReadOnlyList<VendorChest> OfContainer(string formKey)
     {
-        Build();
-        return _byContainer!.TryGetValue(ReportSession.Canon(formKey), out var v) ? v : Array.Empty<VendorChest>();
+        string key = ReportSession.Canon(formKey);
+        Map();
+        // Only the factions whose chest's base is this container (by the bytes), and any whose base the bytes didn't tell
+        Confirm((_byBase!.TryGetValue(key, out var some) ? some : Enumerable.Empty<Candidate>()).Concat(_baseUnknown));
+        return _byContainer.TryGetValue(key, out var v) ? v : Array.Empty<VendorChest>();
     }
 
     /// <summary>The vendors whose container holds this list, directly or through other lists (the path between, from the container inward, not counting the list itself).</summary>
@@ -106,14 +119,6 @@ public sealed class VendorIndex
 
     /// <summary>Every vendor found, in the order of the factions' FormKeys.</summary>
     public IReadOnlyList<VendorChest> All { get { Build(); return _all!; } }
-
-    /// <summary>A leveled list a vendor's container holds directly, and that vendor: the first by the lists' FormKeys (for tests).</summary>
-    public (string List, VendorChest Vendor)? FirstHeldList()
-    {
-        BuildLists();
-        return _byList!.Where(kv => kv.Value.Any(h => h.Path.Count == 0)).OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kv => ((string List, VendorChest Vendor)?)(kv.Key, kv.Value.First(h => h.Path.Count == 0).Vendor)).FirstOrDefault();
-    }
 
     /// <summary>The NPCs in a vendor's faction (FormKeys). The NPCs of the plugins are read once, the first time.</summary>
     public IReadOnlyList<string> Npcs(VendorChest v)
@@ -157,17 +162,100 @@ public sealed class VendorIndex
         return winners;
     }
 
-    void Build()
+    /// <summary>A faction with a merchant container, as its bytes tell it, and its chest's base container.</summary>
+    sealed class Candidate
     {
-        if (_all != null) return;
+        public required int Order { get; init; }
+        public required string Faction { get; init; }
+        public required Hit FactionHit { get; init; }
+        public bool Confirmed { get; set; }
+    }
+
+    /// <summary>
+    /// The factions with a merchant container (a VENC subrecord) and each chest's base container (its NAME), read from
+    /// the files' bytes on all cores; nothing through Mutagen. A faction without VENC has no merchant container (Mutagen
+    /// reads MerchantContainer from it), so it is left out; one whose bytes don't tell it plainly is kept, base unknown.
+    /// </summary>
+    void Map()
+    {
+        if (_candidates != null) return;
         var clock = Stopwatch.StartNew();
-        _all = new List<VendorChest>();
-        _byContainer = new Dictionary<string, List<VendorChest>>(StringComparer.OrdinalIgnoreCase);
-        var factions = Winners("FACT");
+        var factions = Winners("FACT").OrderBy(f => f.Key, StringComparer.OrdinalIgnoreCase).ToList();
         _factions = factions.Count;
-        foreach (var (factionKey, hit) in factions.OrderBy(f => f.Key, StringComparer.OrdinalIgnoreCase))
+        var venc = Subrecord(factions.Select(f => f.Value).ToList(), "VENC");
+        var candidates = new List<Candidate>();
+        var chests = new List<(Candidate Candidate, Hit Chest)>();
+        for (int i = 0; i < factions.Count; i++)
         {
-            var view = Read(hit);
+            var (told, chestKey) = venc[i];
+            if (told && chestKey == null) continue; // no merchant container
+            var c = new Candidate { Order = i, Faction = factions[i].Key, FactionHit = factions[i].Value };
+            candidates.Add(c);
+            if (chestKey == null) { _baseUnknown.Add(c); continue; }
+            _withVenc++;
+            // No plugin holds the chest: no vendor, as the read through Mutagen finds too
+            if (Find(chestKey) is not { } chest) { c.Confirmed = true; continue; }
+            chests.Add((c, chest));
+        }
+        var bases = Subrecord(chests.Select(x => x.Chest).ToList(), "NAME");
+        _byBase = new Dictionary<string, List<Candidate>>(StringComparer.OrdinalIgnoreCase);
+        for (int j = 0; j < chests.Count; j++)
+        {
+            var c = chests[j].Candidate;
+            var (told, baseKey) = bases[j];
+            if (!told || baseKey == null) { _baseUnknown.Add(c); continue; }
+            _chests++;
+            if (!_byBase.TryGetValue(baseKey, out var list)) _byBase[baseKey] = list = new List<Candidate>();
+            list.Add(c);
+        }
+        _bases = _byBase.Count;
+        _candidates = candidates;
+        _seconds += clock.Elapsed.TotalSeconds;
+    }
+
+    /// <summary>
+    /// One subrecord of each record, read from the files' bytes (a plain parallel loop over the plugins): its FormID as
+    /// a FormKey, by the FormIDs of the record's plugin. Told true with null: the record holds no such subrecord. Told
+    /// false: the record couldn't be read, or holds the subrecord in another form than one FormID that resolves (a null
+    /// FormID, two of them, another length); Mutagen then decides. (The shared record pipeline of J29/J35 can take this
+    /// loop over when it lands.)
+    /// </summary>
+    List<(bool Told, string? Link)> Subrecord(List<Hit> hits, string sub)
+    {
+        var result = new (bool, string?)[hits.Count];
+        foreach (var p in hits.Select(h => h.Plugin).Distinct()) _scope.TouchBytes(p);
+        var byPlugin = Enumerable.Range(0, hits.Count).GroupBy(i => hits[i].Plugin.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        Parallel.ForEach(byPlugin, group =>
+        {
+            var p = hits[group.First()].Plugin;
+            using var file = File.OpenHandle(p.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            foreach (int i in group)
+            {
+                var e = hits[i].Entry;
+                RawRecord raw;
+                try { raw = RawRecord.Read(file, e.Offset); }
+                catch (Exception ex) when (ex is RecordException or IOException or InvalidDataException or ArgumentException) { result[i] = (false, null); continue; }
+                if (raw.StoredSize != e.Size || raw.Signature != hits[i].Signature) { result[i] = (false, null); continue; }
+                var found = raw.Subrecords.Where(x => x.Signature == sub).ToList();
+                if (found.Count == 0) { result[i] = (true, null); continue; }
+                if (found.Count > 1 || found[0].Length != 4) { result[i] = (false, null); continue; }
+                uint id = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(raw.Content(found[0]));
+                result[i] = id != 0 && p.FormIds.TryResolve(id, out string owner, out uint local) ? (true, $"{local:X6}:{owner}") : (false, null);
+            }
+        });
+        return result.ToList();
+    }
+
+    /// <summary>Reads the factions and chests of these candidates through Mutagen (each once): Mutagen decides each vendor.</summary>
+    void Confirm(IEnumerable<Candidate> candidates)
+    {
+        var todo = candidates.Where(c => !c.Confirmed).Distinct().OrderBy(c => c.Order).ToList();
+        if (todo.Count == 0) return;
+        var clock = Stopwatch.StartNew();
+        foreach (var c in todo)
+        {
+            c.Confirmed = true;
+            var view = Read(c.FactionHit);
             if (view == null || !ReportSession.IsLink(view.Json["MerchantContainer"], out var chestLink)) continue;
             _factionsRead++;
             string chestKey = ReportSession.Canon(chestLink);
@@ -179,19 +267,29 @@ public sealed class VendorIndex
             var flags = view.Json["Flags"] is JsonArray fa ? fa.Select(ReportSession.Str).ToList() : new List<string?> { ReportSession.Str(view.Json["Flags"]) };
             var v = new VendorChest
             {
-                Faction = factionKey, Chest = chestKey, Container = ReportSession.Canon(baseLink),
+                Faction = c.Faction, Chest = chestKey, Container = ReportSession.Canon(baseLink), Order = c.Order,
                 Cell = chest.Info.Parent == null ? null : ReportSession.Canon(chest.Info.Parent),
                 VendorFlag = flags.Any(f => f != null && f.Split(new[] { ',', ' ', '|' }, StringSplitOptions.RemoveEmptyEntries).Contains("Vendor", StringComparer.Ordinal)),
             };
-            _all.Add(v);
             if (!_byContainer.TryGetValue(v.Container, out var list)) _byContainer[v.Container] = list = new List<VendorChest>();
             list.Add(v);
+            // In the order of the factions' FormKeys, as when every faction was read in turn
+            list.Sort((a, b) => a.Order.CompareTo(b.Order));
         }
         _seconds += clock.Elapsed.TotalSeconds;
     }
 
+    /// <summary>Every vendor, read through Mutagen: the vendors' stock and NPCs need them all.</summary>
+    void Build()
+    {
+        if (_all != null) return;
+        Map();
+        Confirm(_candidates!);
+        _all = _byContainer.Values.SelectMany(v => v).OrderBy(v => v.Order).ToList();
+    }
+
     /// <summary>The lists each vendor container holds, followed down through leveled lists to <see cref="Depth"/>.</summary>
-    void BuildLists()
+    internal void BuildLists()
     {
         if (_byList != null) return;
         Build();
@@ -201,22 +299,58 @@ public sealed class VendorIndex
         // The leveled lists a container or a list names: read once each
         List<string> ListsIn(string key)
         {
-            if (links.TryGetValue(key, out var have)) return have;
-            var found = new List<string>();
-            links[key] = found;
-            if (Find(key) is not { } hit) return found;
-            var view = Read(hit);
-            if (view == null) return found;
-            _listsRead++;
-            _walker.Walk(view.Type, view.Json, link =>
-            {
-                string to = ReportSession.Canon(link.FormKey);
-                if (found.Contains(to, StringComparer.OrdinalIgnoreCase)) return;
-                if (Find(to) is { } t && t.Signature == "LVLI") found.Add(to);
-            });
-            return found;
+            if (!links.ContainsKey(key)) ReadLists(new[] { key });
+            return links[key];
         }
-        foreach (var (container, vendors) in _byContainer!)
+        // Reads these containers or lists through Mutagen on all cores (a record engine reads open plugins on many
+        // threads), then keeps, in each one's order, the links that name a leveled list
+        void ReadLists(IReadOnlyCollection<string> keys)
+        {
+            var todo = new List<(string Key, Hit Hit)>();
+            foreach (var key in keys.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (links.ContainsKey(key)) continue;
+                links[key] = new List<string>();
+                if (Find(key) is not { } hit) continue;
+                _scope.Touch(hit.Engine, hit.Plugin.Name);
+                todo.Add((key, hit));
+            }
+            var targets = new List<string>?[todo.Count];
+            try
+            {
+                Parallel.For(0, todo.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8) }, i =>
+                {
+                    RecordView view;
+                    try { view = _s.Compare.View(todo[i].Hit.Engine, todo[i].Hit.Ref); }
+                    catch (CompareException) { return; }
+                    var to = new List<string>();
+                    _walker.Walk(view.Type, view.Json, link => to.Add(ReportSession.Canon(link.FormKey)));
+                    targets[i] = to;
+                });
+            }
+            catch (AggregateException e) when (e.InnerExceptions.Count > 0)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+            }
+            for (int i = 0; i < todo.Count; i++)
+            {
+                if (targets[i] is not { } to) { _unread++; continue; }
+                _listsRead++;
+                var found = links[todo[i].Key];
+                foreach (var t in to)
+                    if (!found.Contains(t, StringComparer.OrdinalIgnoreCase) && Find(t) is { Signature: "LVLI" }) found.Add(t);
+            }
+        }
+        // Every container and the lists within Depth of one, read a level at a time: the walk below then reads nothing
+        var containers = _byContainer.OrderBy(kv => kv.Value[0].Order).Select(kv => kv.Key).ToList();
+        ReadLists(containers);
+        var level = containers.SelectMany(c => links[c]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        for (int d = 0; d + 1 < Depth && level.Count > 0; d++)
+        {
+            ReadLists(level);
+            level = level.SelectMany(l => links[l]).Where(l => !links.ContainsKey(l)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        foreach (var (container, vendors) in _byContainer.OrderBy(kv => kv.Value[0].Order))
         {
             // Breadth first, so each list keeps its shortest path from the container
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

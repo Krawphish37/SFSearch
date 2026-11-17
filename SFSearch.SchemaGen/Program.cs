@@ -1,6 +1,6 @@
 // schemagen: builds and reads SFSearch's schema (design/agent-first/ARCHITECTURE.md, section 4). It never reads a plugin.
 //
-//   schemagen build --package <restored package folder> --pairs <tsv> --evidence <tsv> --annotations <tsv> --ck-names <tsv | none> --out <schema.db> [--report <tsv>]
+//   schemagen build --package <restored package folder> --pairs <tsv> --record-names <tsv> --evidence <tsv> --annotations <tsv> --ck-names <tsv | none> --out <schema.db> [--report <tsv>]
 //   schemagen describe <schema.db> <WEAP | Weapon | Weapon.AttackDamage | WEAP/WDMG | "Base Damage"> [filter] [--all]
 //   schemagen stats <schema.db>
 //   schemagen check [--package <restored package folder>]          do the package's record XML, nuspec and the compiled assembly belong together?
@@ -32,7 +32,7 @@ public static class Program
                     Generator.Build(new BuildOptions
                     {
                         PackageDir = Opt("--package"), PairsFile = Opt("--pairs"), EvidenceFile = Opt("--evidence"), AnnotationsFile = Opt("--annotations"),
-                        OutDb = Opt("--out"), ReportFile = OptOrNull("--report"),
+                        OutDb = Opt("--out"), ReportFile = OptOrNull("--report"), RecordNamesFile = Opt("--record-names"),
                         // The Creation Kit's names (to-do F30): the data file in inputs\; "none" builds without them
                         CkNamesPath = Opt("--ck-names") is { } ckNames && !ckNames.Equals("none", StringComparison.OrdinalIgnoreCase) ? ckNames : null,
                     });
@@ -55,6 +55,14 @@ public static class Program
                     var (pairs, folders, ev, leftOut) = Inputs.ImportSnapshot(args[1], Path.Combine(args[2], $"xedit-pairs-{date}.tsv"), csv, Path.Combine(args[2], Path.GetFileNameWithoutExtension(csv) + ".tsv"));
                     Console.WriteLine($"{pairs} pairs from {folders} folders (dated {date}); {ev} evidence rows from {Path.GetFileName(csv)}");
                     foreach (var (dir, why) in leftOut) Console.WriteLine($"  left out {Path.GetFileName(dir)}: {why}");
+                    // xEdit's record type names (GAPS S98): the inventory's newest file, copied as it is
+                    if (Inputs.RecordNamesFile(args[1]) is { } rn)
+                    {
+                        string to = Path.Combine(args[2], Path.GetFileName(rn));
+                        File.Copy(rn, to, true);
+                        Console.WriteLine($"{Inputs.ReadRecordNames(to).Count} record type names from {Path.GetFileName(rn)}");
+                    }
+                    else Console.WriteLine("  no xedit-record-names-*.tsv in the inventory: the record type names were left as they are");
                     break;
                 }
                 case "ck-import":

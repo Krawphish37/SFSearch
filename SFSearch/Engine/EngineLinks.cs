@@ -15,8 +15,8 @@ namespace SFSearch.Engine
 {
     /// <summary>
     /// The link index of the engine (design\agent-first\ARCHITECTURE.md section 5; milestone M5, second half): one
-    /// <see cref="LinkFile"/> per plugin in scratch\links, named by the plugin's reading key, made by the indexer lane
-    /// while no agent waits. A plugin whose file isn't there yet is answered by a search of its bytes, so the index is
+    /// <see cref="LinkFile"/> per plugin in indexes\links under the home (J31: kept between service starts), named by the
+    /// plugin's reading key, made by the indexer lane while no agent waits. A plugin whose file isn't there yet is answered by a search of its bytes, so the index is
     /// never needed for a right answer: it only makes "what points at this" instant.
     /// </summary>
     public static class EngineLinks
@@ -25,7 +25,8 @@ namespace SFSearch.Engine
         static readonly Dictionary<Key128, LinkFile> _open = new();
         static string? _builderKey;
 
-        public static string Folder => Path.Combine(EngineRecords.ScratchRoot, "links");
+        /// <summary>indexes\links under the home: kept between service starts unless keepStartupIndexes is false.</summary>
+        public static string Folder => Path.Combine(Home.Indexes, "links");
 
         /// <summary>
         /// Eight digits that change with anything that changes what a walk finds: this build of SFSearch, Mutagen, the
@@ -70,11 +71,14 @@ namespace SFSearch.Engine
             {
                 if (_open.Count == 0) return;
                 var now = new HashSet<Key128>(ix.Plugins.Select(KeyOf));
-                foreach (var key in _open.Keys.Where(k => !now.Contains(k)).ToList())
+                var letGo = _open.Keys.Where(k => !now.Contains(k)).ToList();
+                bool keep = letGo.Count > 0 && EngineIndex.KeepsRemovedParts(); // keepRemovedPluginIndexMB (J43): KeptParts trims them
+                foreach (var key in letGo)
                 {
                     string path = _open[key].Path;
                     _open[key].Dispose();
                     _open.Remove(key);
+                    if (keep) continue;
                     try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { } // another worker may still map it
                 }
             }
@@ -83,26 +87,44 @@ namespace SFSearch.Engine
         /// <summary>
         /// Deletes link files no plugin of this index can use: those another build made (their name ends with another
         /// builder key), at once, and those of plugins that changed, once they are over an hour old (another worker may
-        /// still map one). In the service the scratch folder is emptied at every start anyway.
+        /// still map one), or at once when they were written before the service started (<paramref name="unusedBefore"/>,
+        /// the start's full check: J31). With keepRemovedPluginIndexMB (J43) this build's unused link files stay: the
+        /// start's and the hourly check trim them to that size (<see cref="KeptParts"/>).
         /// </summary>
-        public static int RemoveOldFiles(HeaderIndex ix)
+        public static (int Files, long Bytes) RemoveOldFiles(HeaderIndex ix, DateTime? unusedBefore = null)
         {
-            int removed = 0;
+            bool keep = EngineIndex.KeepsRemovedParts();
+            int removed = 0; long bytes = 0;
             try
             {
                 var used = new HashSet<string>(ix.Plugins.Where(p => !p.ReadingKey.IsZero).Select(p => Path.GetFileName(PathOf(p))), StringComparer.OrdinalIgnoreCase);
                 string mine = $"-{BuilderKey}.links";
-                foreach (var f in Directory.EnumerateFiles(Folder, "*.links"))
+                if (!Directory.Exists(Folder)) return (0, 0);
+                // Link files, and what a walk that was stopped while it wrote one left behind
+                foreach (var f in Directory.EnumerateFiles(Folder, "*.links").Concat(Directory.EnumerateFiles(Folder, "*.tmp")))
                 {
                     string name = Path.GetFileName(f);
                     if (used.Contains(name)) continue;
-                    if (name.EndsWith(mine, StringComparison.OrdinalIgnoreCase) && DateTime.UtcNow - File.GetLastWriteTimeUtc(f) < TimeSpan.FromHours(1)) continue;
-                    try { File.Delete(f); removed++; } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                    var written = File.GetLastWriteTimeUtc(f);
+                    bool ours = name.EndsWith(mine, StringComparison.OrdinalIgnoreCase) || name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
+                    if (keep && name.EndsWith(mine, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (ours && !(unusedBefore is DateTime start && written < start) && DateTime.UtcNow - written < TimeSpan.FromHours(1)) continue;
+                    try { long size = new FileInfo(f).Length; File.Delete(f); removed++; bytes += size; } catch (IOException) { } catch (UnauthorizedAccessException) { }
                 }
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
-            return removed;
+            return (removed, bytes);
+        }
+
+        /// <summary>Lets go of every link file this program has open (after `indexes drop` deleted them).</summary>
+        public static void CloseAll()
+        {
+            lock (_gate)
+            {
+                foreach (var f in _open.Values) f.Dispose();
+                _open.Clear();
+            }
         }
 
         /// <summary>May this plugin's records be walked at all? Not when its FormIDs can't be read.</summary>
@@ -141,6 +163,25 @@ namespace SFSearch.Engine
 
         sealed record Unit(PluginJob Job, int[] Entries);
 
+        /// <summary>
+        /// From how many records a walk runs on the workstation garbage collector (J58, GAPS S85): about 4 s of walking,
+        /// where the server collector's cost (about a fifth of the walk) is more than starting a worker for it.
+        /// </summary>
+        public const long WorkstationWalkRecords = 1_000_000;
+
+        /// <summary>The records a build would walk now: those outside world data of the plugins without a link file (or of the plugins named).</summary>
+        public static long RecordsToWalk(HeaderIndex ix, Func<IndexedPlugin, bool>? only)
+        {
+            long n = 0;
+            foreach (var p in ix.Plugins)
+            {
+                if (only != null && !only(p)) continue;
+                if (!Walkable(p) || File.Exists(PathOf(p))) continue;
+                n += Math.Max(0, p.Segment!.FirstUnresolved - WorldTypes.Totals(p.Segment).Records);
+            }
+            return n;
+        }
+
         /// <summary>Records a unit of work holds at most: a big plugin is cut into units, each read through an overlay of its own.</summary>
         const int UnitRecords = 40_000;
         /// <summary>The walk collects its garbage when .NET's heap is past this.</summary>
@@ -148,10 +189,13 @@ namespace SFSearch.Engine
 
         /// <summary>
         /// Makes the link file of every plugin that has none (or of the plugins named). Plugins are walked side by side,
-        /// each record by one thread through an overlay only that thread uses: Mutagen doesn't promise that one overlay
-        /// may be read from several threads. A plugin's file is written when all of it is walked and the plugin's stamp
-        /// still matches. When <paramref name="stop"/> turns true (an agent is waiting) the walk ends within a moment:
-        /// the files written stay, and the plugins that weren't finished are walked from their start the next time.
+        /// a big one in units of 40,000 records, each unit by one thread through a session of its own. Mutagen allows one
+        /// overlay to be read from several threads (C179, fixes.14), but one session shared by the threads of a plugin was
+        /// slower: Starfield.esm's 434,970 records took 11.8 s against 7.9 s with a session per unit, at the same peak
+        /// memory (2.2 GB) and to the same link file (fix-c-sfsearch-side, 2026-11-15). A plugin's file is written when
+        /// all of it is walked and the plugin's stamp still matches. When <paramref name="stop"/> turns true (an agent is
+        /// waiting) the walk ends within a moment: the files written stay, and the plugins that weren't finished are walked
+        /// from their start the next time.
         /// </summary>
         public static BuildReport Build(EngineIndex eng, Func<bool> stop, int threads = 0, Func<IndexedPlugin, bool>? only = null, Language language = Language.English)
         {
@@ -186,7 +230,8 @@ namespace SFSearch.Engine
             var ix = eng.Index;
             var schema = EngineRecords.Schema;
             RemoveOldFiles(ix);
-            if (threads <= 0) threads = int.TryParse(Environment.GetEnvironmentVariable("SFSEARCH_LINK_THREADS"), out int t) && t > 0 ? t : Math.Clamp(Environment.ProcessorCount - 2, 2, 8);
+            // The cores less 2, 2 to 8 (J37: the developer switch SFSEARCH_LINK_THREADS that set it went, by the user's decision)
+            if (threads <= 0) threads = Math.Clamp(Environment.ProcessorCount - 2, 2, 8);
 
             var units = new List<Unit>();
             // Small plugins first: they are done within the first seconds, and a walk that then has to give way keeps
@@ -285,8 +330,8 @@ namespace SFSearch.Engine
             // Each record is read from its own bytes where its type allows (all but OMOD and GMST, whose signature has
             // several Mutagen types): an overlay keeps every group it has touched, and eight overlays of Starfield.esm
             // side by side held 5 GB. A record of any size is walked: the walk makes no JSON, so it needs no extra memory.
-            using var engine = new RecordEngine(ix, schema, verify, data, language) { PreferDirect = Environment.GetEnvironmentVariable("SFSEARCH_LINK_DIRECT") != "0", AllowHeavy = true };
-            var sink = new LinkSink { WantName = true };
+            using var engine = new RecordEngine(ix, schema, verify, data, language) { PreferDirect = true, AllowHeavy = true }; // (J37: the developer switch SFSEARCH_LINK_DIRECT=0 that turned the direct read off went)
+            var sink = RecordLinks.Collector();
             var owners = new Dictionary<ModKey, int>();
             PluginSession session;
             try { session = engine.Sessions.Get(p.Name); }
@@ -304,14 +349,14 @@ namespace SFSearch.Engine
                 try
                 {
                     var (record, type) = Read(engine, session, schema, p, entry);
-                    RecordLinks.Walk(record, type, sink);
+                    RecordLinks.Walk(record, sink);
                     foreach (var (field, target) in sink.Links)
                     {
                         if (!owners.TryGetValue(target.ModKey, out int owner)) owners[target.ModKey] = owner = seg.OwnerOf(target.ModKey.FileName.String);
                         if (owner < 0) { result.Foreign++; continue; }
                         result.Rows.Add(new LinkRow((ulong)owner << 24 | target.ID, (uint)entry, (uint)field));
                     }
-                    if (sink.Name != null) result.Names.Add((entry, sink.Name));
+                    if (RecordLinks.NameOf(record) is { } name) result.Names.Add((entry, name));
                 }
                 catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
                 {
@@ -319,7 +364,7 @@ namespace SFSearch.Engine
                     result.Why ??= $"{ix.Describe(new RecordRef(p.Id, entry)).Label}: {e.Message.Split('\n')[0]}";
                 }
             }
-            result.Fields = sink.Fields;
+            result.Fields = sink.Paths.ToList();
             return true;
         }
 

@@ -5,6 +5,7 @@
 //    has its offset and size, the Mutagen field, and the xEdit path.
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using SFSearch.SchemaGen;
 
@@ -82,18 +83,24 @@ public sealed class Evidence
     public bool Compressed { get; set; }
     public List<EvidenceSlice> Slices { get; } = new();
     public int Occurrences { get; set; }
+    /// <summary>How many of the record's <see cref="Occurrences"/> subrecords of this signature can hold the field: for
+    /// a field of the record's own, those outside components; for a component's field, those inside its own component
+    /// (GAPS S102). Null: every one.</summary>
+    public int? Candidates { get; set; }
     /// <summary>For a field inside a list item: where the item and the field were found, or why they couldn't be.</summary>
     public ItemPlace? Item { get; init; }
     public List<string> Notes { get; } = new();
+    /// <summary>The field is in the record's 24-byte header, not in a subrecord (its flags, FormID, versions: GAPS S88).</summary>
+    public bool InHeader { get; init; }
 
     public string ToText()
     {
         var sb = new StringBuilder();
         sb.Append(Field[(Field.IndexOf('.') + 1)..]).Append(" = ").Append(Value ?? "(not set)").Append(IsDefault ? "   [the default: the record doesn't set it]" : "").Append('\n');
-        string address = Subrecord == null ? $"{RecordSignature}: the schema doesn't know which subrecord holds it" : $"{RecordSignature}/{Subrecord}";
+        string address = InHeader ? $"{RecordSignature} record header" : Subrecord == null ? $"{RecordSignature}: the schema doesn't know which subrecord holds it" : $"{RecordSignature}/{Subrecord}";
         if (Offset != null) address += $", offset {Offset}";
         if (Size != null) address += $", {Size} byte{(Size == 1 ? "" : "s")}";
-        if (Slices.Count == 0) sb.Append("  file     ").Append(address).Append(Subrecord == null ? "" : $": the record has no {Subrecord} subrecord").Append('\n');
+        if (Slices.Count == 0) sb.Append("  file     ").Append(address).Append(Subrecord == null ? "" : Occurrences > 0 && Candidates == 0 ? $": none of the record's {Subrecord} subrecords is this field's" : $": the record has no {Subrecord} subrecord").Append('\n');
         foreach (var s in Slices)
         {
             string which = Occurrences > 1 ? $" (the {Ordinal(s.Occurrence + 1)} of {Occurrences.ToString("N0", CultureInfo.InvariantCulture)} {Subrecord} subrecords)" : "";
@@ -101,9 +108,10 @@ public sealed class Evidence
             if (s.FieldBytes != null) sb.Append(": ").Append(s.FieldBytes);
             if (s.Reads != null) sb.Append("   → ").Append(s.Reads);
             sb.Append('\n');
-            sb.Append("           ").Append(Subrecord).Append(" is ").Append(s.SubrecordLength.ToString("N0", CultureInfo.InvariantCulture)).Append(" bytes: ").Append(s.SubrecordBytes).Append('\n');
+            sb.Append("           ").Append(InHeader ? "the header" : Subrecord).Append(" is ").Append(s.SubrecordLength.ToString("N0", CultureInfo.InvariantCulture)).Append(" bytes: ").Append(s.SubrecordBytes).Append('\n');
         }
-        if (Occurrences > Slices.Count && Slices.Count > 0 && Item is not { Located: true }) sb.Append($"           … {Occurrences - Slices.Count} more {Subrecord} subrecords\n");
+        int candidates = Candidates ?? Occurrences;
+        if (candidates > Slices.Count && Slices.Count > 0 && Item is not { Located: true }) sb.Append($"           … {candidates - Slices.Count} more {Subrecord} subrecords\n");
         if (Item is { Located: true }) sb.Append(Field.Contains('[') ? "  item     " : "  found    ").Append(Item.Where).Append(". ").Append(char.ToUpperInvariant(Item.Checked![0])).Append(Item.Checked[1..]).Append(".\n");
         sb.Append("  Mutagen  ").Append(Field).Append(" (").Append(Kind).Append(')').Append(Unknown ? "   [Mutagen still calls this field unknown]" : "").Append('\n');
         sb.Append("  xEdit    ").Append(XEdit ?? "(no checked xEdit name for this field)").Append('\n');
@@ -128,6 +136,8 @@ public sealed class Evidence
             ["xedit"] = XEdit, ["readable"] = Readable, ["unknown"] = Unknown, ["compressed"] = Compressed,
         };
         o["slices"] = new JsonArray(Slices.Select(s => (JsonNode)new JsonObject { ["occurrence"] = s.Occurrence, ["subrecordLength"] = s.SubrecordLength, ["subrecordBytes"] = s.SubrecordBytes, ["fieldBytes"] = s.FieldBytes, ["reads"] = s.Reads }).ToArray());
+        if (InHeader) ((JsonObject)o["file"]!)["header"] = true;
+        if (Candidates is int can && can != Occurrences) ((JsonObject)o["file"]!)["candidates"] = can;
         if (UnknownEvidence != null) o["evidence"] = UnknownEvidence;
         if (Item != null) o["item"] = new JsonObject { ["located"] = Item.Located, ["where"] = Item.Where, ["checked"] = Item.Checked, ["reason"] = Item.Reason };
         if (Notes.Count > 0) o["notes"] = new JsonArray(Notes.Select(n => (JsonNode)n).ToArray());
@@ -292,11 +302,12 @@ public static class FieldLookup
             case Enum e when e.GetType().IsDefined(typeof(FlagsAttribute), false):
             {
                 var t = e.GetType();
-                ulong bits = Convert.ToUInt64(e, CultureInfo.InvariantCulture), named = 0;
+                // The bits as an unsigned number of the enum's width (FlagBits.Raw): an int's bit 31 is no overflow (GAPS S162)
+                ulong bits = FlagBits.Raw(e), named = 0;
                 var parts = new List<string>();
                 foreach (var m in Enum.GetValues(t).Cast<Enum>())
                 {
-                    ulong mv = Convert.ToUInt64(m, CultureInfo.InvariantCulture);
+                    ulong mv = FlagBits.Raw(m);
                     if (mv != 0 && (bits & mv) == mv && (named & mv) != mv) { parts.Add(m.ToString()); named |= mv; }
                 }
                 if ((bits & ~named) != 0) parts.Add("0x" + (bits & ~named).ToString("X", CultureInfo.InvariantCulture));
@@ -319,30 +330,19 @@ public static class FieldLookup
             or "P2Float" or "P2Int16" or "P2Int32" or "P3Float" or "P3Int16" or "P3Int32" && (p.Main.Default == null || p.Main.Default is "0" or "0f" or "0.0"));
     }
 
-    /// <summary>A half-precision float (Mutagen's <c>Half</c>, fixes.17 C221) as the serializer writes it (1.38.6-fixes.3,
-    /// C222): the number it holds (every Half is exactly a double), "Infinity", "-Infinity", "NaN", or "NaN:" and its 4 hex
-    /// digits for a NaN whose bits aren't .NET's own.</summary>
+    /// <summary>A half-precision float (Mutagen's <c>Half</c>) as the serializer writes it: read back by the serializer's
+    /// own rule (JsonScalarText.TryParseHalf, 1.38.6-fixes.5, C59 W14): a number, or a text ("Infinity", "NaN", "NaN:" and
+    /// its 4 hex digits).</summary>
     public static bool TryReadHalf(System.Text.Json.JsonElement el, out Half h)
     {
         h = default;
-        if (el.ValueKind == System.Text.Json.JsonValueKind.Number) { h = (Half)el.GetDouble(); return true; }
-        if (el.ValueKind != System.Text.Json.JsonValueKind.String) return false;
-        string s = el.GetString()!.Trim();
-        if (s.StartsWith("NaN:", StringComparison.OrdinalIgnoreCase))
+        string? text = el.ValueKind switch
         {
-            if (!ushort.TryParse(s.AsSpan(4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort bits)) return false;
-            h = BitConverter.UInt16BitsToHalf(bits);
-            return true;
-        }
-        switch (s)
-        {
-            case "Infinity": h = Half.PositiveInfinity; return true;
-            case "-Infinity": h = Half.NegativeInfinity; return true;
-            case "NaN": h = Half.NaN; return true;
-        }
-        if (!double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double d)) return false;
-        h = (Half)d;
-        return true;
+            System.Text.Json.JsonValueKind.Number => el.GetRawText(),
+            System.Text.Json.JsonValueKind.String => el.GetString(),
+            _ => null,
+        };
+        return text != null && Mutagen.Bethesda.Serialization.Newtonsoft.JsonScalarText.TryParseHalf(text, out h);
     }
 
     /// <summary>How the serializer writes a byte field with no bytes (Mutagen.Bethesda.Serialization 1.38.6-fixes.2 on).</summary>
@@ -351,11 +351,18 @@ public static class FieldLookup
     /// <summary>True for a byte field's value that holds no bytes: "0x", or "[]" as the serializer wrote it before 1.38.6-fixes.2.</summary>
     public static bool IsNoBytes(string? s) => s is NoBytes or "[]";
 
-    /// <summary>The value a field has when the JSON leaves it out and the schema says the field is always there.</summary>
+    /// <summary>
+    /// The value a field has when the JSON leaves it out and the schema says the field is always there. A value the
+    /// serializer compares with a default is left out at the default its registry lists (FieldDefaults, 1.38.6-fixes.5,
+    /// C59 S124: default(T), or the class's own {Name}Default such as BookTeachesNothing.RawContent's uint.MaxValue), given
+    /// here as the serializer writes it. A list, an object and a translated text are left out by the serializer's rules
+    /// (empty, every field at its default, no text), not at a value.
+    /// </summary>
     public static (JsonNode? Json, string? Text) DefaultOf(RecordSchema schema, FieldDef def)
     {
         static (JsonNode?, string?) Raw(string json, string? text = null) => (JsonNode.Parse(json), text ?? json);
         static (JsonNode?, string?) Str(string s) => (JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(s)), s);
+        if (ListedDefault(schema, def) is { } listed) return listed;
         string? d = def.Default;
         // A record's form version has no default in Mutagen's definitions. The serializer before 1.38.6-fixes.2 left it
         // out when it was the form version Mutagen gives a new record of the game (576 for Starfield), not when it was 0;
@@ -399,6 +406,48 @@ public static class FieldLookup
         }
     }
 
+    /// <summary>The default the serializer's registry lists for the field (its class's FieldDefaults; for a field of an
+    /// abstract object, the first kind of it the registry has), as the serializer writes that value. Null when the
+    /// registry lists none or the value is of a kind written otherwise.</summary>
+    static (JsonNode?, string?)? ListedDefault(RecordSchema schema, FieldDef def)
+    {
+        var defaults = ListedDefaults.GetOrAdd((schema.Model, def.Object), k =>
+        {
+            foreach (string obj in new[] { k.Item2 }.Concat(k.Item1.Variants(k.Item2)))
+                if (RecordSerializer.ClassOf(obj) is { } cls && RecordSerializer.Registry.TryGetFieldDefaults(cls, out var d)) return d;
+            return null;
+        });
+        if (defaults == null || def.Path != def.Name || !defaults.TryGetValue(def.Name, out var v)) return null;
+        static (JsonNode?, string?) Raw(string json, string? text = null) => (JsonNode.Parse(json), text ?? json);
+        static (JsonNode?, string?) Str(string s) => (JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(s)), s);
+        switch (v)
+        {
+            case bool b: return Raw(b ? "true" : "false");
+            case Enum e:
+            {
+                var t = e.GetType();
+                if (t.IsDefined(typeof(FlagsAttribute), false))
+                {
+                    // As the JSON lists a flags value: each bit once, by SFSearch's bounded loop (FlagBits, GAPS S162)
+                    var names = FlagBits.Names(e, includeUndefined: true).ToList();
+                    return Raw(System.Text.Json.JsonSerializer.Serialize(names), $"[{string.Join(", ", names)}]");
+                }
+                return Enum.IsDefined(t, e) ? Str(e.ToString()) : Raw(Convert.ToInt64(e, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture));
+            }
+            case sbyte or byte or short or ushort or int or uint or long or ulong: return Raw(Convert.ToString(v, CultureInfo.InvariantCulture)!);
+            case float f: return Number(Mutagen.Bethesda.Serialization.Newtonsoft.JsonScalarText.Format(f));
+            case double x: return Number(Mutagen.Bethesda.Serialization.Newtonsoft.JsonScalarText.Format(x));
+            case Half h: return Number(Mutagen.Bethesda.Serialization.Newtonsoft.JsonScalarText.Format(h));
+            case string text: return Str(text);
+            case Mutagen.Bethesda.Plugins.FormKey key: return Str(key.IsNull ? "Null" : key.ToString());
+            default: return null;
+        }
+        // A float's token as the JSON holds it: a number, or a text with its quotes
+        static (JsonNode?, string?) Number(string token) => token.StartsWith('"') ? (JsonNode.Parse(token), token[1..^1]) : Raw(token);
+    }
+
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<(SchemaModel, string), IReadOnlyDictionary<string, object?>?> ListedDefaults = new();
+
     /// <summary>"Did you mean": the nearest fields of the object at this level, chosen and worded as describe and the
     /// SQL layer do it (<see cref="SFSearch.SchemaGen.NearNames"/>). Fields the record itself shows there that the
     /// schema's object doesn't have (a list item of another kind) are candidates by their name.</summary>
@@ -426,40 +475,80 @@ public static class FieldLookup
     /// item is checked against Mutagen's value with it.</param>
     /// <param name="textOf">For a localized plugin: the texts a string ID names in its strings files. A translated
     /// text's 4-byte ID is shown with the file and text it names, checked against Mutagen's text.</param>
-    public static Evidence Evidence(RecordSchema schema, Card card, RawRecord raw, string field, Func<uint, string> label, int maxOccurrences = 4, int maxBytes = 64, Func<string, uint?>? formIdOf = null, StringLookup? textOf = null)
+    /// <param name="positionsOf">Mutagen's value positions of the record's bytes (C60: the plugin's
+    /// <c>MajorRecordReader.ReadValuePositions</c>; for the plugin header, C82's <c>ReadModHeaderValuePositions</c>).</param>
+    /// <param name="positionPath">For a part read of a heavy record: a value's path in the part's own positions (a paged
+    /// list's items are numbered in the whole list on the card, from 0 in the part).</param>
+    public static Evidence Evidence(RecordSchema schema, Card card, RawRecord raw, string field, Func<uint, string> label, int maxOccurrences = 4, int maxBytes = 64, Func<string, uint?>? formIdOf = null, StringLookup? textOf = null, Func<RawRecord, Mutagen.Bethesda.Plugins.Records.ValuePositions>? positionsOf = null, Func<string, string>? positionPath = null)
     {
         var values = Fields(schema, card, new[] { field });
         var value = values[0];
         // A value decoded from a reflection blob (to-do F30): its place in the blob is its place in the subrecord
         if (value.Field is { Position: not null } decoded && ReflectionEvidence(card, raw, value, decoded, label, maxBytes) is { } fromBlob) return fromBlob;
+        // A reflection's FormLinks (Mutagen's hand-written reader, ReflectionBinaryCreateTranslation.CustomBinaryEndImport:
+        // the FormIDs ReflectionData.FindFormIds finds in the blob, in order): the k-th is 4 bytes at its place (GAPS S67)
+        if (value.Field is { Json: not null, Up: { Name: "FormLinks" } links } link && link.Name.StartsWith('[') && ReflectionLinkEvidence(card, raw, value, link, links, label, formIdOf, maxBytes) is { } fromLinks) return fromLinks;
         // The schema's row for the field: by Mutagen path first (indexes and variant markers aside)
         string schemaPath = string.Join('.', Parse(value.IsSet || value.IsDefault ? Unindexed(value.Path) : Unindexed(field)).Select(s => s.Name + (s.All ? "[*]" : "")));
         var found = schema.Model.Resolve(card.Type, schemaPath, ignoreCase: true).Found;
         if (found.Count == 0) found = schema.Model.Resolve(card.Type, schemaPath.Replace("[*]", ""), ignoreCase: true).Found;
+        // A dictionary entry's Key has no row of its own: the dictionary's row stands for it, its kind from "keyed by …"
+        string? keyKind = null;
+        if (found.Count == 0 && schemaPath.EndsWith("[*].Key", StringComparison.Ordinal)
+            && schema.Model.Resolve(card.Type, schemaPath[..^"[*].Key".Length], ignoreCase: true).Found is { Count: > 0 } dict
+            && dict.Select(f => f.Row).FirstOrDefault(r => r.Def.Kind == "Dictionary") is { } dictRow && ItemLocator.KeyDef(dictRow.Def) is { } keyDef)
+        {
+            found = dict.Where(f => f.Row == dictRow).ToList();
+            keyKind = keyDef.Kind;
+        }
         FieldRow? row = found.Count > 0 ? Pick(found.Select(f => f.Row).ToList(), value) : null;
         if (row == null)
             throw new RecordException($"The schema has no field \"{field}\" for {card.Type}, so there is no file address for it. Its value: {value.Text ?? "(not set)"}.");
+        // A field of the record's own 24-byte header: a plugin header's flags and versions, a record's flags and FormID
+        if (row.Subrecord == null && !row.InList && HandLayouts.HeaderPlace(schema.Model, row.Def) is { } inHeader)
+            return HeaderEvidence(schema, card, raw, value, row, inHeader, label, formIdOf);
+
+        // A record of the record's child group (a quest's scenes, a cell's placed objects, a topic's responses): Mutagen's
+        // hand-written code reads it from the group after the record (the XML's layoutGroup, customBinaryEnd), so it has
+        // no bytes in this record. The answer names that record, whose own evidence holds its fields (GAPS S67)
+        var rowParts = row.Path.Split('.');
+        for (int depth = 1; depth <= rowParts.Length; depth++)
+        {
+            string prefix = string.Join('.', rowParts.Take(depth));
+            if (prefix.EndsWith("[*]", StringComparison.Ordinal)) prefix = prefix[..^3];
+            var at0 = schema.Model.Resolve(card.Type, prefix, ignoreCase: true).Found.Select(f => f.Row).FirstOrDefault(x => x.Path == prefix);
+            if (at0 == null) continue;
+            var r = at0;
+            // (customBinaryEnd on a record reads its child group; on a subrecord object, a reflection's links, it reads that subrecord)
+            if (r.Def.Kind is not ("List" or "Object") || r.Def.LayoutGroup == null
+                && (r.Def.FilledBy != "customBinaryEnd" || schema.Model.Objects.GetValueOrDefault(r.Def.Object)?.ObjType != "Record")) continue;
+            var m = Regex.Match(field, $@"^(.*?\b{Regex.Escape(r.Def.Name)}(\[\d+\])?)(\.|$)");
+            string at = m.Success ? m.Groups[1].Value : r.Def.Name;
+            var child = Fields(schema, card, new[] { at })[0];
+            var inGroup = new Evidence
+            {
+                Record = card.Label, Field = card.Type + "." + (value.IsSet ? value.Path : row.Path), Kind = row.Def.Kind, Value = value.Text,
+                IsDefault = value.IsDefault, RecordSignature = card.Signature, Compressed = raw.Compressed,
+                XEdit = row.Def.XEdit, Readable = row.Def.Readable,
+            };
+            string group = r.Def.LayoutGroup ?? "the record's child group";
+            inGroup.Notes.Add(child.IsSet && child.Field?.Children == null && child.Text is { Length: > 0 } rec && at.EndsWith(']')
+                ? $"{at} is a record of its own, {rec.TrimStart('→', ' ')}, in {card.Label}'s child group ({group}), which Mutagen's hand-written code reads after the record: it has no bytes in this record. Ask for the evidence of that record{(at.Length < field.Length ? $" (its {field[(at.Length + 1)..]})" : "")}."
+                : $"{r.Def.Name} holds records of {card.Label}'s child group ({group}), which Mutagen's hand-written code reads after the record: they have no bytes in this record. Name one item ({r.Def.Name}[0]) to get the record it is.");
+            return inGroup;
+        }
 
         string plain = row.PlainPath;
-        // A field inside a list item: the schema's offset counts from the item, so the item itself is found in the
-        // record's bytes first (EvidenceItems.cs). Every slice found is checked against Mutagen's value.
-        // A translated text, and a half of a gendered value, are located too, inside a list or not: the one subrecord
-        // that is this field's is found and checked (fix F6r). A text's subrecord holds the text, or in a localized
-        // plugin a string ID; a gendered value's halves are told apart as Mutagen's gendered reader tells them apart.
-        bool inItem = value.Path.Contains('['), text = row.Def.Translated && row.Def.Kind == "String", gendered = InGendered(row);
-        // A field inside an object's subrecord with no offset in the schema (a text or a list before it takes a size of
-        // its own in each record, or hand-written code places it): its place is walked and checked, or the reason given
-        // (GAPS S36, S37)
-        bool unplaced = row.Offset == null && row.Subrecord != null && row.Parent?.Subrecord == row.Subrecord && (row.Def.Size is > 0 || row.Def.Kind is "String" or "AssetLink");
-        CardField? leaf = value.IsSet ? value.Field : value.IsDefault && (inItem || gendered || unplaced) ? DefaultLeaf(card, value) : null;
-        ItemPlace? place = leaf != null && (inItem || text || gendered || unplaced) ? ItemLocator.Locate(schema, card, leaf, raw, formIdOf, label, textOf) : null;
-        // A field outside list items that Mutagen reads by hand and its hand-read layouts name (HandReadLayouts.xml,
-        // C186: an object mod's MaxRank, a weather's ambient colors): located by the layout and checked
-        if (place == null && leaf != null) place = ItemLocator.LocateHand(schema, card, leaf, raw, formIdOf, label, textOf);
+        // Where Mutagen's reader read the value: the record's value positions (C60), for every value (a list item's, a
+        // translated text's, a gendered half's, one hand-written code places, the plugin header's: C82), each slice read
+        // back and held against Mutagen's value
+        CardField? leaf = value.IsSet ? value.Field : value.IsDefault ? DefaultLeaf(card, value) : null;
+        ItemPlace? place = leaf == null || leaf.Children != null || positionsOf?.Invoke(raw) is not { } positions ? null
+            : ItemLocator.FromPositions(schema, row.Def, leaf, raw, positions, formIdOf, label, textOf, positionPath);
         string? subrecord = place is { Located: true } ? raw.Subrecords[place.Subrecord].Signature : row.Subrecord;
         var ev = new Evidence
         {
-            Record = card.Label, Field = card.Type + "." + (value.IsSet || place is { Located: true } ? value.Path : row.Path), Kind = row.Def.Kind,
+            Record = card.Label, Field = card.Type + "." + (value.IsSet || place is { Located: true } ? value.Path : row.Path), Kind = keyKind ?? row.Def.Kind,
             Value = value.Field is { Children: not null } ? value.ToText()[(value.Path.Length + 3)..].Split('\n')[0] : value.Text,
             IsDefault = value.IsDefault, RecordSignature = card.Signature,
             // Not located: the schema's offset counts from the item, so it isn't an address in the subrecord
@@ -474,7 +563,8 @@ public static class FieldLookup
         if (subrecord == null) return ev;
         if (place is { Located: true })
         {
-            // The one subrecord that holds this item, and the field's slice of it
+            // The one subrecord that holds this item, and the field's slice of it: the one candidate
+            ev.Candidates = 1;
             var s = raw.Subrecords[place.Subrecord];
             int occurrence = 0;
             for (int i = 0; i < place.Subrecord; i++) if (raw.Subrecords[i].Signature == subrecord) occurrence++;
@@ -483,10 +573,17 @@ public static class FieldLookup
             if (row.Def.Custom) ev.Notes.Add("Mutagen reads this field with hand-written code; the address above follows that code, and the bytes were checked against Mutagen's value.");
             return ev;
         }
+        // The subrecords that can hold the field (GAPS S102): a field of the record's own is in a subrecord outside
+        // components (BFCB … BFCE), a component's field in its own component; one of the same signature elsewhere is
+        // another field's (a world's LOD Water Height NAM4 and its planet content manager component's Debug Color NAM4)
+        var holders = Holders(schema.Model, raw, row, value.IsSet ? value.Path : field);
+        ev.Candidates = holders.Count;
         int n = 0;
-        foreach (var s in raw.Subrecords.Where(s => s.Signature == row.Subrecord))
+        foreach (var (at, ordinal) in holders)
         {
             if (n >= maxOccurrences) break;
+            n++;
+            var s = raw.Subrecords[at];
             var content = raw.Content(s);
             string? slice = null, reads = null;
             // Not when the field was looked for and not found: the schema's offset isn't then known to be its address
@@ -500,10 +597,18 @@ public static class FieldLookup
                 }
                 else slice = $"(the subrecord is {content.Length} bytes: it ends before this field)";
             }
-            ev.Slices.Add(new EvidenceSlice(n++, s.Length, RawRecord.Hex(content, maxBytes), slice, reads));
+            ev.Slices.Add(new EvidenceSlice(ordinal, s.Length, RawRecord.Hex(content, maxBytes), slice, reads));
+        }
+        if (holders.Count < ev.Occurrences)
+        {
+            int other = ev.Occurrences - holders.Count;
+            bool own = !InComponent(schema.Model, row);
+            ev.Notes.Add(own
+                ? $"{other} of the record's {ev.Occurrences} {subrecord} subrecords {(other == 1 ? "is" : "are")} inside a component (between BFCB and BFCE): {(other == 1 ? "a component's field" : "components' fields")}, not this one."
+                : $"{other} of the record's {ev.Occurrences} {subrecord} subrecords {(other == 1 ? "is" : "are")} the record's own or another component's, not this component's.");
         }
         if (place != null)
-            ev.Notes.Add($"No exact address for this field{(inItem ? " inside a list item" : "")}: {place.Reason}. The whole subrecord is shown{(row.InList && row.Offset != null && !ReadByHand(row) ? $"; the schema's offset {row.Offset} counts from the start of the item, not of the subrecord" : "")}.");
+            ev.Notes.Add($"No exact address for this field{(value.Path.Contains('[') ? " inside a list item" : "")}: {place.Reason}. The whole subrecord is shown{(row.InList && row.Offset != null && !ReadByHand(row) ? $"; the schema's offset {row.Offset} counts from the start of the item, not of the subrecord" : "")}.");
         else if (row.InList && row.Offset != null) ev.Notes.Add("The field is inside a list: the offset counts from the start of each item, not of the subrecord.");
         if (row.Def.Custom) ev.Notes.Add(row.Offset == null && schema.Model.HandReadOf(row.Def.Object) is { } code
             ? $"Mutagen reads this field with hand-written code ({code}), so the schema gives no address for it: the real layout is that code's."
@@ -514,6 +619,141 @@ public static class FieldLookup
     /// <summary>Evidence for a value the card decoded from a reflection blob (<see cref="ReflectionView"/>): the
     /// subrecord whose content is the blob (found by its bytes, not guessed), and the value's slice at the place
     /// Mutagen's reflection reader read it. Null when the field isn't below a decoded blob.</summary>
+    /// <summary>
+    /// The k-th of a reflection's FormLinks: Mutagen reads them from the blob by ReflectionData.FindFormIds, in order, so
+    /// its bytes are the 4 at the k-th FormID's place in the subrecord that holds the blob, checked against Mutagen's link.
+    /// Null when the field isn't a reflection's.
+    /// </summary>
+    static Evidence? ReflectionLinkEvidence(Card card, RawRecord raw, FieldValue value, CardField link, CardField links, Func<uint, string> label, Func<string, uint?>? formIdOf, int maxBytes)
+    {
+        var holder = links.Up;
+        if (holder?.Children?.FirstOrDefault(c => c.Name == "Data") is not { } dataField || ReflectionView.Bytes(dataField.Json) is not { } blob
+            || !Mutagen.Bethesda.Starfield.ReflectionData.IsReflection(blob) || Mutagen.Bethesda.Starfield.ReflectionData.TryParse(blob) is not { } data) return null;
+        int k = int.Parse(link.Name[1..^1], CultureInfo.InvariantCulture);
+        int at = -1, occurrence = 0, sameSig = 0;
+        for (int i = 0; i < raw.Subrecords.Count; i++)
+        {
+            var sub = raw.Subrecords[i];
+            if (holder.Signature != null && sub.Signature != holder.Signature) continue;
+            if (raw.Content(sub).SequenceEqual(blob)) { at = i; occurrence = sameSig; break; }
+            sameSig++;
+        }
+        var ids = data.FormIds;
+        bool placed = at >= 0 && k < ids.Count && ids.Count == links.Children?.Count;
+        int pos = placed ? ids[k].Position : 0;
+        uint id = placed ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(raw.Content(raw.Subrecords[at]).Slice(pos, 4)) : 0;
+        string key = link.Json is System.Text.Json.Nodes.JsonValue jv && jv.TryGetValue<string>(out var t) ? t : "";
+        uint? want = key == "Null" ? 0u : formIdOf?.Invoke(key);
+        bool same = placed && want == id;
+        string? sig = at >= 0 ? raw.Subrecords[at].Signature : holder.Signature;
+        var ev = new Evidence
+        {
+            Record = card.Label, Field = card.Type + "." + value.Path, Kind = "FormLink", Value = value.Text,
+            RecordSignature = card.Signature, Compressed = raw.Compressed, Readable = link.Readable,
+            Subrecord = sig, Offset = same ? pos : null, Size = 4,
+            Occurrences = sig == null ? 0 : raw.Subrecords.Count(x => x.Signature == sig),
+        };
+        if (!same)
+        {
+            ev.Notes.Add(at < 0 ? $"No subrecord of the record holds exactly the bytes of {holder.Path}.Data."
+                : !placed ? $"{links.Path}: Mutagen has {links.Children?.Count ?? 0} links and the blob holds {ids.Count} FormIDs, so the place isn't certain."
+                : $"The {Ordinal(k + 1)} FormID of the blob, at offset {pos} of {sig}, reads {id:X8}, and Mutagen's link is {key}: not shown.");
+            return ev;
+        }
+        var content = raw.Content(raw.Subrecords[at]);
+        ev.Slices.Add(new EvidenceSlice(occurrence, content.Length, RawRecord.Hex(content, maxBytes), RawRecord.Hex(content.Slice(pos, 4)), label(id)));
+        ev.Notes.Add($"{links.Path}[{k}] is the {Ordinal(k + 1)} of the {ids.Count} FormIDs Mutagen's reflection reader finds in the blob (ReflectionData.FindFormIds), at offset {pos} of {sig}. Checked: the bytes read FormID {id:X8}, Mutagen's link.");
+        return ev;
+    }
+
+    static string Ordinal(int n) => (n % 100) is 11 or 12 or 13 ? n + "th" : (n % 10) switch { 1 => n + "st", 2 => n + "nd", 3 => n + "rd", _ => n + "th" };
+
+    /// <summary>True for a field of a component (Components[*]{…}, or an object a component holds, BFCB … BFCE).</summary>
+    internal static bool InComponent(SchemaModel model, FieldRow row)
+        => row.Path.StartsWith("Components[*]", StringComparison.Ordinal)
+            || row.Stack.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(o => model.EndMarkerOf(o) == "BFCE");
+
+    /// <summary>
+    /// The subrecords of the field's signature that can hold it, each with its ordinal among all the record's
+    /// subrecords of that signature (GAPS S102). A field of the record's own: those outside components (between BFCB and
+    /// BFCE a subrecord is a component's). A component's field: those inside its own component, the k-th BFCB … BFCE
+    /// run when the path names Components[k], else inside any component.
+    /// </summary>
+    internal static List<(int At, int Ordinal)> Holders(SchemaModel model, RawRecord raw, FieldRow row, string path)
+    {
+        var list = new List<(int, int)>();
+        string? sig = row.Subrecord;
+        if (sig == null) return list;
+        bool component = InComponent(model, row);
+        var m = component ? Regex.Match(path, @"^Components\[(\d+)\]") : null;
+        int? want = m is { Success: true } ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : null;
+        int depth = 0, index = -1, ordinal = 0;
+        for (int i = 0; i < raw.Subrecords.Count; i++)
+        {
+            string s = raw.Subrecords[i].Signature;
+            if (s == "BFCB") { if (depth == 0) index++; depth++; }
+            if (s == sig)
+            {
+                bool inside = depth > 0;
+                if (component ? inside && (want == null || want == index) : !inside) list.Add((i, ordinal));
+                ordinal++;
+            }
+            if (s == "BFCE" && depth > 0) depth--;
+        }
+        return list;
+    }
+
+    /// <summary>xEdit's path of a record's header flags, which every view of them shares (S106).</summary>
+    const string XEditHeaderFlags = @"\Record Header\Record Flags";
+
+    /// <summary>Where Mutagen lays out the record header, in words (its layout file's Header entries, C57).</summary>
+    static string HeaderLayout(HandLayouts.HeaderField at) => at.Sig is { } sig ? $"Mutagen's layout of the {sig} record header (HandReadLayouts.xml, Header sig=\"{sig}\")" : "Mutagen's layout of the record header (HandReadLayouts.xml, Header)";
+
+    /// <summary>Evidence for a field of the record header: its bytes there, checked against Mutagen's own property (read
+    /// from Mutagen's object, so a value the JSON leaves out at its default is checked too). A FormKey is held against
+    /// the FormID the plugin's file writes for it.</summary>
+    static Evidence HeaderEvidence(RecordSchema schema, Card card, RawRecord raw, FieldValue value, FieldRow row, HandLayouts.HeaderField at, Func<uint, string> label, Func<string, uint?>? formIdOf)
+    {
+        var bytes = raw.Header.AsSpan(at.Offset, at.Size);
+        ulong stored = at.Size == 2 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(bytes) : System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+        bool isId = row.Def.Kind == "FormKey" || row.Def.Name == "FormID";
+        string? reads = isId ? label((uint)stored) : null;
+        object? mutagen = card.FromRecord?.Invoke(row.Def.Name);
+        uint bit = at.Bit;
+        ulong? want = mutagen switch
+        {
+            null => null,
+            bool b when bit != 0 => b ? bit : 0u,
+            Mutagen.Bethesda.Plugins.FormKey k => formIdOf?.Invoke(k.IsNull ? "Null" : k.ToString()),
+            Enum e => FlagBits.Raw(e),
+            uint or ushort or ulong or byte => Convert.ToUInt64(mutagen, CultureInfo.InvariantCulture),
+            int or short or long or sbyte => unchecked((ulong)Convert.ToInt64(mutagen, CultureInfo.InvariantCulture)),
+            _ => null,
+        };
+        ulong mask = at.Size == 2 ? 0xFFFFu : 0xFFFF_FFFFu;
+        if (bit != 0) mask = bit;
+        string Shown(ulong v) => isId ? $"FormID {v:X8}" : at.ViewOf != null || row.Def.Name is "Flags" or "MajorRecordFlagsRaw" ? $"0x{v:X}" : row.Def.Kind == "Int32" ? unchecked((int)(uint)v).ToString(CultureInfo.InvariantCulture) : v.ToString(CultureInfo.InvariantCulture);
+        bool same = want is ulong w && (w & mask) == (stored & mask);
+        string where = at.ViewOf == null
+            ? $"{row.Def.Name} is the record header's {at.Size} bytes at offset {at.Offset} (after the signature and the data size), as {HeaderLayout(at)} places them"
+            : bit != 0 ? $"{row.Def.Name} is the record header's flag 0x{bit:X} in the {at.Size} bytes at offset {at.Offset}, a view of {at.ViewOf} ({HeaderLayout(at)})"
+            : $"{row.Def.Name} is the record header's {at.Size} bytes of flags at offset {at.Offset}, a view of {at.ViewOf} (its {(row.Def.Enum ?? "enum")} names the bits; {HeaderLayout(at)})";
+        var ev = new Evidence
+        {
+            Record = card.Label, Field = card.Type + "." + row.Path, Kind = row.Def.Kind, Value = value.Text, IsDefault = value.IsDefault,
+            RecordSignature = card.Signature, InHeader = true, Offset = at.Offset, Size = at.Size, Occurrences = 1,
+            Item = same ? new ItemPlace { Located = true, Offset = at.Offset, Size = at.Size, Where = where, Checked = bit != 0 ? $"the bytes read {Shown(stored)}: flag 0x{bit:X} is {((stored & bit) != 0 ? "set" : "clear")}, as Mutagen's value ({((stored & bit) != 0 ? "true" : "false")})" : $"the bytes read {Shown(stored)}, Mutagen's value", Reads = reads } : null,
+            XEdit = (at.ViewOf != null ? XEditHeaderFlags : null)
+                ?? schema.XEditPath(card.Signature, row.PlainPath) ?? (row.Def.XEdit is { Length: > 0 } x ? x : null), Readable = schema.ReadablePair(card.Signature, row.PlainPath) ?? row.Def.Readable,
+            Unknown = row.Def.Unknown,
+        };
+        ev.Slices.Add(new EvidenceSlice(0, RawRecord.HeaderLength, RawRecord.Hex(raw.Header), RawRecord.Hex(bytes), reads));
+        if (!same)
+            ev.Notes.Add(want is ulong m ? $"{where}; they read {Shown(stored)}, and Mutagen's value is {Shown(m & mask)}: not the same."
+                : $"{where}; Mutagen's value couldn't be read to check them against.");
+        return ev;
+    }
+
     static Evidence? ReflectionEvidence(Card card, RawRecord raw, FieldValue value, CardField decoded, Func<uint, string> label, int maxBytes)
     {
         CardField? root = decoded;
@@ -577,15 +817,6 @@ public static class FieldLookup
             }
             return null;
         }
-    }
-
-    /// <summary>True when the field is a half of a gendered value, or inside one.</summary>
-    static bool InGendered(FieldRow row)
-    {
-        // The halves are rows of the object that holds the gendered value: WorldModel.Male, WorldModel.Female
-        for (var r = row; r != null; r = r.Parent)
-            if (r.Def.Kind == "Gendered" || r.Def.Path.EndsWith(".Male", StringComparison.Ordinal) || r.Def.Path.EndsWith(".Female", StringComparison.Ordinal)) return true;
-        return false;
     }
 
     /// <summary>True when the field sits below a list Mutagen reads with hand-written code: the schema's offsets there

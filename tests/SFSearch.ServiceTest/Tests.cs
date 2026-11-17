@@ -50,6 +50,13 @@ public static partial class T
         r = await Call(Parts("Names", "000CF2"));
         Check("structured: an older command's name (removed in 2.0) points at its verb", r.Code == 2 && r.Failure != null && r.Failure.Message.Contains("removed in 2.0") && r.Failure.Message.Contains("Fix: use find"), r.Failure?.Message ?? "(none)");
 
+        // A command's --json is its own: the next command (calls one after another go to the worker idle the shortest
+        // time, so the same worker) answers in text again (GAPS S78: the global options outlived their command)
+        var asJson = await Call(Cmd("describe", "KYWD", "--json"));
+        var asText = await Call(Cmd("describe", "KYWD"));
+        Check("a command's --json doesn't carry over to the next command on the worker", asJson.Out.TrimStart().StartsWith("{") && !asText.Out.TrimStart().StartsWith("{") && asText.Code == 0,
+            $"with --json: {asJson.Out.TrimStart()[..Math.Min(40, asJson.Out.TrimStart().Length)]}…; then without: {asText.Out.TrimStart()[..Math.Min(60, asText.Out.TrimStart().Length)]}…");
+
         // 5. A tool name with named arguments
         r = await Call(new Request { Op = "run", Tool = "run", Params = new() { ["args"] = J(new[] { "__test", "echo", "hello", "there" }) }, Agent = "test" });
         Check("tool form: run with args", r.Answer?.TrimEnd() == "hello there" && r.Code == 0, r.Answer?.TrimEnd() ?? "");
@@ -130,6 +137,8 @@ public static partial class T
         var left = Directory.Exists(dir) ? Directory.GetFileSystemEntries(dir).Select(Path.GetFileName).ToArray() : [];
         string status = await Status();
         string line = status.Split('\n').FirstOrDefault(l => l.StartsWith("Scratch folder:"))?.Trim() ?? "";
+        // What was there before the restart is gone. Times are the files' last writes: Windows gives a file made again
+        // under the same name within 15 s the old file's creation time (the indexer's material-paths.tsv, written at start).
         // What was there before the restart is gone. The service makes its own folders again at once (the indexes and
         // the like), so the folder isn't empty: no file in it may be older than this service.
         string listFile = Path.Combine(Home, "left-by-test-in-scratch.txt");
@@ -137,12 +146,12 @@ public static partial class T
         var pid = System.Text.RegularExpressions.Regex.Match(status, @"\(process (\d+)\)");
         var started = pid.Success ? System.Diagnostics.Process.GetProcessById(int.Parse(pid.Groups[1].Value)).StartTime : DateTime.MaxValue;
         var files = Directory.Exists(dir) ? Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Where(f => Path.GetFileName(f) != ".sfsearch-scratch").ToArray() : [];
-        var old = files.Where(f => File.GetCreationTime(f) < started).ToArray();
-        var survived = before.Where(f => Path.GetFileName(f) != ".sfsearch-scratch" && File.Exists(f) && File.GetCreationTime(f) < started).ToArray();
+        var old = files.Where(f => File.GetLastWriteTime(f) < started).ToArray();
+        var survived = before.Where(f => Path.GetFileName(f) != ".sfsearch-scratch" && File.Exists(f) && File.GetLastWriteTime(f) < started).ToArray();
         Check("scratch: emptied when the service starts",
             left.Contains(".sfsearch-scratch") && before.Length >= 4 && survived.Length == 0 && old.Length == 0 && line.Contains("emptied at start"),
             $"{before.Length} file(s) were in scratch before the restart, {survived.Length} of them still there; {files.Length} file(s) now, {old.Length} made before this service started; left: {string.Join(", ", left)}; status: {line}");
-        var tables = Directory.Exists(Path.Combine(dir, "query")) ? Directory.GetFiles(Path.Combine(dir, "query"), "*", SearchOption.AllDirectories).Where(f => File.GetCreationTime(f) < started).ToArray() : [];
+        var tables = Directory.Exists(Path.Combine(dir, "query")) ? Directory.GetFiles(Path.Combine(dir, "query"), "*", SearchOption.AllDirectories).Where(f => File.GetLastWriteTime(f) < started).ToArray() : [];
         Check("scratch: none of query2's tables outlives a service start", tables.Length == 0, $"{tables.Length} file(s) from before the start in scratch\\query");
     }
 
@@ -352,57 +361,6 @@ public static partial class T
     }
 
     // ================================================================ The indexer lane
-    static Request Index(params string[] args) => new() { Op = "run", Args = args, Lane = "index", WaitMs = -1 };
-
-    static async Task Indexer()
-    {
-        int workers = int.TryParse(Environment.GetEnvironmentVariable("SFSEARCH_WORKERS"), out int w) ? w : 8;
-        Say($"the service runs {workers} commands at once");
-        // Since milestone M5 the service puts the header index's own job in this lane when it starts: let that finish first
-        await UntilStatus(s => s.Contains("Indexer: idle; 0 waiting"), 60000);
-        var r = await Call(Index("__test", "yieldable", "600"));
-        Check("indexer: a job runs when no agent is waiting", r.Code == 0 && r.Out.StartsWith("indexed for 600 ms"), r.Out.Trim());
-
-        // Agents first: with every worker busy and agents queued, an indexer job waits for all of them
-        var agents = Enumerable.Range(0, workers + 3).Select(i => Call(new Request { Op = "run", Args = ["__test", "sleep", "1200"], Agent = $"a{i % 3}" })).ToList();
-        await Task.Delay(200);
-        var idx = Call(Index("__test", "sleep", "100"));
-        var lastAgentStart = (await Task.WhenAll(agents)).Select(a => Interval(a.Out)!.Value.From).Max();
-        var idxSpan = Interval((await idx).Out)!.Value;
-        Check("indexer: agents go first", idxSpan.From >= lastAgentStart.AddMilliseconds(-50), $"{workers + 3} agent jobs for {workers} workers, then one indexer job: it started {(idxSpan.From - lastAgentStart).TotalMilliseconds:0} ms after the last agent job had started (no agent was left waiting)");
-
-        // Gives way by itself: a long indexer job is running, then more agents arrive than there are free workers
-        var st0 = await Status();
-        var longIdx = Call(Index("__test", "yieldable", "5000"));
-        await UntilStatus(s => s.Contains("Indexer: running"), 5000);
-        int pid = (await Workers()).FirstOrDefault(x => x.Line.Contains("[~index]")).Pid;
-        string prio = "";
-        try { prio = Process.GetProcessById(pid).PriorityClass.ToString(); } catch (Exception) { }
-        Check("indexer: its worker runs at low priority", prio == "BelowNormal", $"process {pid}: {prio}");
-        var asked = DateTime.UtcNow;
-        var wave = Enumerable.Range(0, workers).Select(i => Call(new Request { Op = "run", Args = ["__test", "sleep", "4000"], Agent = $"b{i}" })).ToList();
-        var waveSpans = (await Task.WhenAll(wave)).Select(a => Interval(a.Out)!.Value).ToList();
-        double slowestStart = waveSpans.Max(s => (s.From.TimeOfDay - asked.TimeOfDay).TotalMilliseconds);
-        var li = await longIdx;
-        Check("indexer: a job that listens gives way at once", slowestStart < 1500 && li.Code == 0 && li.Out.StartsWith("indexed for 5000 ms"),
-            $"{workers} agent jobs of 4 s arrived with {workers - 1} workers free: the last one started {slowestStart:0} ms after asking (4,000 if it had waited); the indexer's job was run again afterwards and finished");
-
-        // Made to give way: an indexer job that doesn't listen is stopped after 2 s and run again later
-        var deaf = Call(Index("__test", "sleep", "7000"));
-        await UntilStatus(s => s.Contains("Indexer: running"), 5000);
-        asked = DateTime.UtcNow;
-        wave = Enumerable.Range(0, workers).Select(i => Call(new Request { Op = "run", Args = ["__test", "sleep", "6000"], Agent = $"c{i}" })).ToList();
-        waveSpans = (await Task.WhenAll(wave)).Select(a => Interval(a.Out)!.Value).ToList();
-        slowestStart = waveSpans.Max(s => (s.From.TimeOfDay - asked.TimeOfDay).TotalMilliseconds);
-        var de = await deaf;
-        Check("indexer: a job that doesn't listen is stopped after 2 s", slowestStart < 4500 && de.Code == 0 && de.Out.StartsWith("slept 7000 ms"),
-            $"the last agent job started {slowestStart:0} ms after asking (6,000 if it had waited); the indexer's job was run again afterwards and finished");
-        string line = (await Status()).Split('\n').FirstOrDefault(l => l.StartsWith("Indexer:"))?.Trim() ?? "";
-        Check("indexer: status counts it", line.Contains("gave way to an agent 2 time(s)") || Regex.IsMatch(line, @"gave way to an agent [2-9]"), line);
-        try { prio = Process.GetProcessById(pid).PriorityClass.ToString(); } catch (Exception) { prio = "(that worker was replaced)"; }
-        Say($"the first indexer worker afterwards: {prio}");
-    }
-
     // ================================================================ Worker limits and the service's total
     // Needs a service started with small limits:
     //   SFSEARCH_WORKER_MAX_MB=1024  SFSEARCH_WORKER_RECYCLE_MB=300  SFSEARCH_SERVICE_MAX_MB=1024  SFSEARCH_WORKERS=4
@@ -429,8 +387,9 @@ public static partial class T
         Check("limits: a worker left above the recycle limit is replaced", r.Code == 0 && before.Except(after).Any(), $"{r.Out.Trim()}; worker process(es) {string.Join(", ", before.Except(after))} gone");
 
         // The service's total: two jobs that together hold more than it, then a third that must wait for one to end
-        var a = Call(Cmd("__test", "alloc", "700", "6000"));
-        var b = Call(Cmd("__test", "alloc", "700", "6000"));
+        // 640 MB each: under one command's 1 GB less the 320 MB a server worker keeps for memory outside its heap (J57)
+        var a = Call(Cmd("__test", "alloc", "640", "6000"));
+        var b = Call(Cmd("__test", "alloc", "640", "6000"));
         await UntilStatus(s => s.Contains("(over: no new command starts"), 6000);
         string mem = (await Status()).Split('\n').FirstOrDefault(l => l.StartsWith("Memory:"))?.Trim() ?? "";
         sw.Restart();

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SFSearch.Records;
 
 namespace SFSearch.Query;
 
@@ -77,7 +78,28 @@ public sealed class AnswerCost
 }
 
 /// <summary>The estimate given when a query isn't run because it would take too long or too much memory.</summary>
-public sealed record HeavyEstimate(double Seconds, long MemoryMB, string What);
+public sealed record HeavyEstimate(double Seconds, long MemoryMB, string What)
+{
+    /// <summary>The index that would make this question fast, offered as the third answer (J33: allow_heavy="save_index"),
+    /// or null when none would (<see cref="What"/> then says why).</summary>
+    public IndexOffer? SaveIndex { get; init; }
+    /// <summary>The temporary files the statement's sort would write (MB), when that is why it wasn't run (GAPS S110); else 0.</summary>
+    public long TempFilesMB { get; init; }
+    /// <summary>False when allow_heavy wouldn't run it either (its temporary files wouldn't fit on the drive).</summary>
+    public bool Allowable { get; init; } = true;
+
+    /// <summary>The "notRun" object of a JSON answer: the estimate, how to allow it, and the index offered.</summary>
+    public JsonObject ToJson()
+    {
+        var o = new JsonObject
+        {
+            ["what"] = What, ["seconds"] = Math.Round(Seconds, 1), ["memoryMB"] = MemoryMB, ["allow"] = Allowable ? "allow_heavy=true" : null,
+            ["saveIndex"] = SaveIndex?.ToJson(Seconds, "allow_heavy=\"save_index\""),
+        };
+        if (TempFilesMB > 0) o["tempFilesMB"] = TempFilesMB;
+        return o;
+    }
+}
 
 public sealed class QueryAnswer
 {
@@ -101,6 +123,9 @@ public sealed class QueryAnswer
     public string? Fix { get; set; }
     /// <summary>Set when nothing was run because the estimate is over the limit.</summary>
     public HeavyEstimate? NotRun { get; set; }
+    /// <summary>J33: an index that would make this statement fast (a Links WHERE ToKey = '…' over world data of plugins with
+    /// no world link file), whether or not it ran; the host makes it when the caller answered "save_index".</summary>
+    public IndexOffer? IndexWouldHelp { get; set; }
     /// <summary>True when the last statement gave a result (a SELECT), false for statements that only made temporary tables.</summary>
     public bool HasResult { get; set; }
     /// <summary>Which of the tables that aren't one record type's own (Records, Forms, Links) the statements read. SQLite
@@ -204,7 +229,7 @@ public sealed class QueryAnswer
         };
         var o = new JsonObject();
         if (Error != null) o["error"] = new JsonObject { ["what"] = Error, ["fix"] = Fix };
-        if (NotRun != null) o["notRun"] = new JsonObject { ["what"] = NotRun.What, ["seconds"] = Math.Round(NotRun.Seconds, 1), ["memoryMB"] = NotRun.MemoryMB, ["allow"] = "allow_heavy=true" };
+        if (NotRun != null) o["notRun"] = NotRun.ToJson();
         if (HasResult && Ok)
         {
             o["columns"] = new JsonArray(Columns.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray());

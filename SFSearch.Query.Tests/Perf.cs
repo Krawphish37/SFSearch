@@ -6,8 +6,10 @@
 //
 // Each round runs the same query on a query engine of its own with empty scratch tables, in the same process: the
 // plugins stay open, so round 1 has the code's start-up in it and the later rounds don't. For each round: the
-// seconds, what was read, the reading threads' time by step (summed over the threads), how long the inserting
-// thread waited for them, the garbage collector's pauses, and the processor time of the whole process.
+// seconds, what was read, the garbage collector's pauses, and the processor time of the whole process, all measured
+// from outside the library. (Until J81 the reading threads' time by step and the inserting thread's wait came from
+// timers inside RecordReader; they left the library with the rule that no test code goes into the program. A
+// profiler gives that split now.)
 // The Data folder is only read. Run it through heavy.sh, with HEAVY_FULL=1 for a world type (--heavy).
 using System.Diagnostics;
 using SFSearch.Index;
@@ -36,14 +38,12 @@ static class Perf
         using var records = new RecordEngine(index, schema, Path.Combine(work, "verify"), data);
         using var me = Process.GetCurrentProcess();
         Console.WriteLine($"{sql}   on {string.Join(", ", plugins)}; {threads} reading threads{(direct > 0 ? $", {direct} of them for records read from their own bytes" : "")}; {Environment.ProcessorCount} logical processors");
-        Console.WriteLine("Round\tSeconds\tMutagenSummed\tJsonSummed\tSqliteSummed\tInserterWaited\tGcPauseSeconds\tGen0\tGen1\tGen2\tAllocatedMB\tProcessorSeconds\tAnswer\tRead");
-        double S(long ticks) => ticks / (double)Stopwatch.Frequency;
+        Console.WriteLine("Round\tSeconds\tGcPauseSeconds\tGen0\tGen1\tGen2\tAllocatedMB\tProcessorSeconds\tAnswer\tRead");
         for (int round = 1; round <= rounds; round++)
         {
             string folder = Path.Combine(work, "perf-sql");
             if (Directory.Exists(folder)) Directory.Delete(folder, true);
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-            long load = RecordReader.TicksLoad, json = RecordReader.TicksJson, sqlite = RecordReader.TicksSql, wait = RecordReader.TicksWait;
             var pause = GC.GetTotalPauseDuration(); long alloc = GC.GetTotalAllocatedBytes(true);
             int g0 = GC.CollectionCount(0), g1 = GC.CollectionCount(1), g2 = GC.CollectionCount(2);
             me.Refresh(); var cpu = me.TotalProcessorTime;
@@ -52,7 +52,7 @@ static class Perf
                 a = engine.Run(new QueryRequest { Sql = sql, Plugins = plugins, AllowHeavy = heavy, PageRows = 5 });
             me.Refresh();
             string answer = a.Error != null ? "ERROR " + a.Error : a.NotRun != null ? "NOT RUN " + a.NotRun.What : string.Join(" ; ", a.Rows.Take(3).Select(r => string.Join(" | ", r.Select(Ctx.Cell))));
-            Console.WriteLine($"{round}\t{a.Cost.Seconds:F2}\t{S(RecordReader.TicksLoad - load):F2}\t{S(RecordReader.TicksJson - json):F2}\t{S(RecordReader.TicksSql - sqlite):F2}\t{S(RecordReader.TicksWait - wait):F2}\t{(GC.GetTotalPauseDuration() - pause).TotalSeconds:F2}\t{GC.CollectionCount(0) - g0}\t{GC.CollectionCount(1) - g1}\t{GC.CollectionCount(2) - g2}\t{(GC.GetTotalAllocatedBytes(true) - alloc) / 1048576.0:F0}\t{(me.TotalProcessorTime - cpu).TotalSeconds:F2}\t{answer}\t{string.Join("; ", a.Cost.Read)}");
+            Console.WriteLine($"{round}\t{a.Cost.Seconds:F2}\t{(GC.GetTotalPauseDuration() - pause).TotalSeconds:F2}\t{GC.CollectionCount(0) - g0}\t{GC.CollectionCount(1) - g1}\t{GC.CollectionCount(2) - g2}\t{(GC.GetTotalAllocatedBytes(true) - alloc) / 1048576.0:F0}\t{(me.TotalProcessorTime - cpu).TotalSeconds:F2}\t{answer}\t{string.Join("; ", a.Cost.Read)}");
             Console.Out.Flush();
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             try { Directory.Delete(folder, true); } catch (IOException) { }

@@ -315,7 +315,7 @@ public static class RecordNames
     /// A subrecord that, once met, says the one looked for isn't in the record: a cell's FULL comes before its DATA
     /// (EDID, FULL, DATA, XCLC, …, then XTV2 of up to hundreds of KB). Without it, the 30,000 cells of Starfield.esm with
     /// no name (of 31,150) would each be inflated whole to learn they have none (0.5 s). Held against Mutagen's Name of
-    /// every cell of two mods and a sample of Starfield.esm in names-from-bytes; notesix-f1-world-names.md checked
+    /// every cell of two mods and a sample of Starfield.esm in names-from-bytes; notes\fix-f1-world-names.md checked
     /// every cell in Data.
     /// </summary>
     static byte[]? StopOf(string signature, byte[] looked) => signature == "CELL" && looked.AsSpan().SequenceEqual(Full) ? CellData : null;

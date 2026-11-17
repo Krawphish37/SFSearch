@@ -37,7 +37,7 @@ static class Threads
         {
             var rec = e.Load(r);
             Ctx.Check(rec.Route == ReadRoute.Direct, $"{rec.Label} wasn't read from its own bytes");
-            string json = e.Schema.HoldsRecords(rec.Type) ? e.Json(rec).ToJsonString() : RecordSerializer.ToJson(rec.Record, rec.Type);
+            string json = e.Schema.HoldsRecords(rec.Type) ? e.Json(rec).ToJsonString() : RecordSerializer.ToJson(rec.Record);
             return new Outcome(Encoding.UTF8.GetBytes(json), rec.Type, rec.Children, raw);
         }
         catch (RecordException x) { return new Outcome(Encoding.UTF8.GetBytes("RecordException: " + x.Message), "", 0, raw); }
@@ -107,9 +107,9 @@ static class Threads
                     if (e.HeavyNote(r) != null) continue;
                     LoadedRecord rec;
                     try { rec = e.Load(r); } catch (RecordException) { continue; }
-                    byte[] kept = RecordSerializer.ToUtf8(rec.Record, rec.Type).ToArray();
-                    byte[] made = RecordSerializer.ToUtf8WithNewWriter(rec.Record, rec.Type);
-                    string text = RecordSerializer.ToJson(rec.Record, rec.Type);
+                    byte[] kept = RecordSerializer.ToUtf8(rec.Record).ToArray();
+                    byte[] made = ToUtf8WithNewWriter(rec.Record);
+                    string text = RecordSerializer.ToJson(rec.Record);
                     records++; bytes += made.Length;
                     if (!kept.AsSpan().SequenceEqual(made) || !Encoding.UTF8.GetBytes(text).AsSpan().SequenceEqual(made))
                         if (differ.Count < 20) differ.Add($"{rec.Label} {rec.Info.Signature} of {plugin}: {kept.Length:N0} bytes with the kept writer, {made.Length:N0} with a new one");
@@ -221,5 +221,20 @@ static class Threads
         Ctx.Check(wrong == 0, $"{wrong} reads of a plugin that was deleted while open gave other bytes than it had");
         string how = session.ExtraHandles == 0 ? "Windows wouldn't open the deleted file again, so they read through the session's first handle" : $"through {N(session.ExtraHandles)} more handles on the same file";
         return $"A copy of {source.Name} deleted while a session held it open was still read by {ReadingThreads} threads, with the bytes it had ({how})";
+    }
+
+    /// <summary>The same JSON through a new writer, the way the serializer package itself starts and ends an object
+    /// (its JSON kernel's GetNewObject and Finalize around the registry's serializer of the object's class): the test
+    /// holds RecordSerializer.ToUtf8, the thread's kept converter (C59 V4), against it.</summary>
+    static byte[] ToUtf8WithNewWriter(object o)
+    {
+        using var ms = new MemoryStream();
+        var pkg = new Mutagen.Bethesda.Serialization.Streams.StreamPackage(ms, null);
+        var kernel = new Mutagen.Bethesda.Serialization.Newtonsoft.NewtonsoftJsonSerializationWriterKernel();
+        var w = kernel.GetNewObject(pkg);
+        RecordSerializer.Registry.Serialize(w, o, Mutagen.Bethesda.Serialization.MutagenSerializationWriterKernel<Mutagen.Bethesda.Serialization.Newtonsoft.NewtonsoftJsonSerializationWriterKernel, Mutagen.Bethesda.Serialization.Newtonsoft.JsonWritingUnit>.Instance,
+            new Mutagen.Bethesda.Serialization.SerializationMetaData(Mutagen.Bethesda.GameRelease.Starfield, null!, null!, null!, CancellationToken.None)).GetAwaiter().GetResult();
+        kernel.Finalize(pkg, w);
+        return ms.ToArray();
     }
 }

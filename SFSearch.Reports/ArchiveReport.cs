@@ -199,7 +199,7 @@ public sealed class ArchiveTarget
         : new[] { $"{ReportAnswer.N(Archives.Count)} {what} ({string.Join(", ", Archives.Take(2).Select(a => a.Name))}, …), {ArchiveStore.SizeText(Archives.Sum(a => a.Length))}" };
 }
 
-public sealed class ArchiveReport
+public sealed partial class ArchiveReport
 {
     static readonly HashSet<string> TextKinds = new(StringComparer.OrdinalIgnoreCase)
         { ".mat", ".json", ".txt", ".psc", ".xml", ".ini", ".csv", ".cfg", ".lst", ".html", ".css", ".js", ".bat", ".log", ".md" };

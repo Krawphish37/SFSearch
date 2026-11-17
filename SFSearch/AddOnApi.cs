@@ -23,6 +23,20 @@ namespace SFSearch.AddOns
     // print under the output contract. It stands on the header index, the record layer, SFSearch.Query, SFSearch.Compare
     // and SFSearch.Reports only (the older commands, their tables and helpers were removed in 2.0). Nothing in it knows
     // about any one mod.
+    //
+    // What a command tells or asks the service about its own answer is SFSearch.Service.JobContext (Service\JobContext.cs),
+    // open to add-ons as to SFSearch's own verbs (written down here by J37, 2026-11-15). 2.1 gave RequireHeavy, NotRun and
+    // NotAllowedLine a new optional last parameter (noIndex, saveIndex; J33) and kept their 2.0 signatures beside them as
+    // overloads (J81), so an add-on built for 2.0 that calls them still runs; the rest is as in 2.0:
+    //   RequireHeavy(estimateMB, what[, noIndex])  before a part that needs 2 GB or more: the heavy lane, one at a time,
+    //                                   only with the caller's OK and the memory there; false when it printed why: return then
+    //   NotRun(line, estimateMB, what[, saveIndex])  heavy by time or by its own estimate, and not allowed: the "Not run." line
+    //   TableHeader(lines)              the answer is one table, its first lines the header (pages repeat them)
+    //   AddSource(...), AddRead(what)   where the answer came from, what was read (the structured reply's source and cost)
+    //   Fail(what, fix)                 the one-line error with its fix, and the exit code
+    //   ScratchDir                      a working folder that lasts while the service runs (null outside it)
+    //   YieldRequested, Yielded         a job in the indexer lane asked to give way to an agent: save, set Yielded, return
+    // tests\SFSearch.TestHooks, the service tests' add-on, uses each of them.
     // =====================================================================================================================
 
     /// <summary>

@@ -20,7 +20,9 @@ public static class WorldData
     /// <param name="plugins">In how many plugins, or 0 for one plugin that the answer already names.</param>
     /// <param name="cost">What including them would cost ("about 3 s more"), or null.</param>
     /// <param name="byType">The largest types left out ("REFR 30, NAVM 4"), or null.</param>
-    public static string LeftOut(string leftOutOf, long records, long bytes = -1, int plugins = 0, string? cost = null, string? byType = null)
+    /// <param name="noIndex">Why no saved index would bring it in faster (J33: every point that leaves something out to save
+    /// time says whether an index would help); null says nothing.</param>
+    public static string LeftOut(string leftOutOf, long records, long bytes = -1, int plugins = 0, string? cost = null, string? byType = null, string? noIndex = null)
     {
         string n = records.ToString("N0", CultureInfo.InvariantCulture);
         var sb = new System.Text.StringBuilder();
@@ -30,6 +32,7 @@ public static class WorldData
         sb.Append(". Add world: true (command line: --world) to include it");
         if (cost != null) sb.Append(": ").Append(cost);
         sb.Append('.');
+        if (noIndex != null) sb.Append(" No saved index would make that faster: ").Append(noIndex.TrimEnd('.', ' ')).Append('.');
         return sb.ToString();
     }
 }

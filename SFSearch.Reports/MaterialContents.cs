@@ -63,15 +63,16 @@ public sealed class MaterialContents
     uint[] _byDbid = Array.Empty<uint>();
     ulong[] _byPid = Array.Empty<ulong>(); int[] _byPidAt = Array.Empty<int>();  // folder and file hashes of each PersistentID, sorted
     // The components that hold a link or a texture, grouped by object
-    int[] _compStart = Array.Empty<int>();      // per object, into the component arrays (length Objects + 1)
-    uint[] _compKey = Array.Empty<uint>();      // the class (ClassId) << 16 | the component's index
+    // (internal, J81: sfsreport-tests' MaterialDatabaseTests.OwnTextures reads the components and entries)
+    internal int[] _compStart = Array.Empty<int>();      // per object, into the component arrays (length Objects + 1)
+    internal uint[] _compKey = Array.Empty<uint>();      // the class (ClassId) << 16 | the component's index
     bool[] _compDiff = Array.Empty<bool>();
-    int[] _compEntry = Array.Empty<int>();      // into the entries (length components + 1)
-    Entry[] _entries = Array.Empty<Entry>();
+    internal int[] _compEntry = Array.Empty<int>();      // into the entries (length components + 1)
+    internal Entry[] _entries = Array.Empty<Entry>();
     // The texture names, one after another (Latin-1), and where each starts
     byte[] _text = Array.Empty<byte>();
     int[] _textAt = new int[1];
-    string Text(int i) => Encoding.Latin1.GetString(_text, _textAt[i], _textAt[i + 1] - _textAt[i]);
+    internal string Text(int i) => Encoding.Latin1.GetString(_text, _textAt[i], _textAt[i + 1] - _textAt[i]);
     // Each object's own name (its BSComponentDB::CTName): an index into the names, -1 for none
     int[] _objName = Array.Empty<int>();
     byte[] _names = Array.Empty<byte>();
@@ -114,21 +115,6 @@ public sealed class MaterialContents
 
     /// <summary>The textures of one material of this database (the tests hold the search for a texture's users against it).</summary>
     internal List<string> TexturesOf(Node material, MaterialContents? game, out int unresolved) => TexturesFrom(material.At, game, out unresolved);
-
-    /// <summary>Every material's textures together (for the tests): how many materials, and the textures they name.</summary>
-    public (int Materials, HashSet<string> Textures, int Unresolved) AllMaterialTextures(MaterialContents? game)
-    {
-        var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int materials = 0, unresolved = 0;
-        for (int i = 0; i < _dbid.Length; i++)
-        {
-            if (_pidExt[i] != 0x0074616D || !_hasData[i]) continue;
-            materials++;
-            all.UnionWith(TexturesFrom(i, game, out int lost));
-            unresolved += lost;
-        }
-        return (materials, all, unresolved);
-    }
 
     List<string> TexturesFrom(int start, MaterialContents? game, out int unresolved)
     {
@@ -265,20 +251,27 @@ public sealed class MaterialContents
         return found;
     }
 
+    /// <summary>Every object name of the database that holds ".mat" in any letter case (a layer's material named for
+    /// the file it was made in: "Data\Materials\Test\Test\MGoulet_Pattern05_Test.mat_Material2"), each once: for
+    /// telling material paths (GAPS S33a).</summary>
+    internal IEnumerable<string> MatNames()
+    {
+        for (int i = 0; i + 1 < _nameAt.Length; i++)
+        {
+            var span = _names.AsSpan(_nameAt[i], _nameAt[i + 1] - _nameAt[i]);
+            for (int at = span.IndexOf((byte)'.'); at >= 0 && at + 3 < span.Length; )
+            {
+                if ((span[at + 1] | 0x20) == 'm' && (span[at + 2] | 0x20) == 'a' && (span[at + 3] | 0x20) == 't') { yield return NameText(i); break; }
+                int next = span[(at + 1)..].IndexOf((byte)'.');
+                at = next < 0 ? -1 : at + 1 + next;
+            }
+        }
+    }
+
     /// <summary>Every texture name in the database, as it writes them.</summary>
     public IEnumerable<string> TextureNames()
     {
         for (int i = 0; i + 1 < _textAt.Length; i++) yield return Text(i);
-    }
-
-    /// <summary>Every texture an object of the database sets itself (not what it inherits), with its component's
-    /// class and index: for a test of the slot names against the textures' own file names.</summary>
-    internal IEnumerable<(string Class, int Index, string Texture)> OwnTextures()
-    {
-        for (int o = 0; o < _dbid.Length; o++)
-            for (int c = _compStart[o]; c < _compStart[o + 1]; c++)
-                for (int e = _compEntry[c]; e < _compEntry[c + 1]; e++)
-                    if (_entries[e].Texture) yield return (ClassName((int)(_compKey[c] >> 16)), (int)(_compKey[c] & 0xFFFF), Text((int)_entries[e].Value));
     }
 
     /// <summary>
@@ -431,7 +424,7 @@ public sealed class MaterialContents
             return ClassIds[name] = ClassNames.Count - 1;
         }
     }
-    static string ClassName(int id) { lock (ClassIds) return id > 0 && id < ClassNames.Count ? ClassNames[id] : "?"; }
+    internal static string ClassName(int id) { lock (ClassIds) return id > 0 && id < ClassNames.Count ? ClassNames[id] : "?"; }
 
     sealed class ClassDef
     {

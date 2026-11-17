@@ -152,6 +152,43 @@ public sealed class PexFile
         return o;
     }
 
+    /// <summary>
+    /// True when a compiled script's string table holds one of <paramref name="lowerNames"/> (ASCII lower case; letter
+    /// case doesn't count, as in Papyrus). Only the header and the string table are read: every name the script's code
+    /// uses (a function it calls, a script it extends or names) is in that table, so a script that doesn't hold the name
+    /// can be passed over without reading its code. False for bytes that aren't a Starfield compiled script.
+    /// </summary>
+    public static bool StringTableHolds(ReadOnlySpan<byte> bytes, IReadOnlyList<byte[]> lowerNames)
+    {
+        if (bytes.Length < 18 || BinaryPrimitives.ReadUInt32LittleEndian(bytes) != Magic || BinaryPrimitives.ReadUInt16LittleEndian(bytes[6..]) != 4) return false;
+        int pos = 16;
+        for (int i = 0; i < 3; i++)
+        {
+            if (pos + 2 > bytes.Length) return false;
+            pos += 2 + BinaryPrimitives.ReadUInt16LittleEndian(bytes[pos..]);
+        }
+        if (pos + 2 > bytes.Length) return false;
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(bytes[pos..]);
+        pos += 2;
+        for (int i = 0; i < count; i++)
+        {
+            if (pos + 2 > bytes.Length) return false;
+            int n = BinaryPrimitives.ReadUInt16LittleEndian(bytes[pos..]);
+            pos += 2;
+            if (pos + n > bytes.Length) return false;
+            var s = bytes.Slice(pos, n);
+            pos += n;
+            foreach (var name in lowerNames)
+            {
+                if (name.Length != n) continue;
+                int k = 0;
+                while (k < n && (s[k] is >= (byte)'A' and <= (byte)'Z' ? (byte)(s[k] + 32) : s[k]) == name[k]) k++;
+                if (k == n) return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>Reads a compiled script. Throws <see cref="InvalidDataException"/> when the bytes aren't one Starfield writes.</summary>
     public static PexFile Read(byte[] bytes)
     {

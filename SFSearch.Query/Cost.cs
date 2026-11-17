@@ -84,7 +84,8 @@ public static class CostModel
     /// Records, bytes and the largest record of a signature in a plugin, from the header index. For a signature whose
     /// records are compressed the index only has the stored size, and the JSON follows the size after inflating
     /// (Starfield.esm's surface trees are 86 MB stored and 4.9 GB as JSON). Each compressed record says its inflated
-    /// size in its first four bytes: up to 2,000 of them are read, which takes milliseconds.
+    /// size in its first four bytes: every one is read up to 250,000 of them (else 2,000 spread over them), which takes
+    /// milliseconds; the largest record, which a read's memory follows, is then the real one.
     /// </summary>
     public static SigLoad Load(IndexedPlugin plugin, string signature)
     {
@@ -112,7 +113,10 @@ public static class CostModel
                         try
                         {
                             using var file = File.OpenHandle(plugin.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                            int step = Math.Max(1, compressed.Count / 2000);
+                            // Every one up to 250,000 (each read is four bytes, in file order: Starfield.esm's 56,576
+                            // navmeshes in milliseconds), so the largest record, which the memory follows, is the real one
+                            compressed.Sort((a, b) => a.Offset.CompareTo(b.Offset));
+                            int step = compressed.Count <= 250_000 ? 1 : compressed.Count / 2000;
                             long sampledStored = 0, sampledInflated = 0;
                             Span<byte> four = stackalloc byte[4];
                             for (int i = 0; i < compressed.Count; i += step)
@@ -151,12 +155,71 @@ public static class CostModel
     /// <summary>True when a signature's rates were measured whole on Starfield.esm.</summary>
     public static bool IsMeasured(string signature) => Measured.ContainsKey(signature);
 
-    /// <summary>Reading only named columns of a signature (or none: the header index alone).</summary>
-    public static Estimate Projection(SigLoad l, int columns)
+    /// <summary>
+    /// Reading only named columns of a signature (or none: the header index alone). Each record is opened through
+    /// Mutagen, so the time follows its bytes as well as its count, and the memory its largest record (GAPS S101: by the
+    /// count alone, Starfield.esm's 30,717 cells came to 0.08 s and 1 GB, and the read took 20 to 112 s and 1.2 to 2.3 GB).
+    /// <paramref name="json"/>: a column comes out of each record's JSON (a flag set, translated text, a field under a
+    /// kind of object), which costs the JSON of the whole record; otherwise every column is read straight from Mutagen's object.
+    /// </summary>
+    public static Estimate Projection(SigLoad l, int columns, bool json)
     {
         if (l.Count == 0) return Estimate.None;
-        double seconds = columns == 0 ? l.Count * SecondsPerIndexRow : l.Count * (SecondsPerProjectedRecord + SecondsPerIndexRow);
-        return new Estimate(seconds, columns == 0 ? 300 : 1000, l.Count * (60 + 24 * columns) / 1048576);
+        if (columns == 0) return new Estimate(l.Count * SecondsPerIndexRow, 300, l.Count * 60 / 1048576);
+        double mb = l.Inflated / 1048576.0, largestMB = l.LargestRecord / 1048576.0;
+        double perMB = json ? (l.Signature != null && ProjectJsonMeasured.TryGetValue(l.Signature, out var m) ? m : ProjectJsonSecondsPerMB) : ProjectObjectSecondsPerMB;
+        double seconds = l.Count * (SecondsPerProjectedRecord + SecondsPerIndexRow) + mb * perMB;
+        // The largest records are read on several threads at once (a type of one record, on one)
+        long memory = Math.Max(1000, BaseMemoryMB + (long)(largestMB * Math.Min(l.Count, 3) * (json ? ProjectJsonMemoryPerLargestMB : ProjectObjectMemoryPerLargestMB)));
+        return new Estimate(seconds, memory, l.Count * (60 + 24 * columns) / 1048576);
+    }
+
+    /// <summary>True when a signature's rates for a column out of the JSON were measured on Starfield.esm.</summary>
+    public static bool IsProjectionMeasured(string signature) => ProjectJsonMeasured.ContainsKey(signature);
+
+    /// <summary>Seconds per MB (inflated) when the named columns come straight from Mutagen's objects (DirectColumns.cs):
+    /// the records parsed, no JSON. Starfield.esm, 2026-11-15: NavigationMesh's NavmeshVersion 2.3 s for 511 MB, SurfaceTree's
+    /// EdgeSize 1.3 s for 940 MB.</summary>
+    public static double ProjectObjectSecondsPerMB = 0.005;
+    /// <summary>Seconds per MB (inflated) when a named column comes out of each record's JSON: Mutagen, the whole
+    /// record's JSON, the column's expression in SQLite. A type without its own rate (<see cref="ProjectJsonMeasured"/>)
+    /// takes Cell's.</summary>
+    public static double ProjectJsonSecondsPerMB = 0.035;
+    /// <summary>
+    /// The world types' own rates for a column out of the JSON, measured 2026-11-15 on Starfield.esm, a new process with
+    /// its header index made, other sessions' jobs beside it (notes\fix-j63-scope-reads.md): a flags column of
+    ///   Cell 30,717 records, 759 MB inflated, largest 3.4 MB: 20 to 27 s, 1.2 GB
+    ///   NavigationMesh 56,576, 511 MB, largest 0.7 MB: 12.5 to 14 s, 0.6 GB
+    ///   NavigationMeshInfoMap 1 record of 51 MB: 60 to 70.5 s on one thread (its JSON is made and parsed whole), 3.7 to 4.4 GB
+    ///   SurfaceTree 1,505, 940 MB, largest 0.6 MB: 72 to 82 s, 0.9 GB
+    ///   PlacedObject 3,291,860, 229 MB, records of 70 bytes: 5.9 s, 0.6 GB (the per-record rate alone gives 8.6 s)
+    /// </summary>
+    public static readonly Dictionary<string, double> ProjectJsonMeasured = new(StringComparer.Ordinal)
+    {
+        ["CELL"] = 0.035, ["NAVM"] = 0.025, ["NAVI"] = 1.3, ["SFTR"] = 0.085, ["REFR"] = 0,
+    };
+    /// <summary>Memory per MB of the largest record read through Mutagen for named columns, per reading thread that holds one.</summary>
+    public static double ProjectObjectMemoryPerLargestMB = 20;
+    /// <summary>Memory per MB of the largest record read for a column out of its JSON, per reading thread that holds one
+    /// (up to three counted): its object, its JSON text and SQLite's parse of it. Starfield.esm's cells (3.4 MB) 1.2 GB,
+    /// its navmesh info map (51 MB, one record) 4.4 GB.</summary>
+    public static double ProjectJsonMemoryPerLargestMB = 80;
+
+    /// <summary>Seconds per MB of record data (inflated) when named columns are read from the records' own bytes
+    /// (RawColumns.cs, J30): inflating and stepping through the subrecords on 8 threads. Starfield.esm's cells, 796 MB
+    /// inflated: 0.27 s; its placed objects, 240 MB: 0.10 s (STEP1, J1/J12).</summary>
+    public static double RawSecondsPerMB = 0.0005;
+    /// <summary>Seconds per row read from the records' bytes and put into SQLite: the header index's line (FormKey,
+    /// EditorID) and the insert on one thread, about 1.1 million rows a second (STEP1).</summary>
+    public static double RawSecondsPerRow = 1.0e-6;
+
+    /// <summary>Reading named columns from the records' own bytes: the bytes inflated and stepped through, and
+    /// <paramref name="rows"/> rows inserted (all the records, or the ones a filter keeps).</summary>
+    public static Estimate Raw(SigLoad l, long rows)
+    {
+        if (l.Count == 0) return Estimate.None;
+        double seconds = l.Inflated / 1048576.0 * RawSecondsPerMB + rows * RawSecondsPerRow;
+        return new Estimate(seconds, 500, rows * 100 / 1048576);
     }
 
     /// <summary>The header index of a plugin set as the Forms table.</summary>
@@ -185,5 +248,31 @@ public static class MemoryNow
         if (!OperatingSystem.IsWindows()) return -1;
         var s = new MemoryStatusEx { Length = (uint)Marshal.SizeOf<MemoryStatusEx>() };
         return GlobalMemoryStatusEx(ref s) ? (long)(s.AvailPhys >> 20) : -1;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct ProcessMemoryCountersEx
+    {
+        public uint Cb, PageFaultCount;
+        public nuint PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage, QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage, PrivateUsage;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool K32GetProcessMemoryInfo(IntPtr process, ref ProcessMemoryCountersEx counters, uint cb);
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentProcess();
+
+    /// <summary>
+    /// This process's private bytes in MB (what the service's limit for one command is held against), or -1 when it
+    /// can't be asked. One call to Windows, about a microsecond: unlike Process.PrivateMemorySize64, it doesn't list
+    /// every process on the PC.
+    /// </summary>
+    public static long PrivateMB()
+    {
+        if (!OperatingSystem.IsWindows()) return -1;
+        var c = new ProcessMemoryCountersEx { Cb = (uint)Marshal.SizeOf<ProcessMemoryCountersEx>() };
+        return K32GetProcessMemoryInfo(GetCurrentProcess(), ref c, c.Cb) ? (long)(c.PrivateUsage >> 20) : -1;
     }
 }

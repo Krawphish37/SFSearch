@@ -28,13 +28,13 @@ namespace SFSearch.Engine
         const int MostHolders = 8;
 
         /// <summary>The start of a "Held by" cell when no version wins: no loaded plugin holds the record, or the loaded
-        /// ones are refused by Mutagen (C204) and left out.</summary>
+        /// ones are refused by Mutagen (C204), or built on a master that can't be read, and left out.</summary>
         internal static string NoWinner(HeaderIndex main, RecordVersions v)
             => v.Holders.Any(h => main.Plugins[h.Plugin] is { Order.Enabled: true, LeftOut: not null }) ? "no loaded plugin Mutagen reads holds it: " : "no loaded plugin holds it: ";
 
         public const string Help = """
             find <query ...> [--type <type>] [--in <plugin,...>] [--limit N] [--cursor C]
-            find --text <regex> [--from stored|strings|both] [--language <language>] [--type <type>] [--in <plugin,...>] [--world]
+            find --text <regex> [--from stored|strings|both] [--language <language>] [--type <type>] [--in <plugin,...>] [--world] [--plain]
               What a FormID, FormKey or EditorID is, which records match a pattern or a type, who holds each one and who wins.
               It answers from the header index: no record is opened and no database is built.
               With --text: the records whose text fits a regular expression, in every plugin (or the ones named).
@@ -48,7 +48,9 @@ namespace SFSearch.Engine
                                                   whose name holds all of them, as whole words
                          DarkStar_Mk2_*           a pattern for EditorIDs and in-game names: * is any text, ? is one character
               --type   a signature (WEAP) or a Mutagen name (Weapon). Alone, it lists every record of the type.
-              --in     only records these plugins hold: names in Data (wildcards allowed), or the path of a plugin file elsewhere
+              --in     only records these plugins hold: names in Data (wildcards allowed), a set: @official (the game's own
+                       plugins and Bethesda's Creations), @loaded (every plugin the load order enables), @all; or the path
+                       of a plugin file elsewhere
               --limit  rows per answer (default 40). The answer's [more] line gives the cursor for the next rows.
               --text   a .NET regular expression held against every text field the game shows: names, descriptions,
                        book text, dialogue, quest objectives ... of each plugin's records (each plugin's own version).
@@ -60,6 +62,10 @@ namespace SFSearch.Engine
               --language  the strings files' language (default English). Stored text reads the same in every language.
               --world  with --text: search world data too, placed references' own texts (map markers' names). It reads
                        every placed reference's bytes: 0.1 to 1.7 s more over the whole load order.
+              --plain  with --text: search plain text fields too, the ones never translated, stored in every plugin
+                       (localized ones too): EditorIDs, a quest's summary and log entries' notes, components' node
+                       names and file paths, scripts' names, property names and string properties (VMAD). A row of
+                       one says "plain text". Not with --from strings.
               Game settings' texts (an EditorID starting with s) are searched. A perk entry point's text and the other
               fields whose subrecord also holds numbers or links are told by reading only the records whose bytes
               could hold a match through Mutagen; the answer counts them.
@@ -74,7 +80,7 @@ namespace SFSearch.Engine
               Exit code: 0 answered (also when nothing was found: the answer says why); 2 an error (one line, Error: ... Fix: ...).
             """;
 
-        static readonly string[] Known = { "query", "type", "in", "limit", "cursor", "text", "from", "language", "world" };
+        static readonly string[] Known = { "query", "type", "in", "limit", "cursor", "text", "from", "language", "world", "plain" };
 
         sealed class Ask
         {
@@ -83,6 +89,8 @@ namespace SFSearch.Engine
             public int Limit = DefaultLimit;
             /// <summary>With Text: world data's texts too (placed references' map marker names).</summary>
             public bool World;
+            /// <summary>With Text: plain text fields too (never translated: EditorIDs, scripts' strings, ...).</summary>
+            public bool Plain;
         }
 
         // ---------------------------------------------------------------- Entry points
@@ -95,7 +103,7 @@ namespace SFSearch.Engine
                 answer.Fail($"find has no argument named {string.Join(", ", wrong.Select(w => "'" + w + "'"))}", $"its arguments are: {string.Join(", ", Known)}", 2);
             else
                 Guarded(new Ask { Query = a.Text("query") ?? "", Type = a.Text("type"), In = a.Text("in"), Cursor = a.Text("cursor"), Limit = a.Int("limit") ?? DefaultLimit,
-                    Text = a.Text("text"), From = a.Text("from"), Language = a.Text("language"), World = a.Flag("world") }, answer);
+                    Text = a.Text("text"), From = a.Text("from"), Language = a.Text("language"), World = a.Flag("world"), Plain = a.Flag("plain") }, answer);
             answer.Emit();
         }
 
@@ -105,14 +113,14 @@ namespace SFSearch.Engine
             if (args.Count == 0 || args.Any(x => x is "--help" or "-h" or "/?")) { Console.WriteLine(Help); return; }
             var ask = new Ask { Type = CommandLine.TakeOption(args, "--type"), In = CommandLine.TakeOption(args, "--in"), Cursor = CommandLine.TakeOption(args, "--cursor"),
                 Text = CommandLine.TakeOption(args, "--text"), From = CommandLine.TakeOption(args, "--from"), Language = CommandLine.TakeOption(args, "--language") ?? CommandLine.TakeOption(args, "--lang"),
-                World = CommandLine.TakeFlag(args, "--world") };
+                World = CommandLine.TakeFlag(args, "--world"), Plain = CommandLine.TakeFlag(args, "--plain") };
             var answer = new EngineAnswer();
             string? limit = CommandLine.TakeOption(args, "--limit");
             var stray = args.Where(x => x.StartsWith("--", StringComparison.Ordinal)).ToList();
             if (limit != null && !int.TryParse(limit, NumberStyles.Integer, CultureInfo.InvariantCulture, out ask.Limit))
                 answer.Fail($"--limit takes a number, not '{limit}'", "give the number of rows, e.g. --limit 100", 2);
             else if (stray.Count > 0)
-                answer.Fail($"find has no option {string.Join(", ", stray)}", "its options are --type, --in, --limit, --cursor, and --text with --from, --language and --world (find --help shows them)", 2);
+                answer.Fail($"find has no option {string.Join(", ", stray)}", "its options are --type, --in, --limit, --cursor, and --text with --from, --language, --world and --plain (find --help shows them)", 2);
             else
             {
                 ask.Query = string.Join(" ", args);
@@ -127,6 +135,7 @@ namespace SFSearch.Engine
             {
                 if (ask.Text != null) RunText(ask, answer);
                 else if (ask.World) answer.Fail("world goes with a text pattern", "ask find --text \"<regex>\" --world to search placed references' texts (map markers' names); a search by EditorID or name already finds cells and worldspaces", 2);
+                else if (ask.Plain) answer.Fail("plain goes with a text pattern", "ask find --text \"<regex>\" --plain to search plain text fields (EditorIDs, scripts' strings, a quest's summary)", 2);
                 else Run(ask, answer);
             }
             catch (FileNotFoundException e) { answer.Fail(e.Message.Split('\n')[0], "set the Data folder with SetData, or the SFSEARCH_DATA environment variable"); }
@@ -160,7 +169,9 @@ namespace SFSearch.Engine
             /// <summary>For each plugin of the main index: its place in <see cref="Plugins"/>, or -1.</summary>
             public int[] PlaceOfMain = Array.Empty<int>();
             public bool Holds(int mainPluginId) => PlaceOfMain[mainPluginId] >= 0;
-            public string Words => All ? $"the {Plugins.Count:N0} plugins in Data" : Plugins.Count == 1 ? Plugins[0].Shown : $"the {Plugins.Count} plugins named";
+            /// <summary>How the plugins were named when a set was among them: "@official (33 plugins)". Null: by their names.</summary>
+            public string? Named;
+            public string Words => All ? $"the {Plugins.Count:N0} plugins in Data" : Named ?? (Plugins.Count == 1 ? Plugins[0].Shown : $"the {Plugins.Count} plugins named");
             public long Records => Plugins.Sum(p => (long)(p.P.Segment?.Count ?? 0));
             public long EditorIds => Plugins.Sum(p => (long)(p.P.Segment?.EditorIdCount ?? 0));
         }
@@ -176,43 +187,29 @@ namespace SFSearch.Engine
                     scope.Plugins.Add(new Scoped { Ix = main, P = p, Shown = p.Name });
             else
             {
+                // Names, patterns and sets (@official) through the one resolver every verb uses (GAPS S117)
+                PluginNaming naming;
+                try { naming = PluginSets.Resolve(main, Home.SplitPluginList(inArg!), winnersAllowed: false, verb: "find"); }
+                catch (PluginSetException e) { answer.Fail(e.Message, e.Fix, 2); return null; }
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var raw in Home.SplitPluginList(inArg!))
+                foreach (var pick in naming.Picks)
                 {
-                    string item = raw.Trim().Trim('"');
-                    if (item.Length == 0) continue;
-                    if (Glob.IsPattern(item))
+                    if (pick.Plugin != null)
                     {
-                        var glob = new Glob(item);
-                        var fits = main.Plugins.Where(p => glob.IsMatch(p.Name)).OrderBy(EngineIndex.Rank).ToList();
-                        if (fits.Count == 0) { answer.Fail($"no plugin in Data matches '{item}' ({main.Plugins.Count} plugins are there)", "check the pattern; loadorder2 lists the plugins"); return null; }
-                        foreach (var p in fits) if (seen.Add(p.Name)) scope.Plugins.Add(new Scoped { Ix = main, P = p, Shown = p.Name });
+                        // A plugin a set or a pattern holds that can't be read is left out, and said; one named by itself is an error (below)
+                        if (pick.Kind is PluginPickKind.Set or PluginPickKind.Pattern && ProblemNotes.Blocking(pick.Plugin) is { } blocked)
+                        { answer.Problem($"{blocked.What}. It was left out of {pick.Item}."); continue; }
+                        if (seen.Add(pick.Plugin.Name)) scope.Plugins.Add(new Scoped { Ix = main, P = pick.Plugin, Shown = pick.Plugin.Name });
                         continue;
                     }
-                    bool pathLike = item.Contains('\\') || item.Contains('/') || Path.IsPathRooted(item);
-                    string full = pathLike ? Home.UserPath(item) : "";
-                    // A path into the Data folder is the plugin of that name
-                    if (pathLike && Path.GetDirectoryName(full) is { } dir && string.Equals(Path.TrimEndingDirectorySeparator(dir), Path.TrimEndingDirectorySeparator(eng.DataFolder), StringComparison.OrdinalIgnoreCase))
-                    { item = Path.GetFileName(full); pathLike = false; }
-                    if (!pathLike)
-                    {
-                        if (main.Plugin(item) is { } p)
-                        {
-                            if (seen.Add(p.Name)) scope.Plugins.Add(new Scoped { Ix = main, P = p, Shown = p.Name });
-                            continue;
-                        }
-                        bool listed = main.LoadOrderEntries.Any(e => e.Name.Equals(item, StringComparison.OrdinalIgnoreCase));
-                        var near = EngineIndex.NearPlugins(main, item);
-                        answer.Fail(listed ? $"{item} is in the load order (plugins.txt) but its file isn't in Data" : $"{item} isn't in Data ({main.Plugins.Count} plugins are there)",
-                            near.Count > 0 ? $"the nearest real names: {string.Join("; ", near)}. A plugin outside Data can be given by its full path" : "check the name (loadorder2 lists the plugins), or give the full path of a plugin file outside Data");
-                        return null;
-                    }
-                    if (!File.Exists(full)) { answer.Fail($"there is no file {full}", "check the path, or name a plugin that is in Data"); return null; }
-                    var side = eng.ByPath(full);
-                    if (side == null) { answer.Fail($"{full} isn't a Starfield plugin (it doesn't start with a TES4 record)", "give a .esm, .esp or .esl file"); return null; }
-                    if (seen.Add(full)) scope.Plugins.Add(new Scoped { Ix = side.Value.Ix, P = side.Value.Plugin, ByPath = true, Shown = side.Value.Plugin.Name });
+                    // A path, or a name that isn't in Data: read from the file, or the nearest names
+                    var one = RecordPick.Plugin(eng, pick.Item, answer);
+                    if (one == null) return null;
+                    if (!one.Value.ByPath) { if (seen.Add(one.Value.Plugin.Name)) scope.Plugins.Add(new Scoped { Ix = main, P = one.Value.Plugin, Shown = one.Value.Plugin.Name }); continue; }
+                    if (seen.Add(one.Value.Plugin.Path)) scope.Plugins.Add(new Scoped { Ix = one.Value.Ix, P = one.Value.Plugin, ByPath = true, Shown = one.Value.Plugin.Name });
                 }
-                if (scope.Plugins.Count == 0) { answer.Fail("--in names no plugin", "name one or more plugins, separated by commas"); return null; }
+                if (scope.Plugins.Count == 0) { answer.Fail(naming.Items.Count > 0 ? $"no plugin {string.Join(", ", naming.Items)} names can be read" : "--in names no plugin", naming.Items.Count > 0 ? "loadorder2 problems says what is wrong with each" : "name one or more plugins, separated by commas", 2); return null; }
+                if (naming.NamesASet) scope.Named = naming.Shown(scope.Plugins.Select(s => s.Shown).ToList());
                 // Plugins of the load order first, in its order; files outside Data last
                 scope.Plugins = scope.Plugins.OrderBy(s => s.ByPath ? 1 : 0).ThenBy(s => s.ByPath ? 0 : EngineIndex.Rank(s.P)).ToList();
             }
@@ -549,8 +546,12 @@ namespace SFSearch.Engine
             if (built.Any(b => b != null && b.Type.EndsWith('*')))
                 foreach (var sig in built.Where(b => b != null && b.Type.EndsWith('*')).Select(b => b!.Type.Split(' ')[0]).Distinct().Where(g => sigs == null || !sigs.Contains(g) || schema.SigOf(ask.Type ?? "") == null))
                     answer.Note($"* {sig} holds {schema.TypesOf(sig).Count} Mutagen types ({string.Join(", ", schema.TypesOf(sig))}). The header index doesn't say which one a record is.");
-            foreach (var s in scope.Plugins.Where(s => !scope.All && !s.ByPath && !s.P.Order.Enabled))
-                answer.Note($"{s.Shown} is in Data but not in the load order: the game doesn't load it.");
+            var notLoaded = scope.Plugins.Where(s => !scope.All && !s.ByPath && !s.P.Order.Enabled).ToList();
+            if (scope.Named != null && notLoaded.Count > 1)
+                answer.Note($"{notLoaded.Count:N0} plugins of {scope.Named} are in Data but not in the load order: the game doesn't load them ({string.Join(", ", notLoaded.Take(8).Select(s => s.Shown))}{(notLoaded.Count > 8 ? $" and {notLoaded.Count - 8:N0} more" : "")}).");
+            else
+                foreach (var s in notLoaded)
+                    answer.Note($"{s.Shown} is in Data but not in the load order: the game doesn't load it.");
             // Names searched in plugins with no link file yet were read from their bytes: the same names, only slower
             if (names is { FromBytes: > 0 })
                 answer.Read($"the in-game names of {names.FromBytes:N0} plugin(s) from their own bytes{(names.ReadMs > 0 ? $" ({names.ReadMs:N0} ms)" : " (read before)")}: {(names.FromBytes == 1 ? "its link file isn't" : "their link files aren't")} made yet");
@@ -564,7 +565,11 @@ namespace SFSearch.Engine
                 foreach (var p in shownHolders.OrderBy(EngineIndex.Rank).Take(8)) answer.Source(EngineIndex.Source(p));
             }
             else
+            {
+                // How the plugins were named, first: "@official (33 plugins)"
+                if (scope.Named != null) answer.Source(scope.Named);
                 foreach (var s in scope.Plugins) answer.Source(EngineIndex.Source(s.P, s.ByPath ? s.P.Path : null));
+            }
             answer.Source(eng.LoadOrderSource());
         }
 
@@ -617,6 +622,11 @@ namespace SFSearch.Engine
                 answer.Fail($"--from takes stored, strings or both, not '{ask.From}'", "stored: text stored in plugins with no strings files; strings: the strings files of localized plugins; both (the default)", 2);
                 return;
             }
+            if (ask.Plain && from == RecordTexts.From.Strings)
+            {
+                answer.Fail("plain goes with stored text, not from strings", "plain text fields are stored in the plugins' own bytes: ask from stored or both (the default)", 2);
+                return;
+            }
 
             var eng = EngineIndex.Get();
             var validity = eng.Check();
@@ -625,10 +635,10 @@ namespace SFSearch.Engine
             var main = eng.Index;
             var types = SchemaTypes.Default;
             int limit = ask.Limit <= 0 ? DefaultLimit : Math.Min(ask.Limit, MostLimit);
-            string question = ($"text|{ask.Text}|{ask.Type?.Trim()}|{ask.In?.Trim()}|{language}|{from}" + (ask.World ? "|world" : "")).ToLowerInvariant();
+            string question = ($"text|{ask.Text}|{ask.Type?.Trim()}|{ask.In?.Trim()}|{language}|{from}" + (ask.World ? "|world" : "") + (ask.Plain ? "|plain" : "")).ToLowerInvariant();
             if (!Cursors.TryRead(ask.Cursor, question, out int offset))
             {
-                answer.Fail($"the cursor \"{ask.Cursor}\" doesn't belong to this question", "ask again with the same text, from, language, type, in and world as the answer that gave the cursor, or leave the cursor out to start over", 2);
+                answer.Fail($"the cursor \"{ask.Cursor}\" doesn't belong to this question", "ask again with the same text, from, language, type, in, world and plain as the answer that gave the cursor, or leave the cursor out to start over", 2);
                 return;
             }
             var scope = BuildScope(eng, ask.In, answer);
@@ -660,13 +670,14 @@ namespace SFSearch.Engine
                     // with --type is read whatever it is
                     var mask = seg.Signatures.Select((x, i) => sigs != null ? sigs.Contains(x.Signature) : ask.World || NamedWorld(x.Signature) || !world[i]).ToArray();
                     bool localized = RecordTexts.IsLocalized(sp.P);
-                    if (localized ? (from & RecordTexts.From.Strings) == 0 : (from & RecordTexts.From.Stored) == 0) continue;
+                    // A localized plugin's plain text fields are stored in its own bytes (plain)
+                    if (localized ? (from & RecordTexts.From.Strings) == 0 && !(ask.Plain && (from & RecordTexts.From.Stored) != 0) : (from & RecordTexts.From.Stored) == 0) continue;
                     if (sigs == null) for (int i = 0; i < mask.Length; i++) if (!mask[i]) worldLeft += seg.Signatures[i].Count;
                     if (sigs == null && ask.World) for (int i = 0; i < mask.Length; i++) if (world[i] && !NamedWorld(seg.Signatures[i].Signature)) worldRead += seg.Signatures[i].Count;
                     // A subrecord that text and other values both fill (a perk's entry point data) is told by reading
                     // its record through Mutagen's reader, only when its bytes could hold a match (GAPS S32)
                     using var read = RecordTexts.Reader(sp.P, language, eng.DataFolder);
-                    var r = RecordTexts.Search(sp.P, mask, schema, pattern, language, eng.DataFolder, from, read.Read);
+                    var r = RecordTexts.Search(sp.P, mask, schema, pattern, language, eng.DataFolder, from, read.Read, ask.Plain);
                     if (localized) { stringsPlugins++; strings += r.Strings; } else storedPlugins++;
                     if (r.NoStrings) { noStrings++; if (noStringsNames.Count < 4) noStringsNames.Add(sp.Shown); }
                     texts += r.Texts; notNamed += r.StringsNotNamed; shared += r.SharedIds; notInflated += r.NotInflated;
@@ -689,6 +700,7 @@ namespace SFSearch.Engine
                 RecordTexts.From.Strings => $"the {langName} strings files of {stringsPlugins:N0} localized plugin(s)",
                 _ => $"the stored text of {storedPlugins:N0} plugin(s) with no strings files and the {langName} strings files of {stringsPlugins:N0} localized plugin(s)",
             };
+            if (ask.Plain) where += $", and the plain text fields of all {storedPlugins + stringsPlugins:N0}";
             int total = found.Count;
             var byPlugin = found.GroupBy(f => f.Place).Select(g => (Name: scope.Plugins[g.Key].Shown, Count: g.Count())).ToList();
             if (total == 0)
@@ -712,7 +724,7 @@ namespace SFSearch.Engine
                 {
                     var sp = scope.Plugins[place];
                     var info = sp.Ix.Describe(new RecordRef(sp.P.Id, h.Entry));
-                    string inCell = sp.Shown + (h.File == null ? ", stored" : ", " + h.File);
+                    string inCell = sp.Shown + (h.File == null ? h.Plain ? ", stored, plain text" : ", stored" : ", " + h.File);
                     // Whether the game shows this version: a record held by several plugins names the winner when it isn't this one
                     if (!sp.ByPath && HeaderIndex.TryParseFormKey(info.FormKey, out var owner, out var id) && main.Plugin(owner) != null && main.Versions(owner, id) is { Holders.Count: > 1 } v
                         && v.Winner >= 0 && v.Holders[v.Winner].Plugin != sp.P.Id)
@@ -740,8 +752,10 @@ namespace SFSearch.Engine
                 answer.Note($"World data wasn't searched: {worldLeft:N0} records (placed references, navmeshes, terrain). Cells' and worldspaces' own texts were. Add world (--world) to search placed references' texts too (map markers' names; 0.1 to 1.7 s more over the whole load order), or name a world type with type (REFR).");
             if (worldRead > 0)
                 answer.Note($"World data was searched too: {worldRead:N0} records (placed references, navmeshes, terrain); placed references' texts (map markers' names) are the ones it holds.");
+            if (total == 0 && !ask.Plain && (from & RecordTexts.From.Stored) != 0)
+                answer.Note("Only text the game shows was searched. Add plain (--plain) to search plain text fields too: EditorIDs, a quest's summary, components' node names, scripts' strings (VMAD).");
             if (typedNotRead > 0)
-                answer.Note($"{typedNotRead:N0} record(s) whose bytes could hold a match in a field that shares its subrecord with numbers or links (a perk's entry point data) couldn't be read through Mutagen: those fields weren't searched.");
+                answer.Note($"{typedNotRead:N0} record(s) whose bytes could hold a match in a field that shares its subrecord with numbers or links (a perk's entry point data, a script's properties) couldn't be read through Mutagen: those fields weren't searched.");
             answer.Read($"{texts:N0} text fields of {scope.Plugins.Count:N0} plugin(s) from their own bytes{(strings > 0 ? $", and {strings:N0} {langName} strings" : "")}" +
                 $"{(typedRead > 0 ? $", {typedRead:N0} record(s) read through Mutagen to tell a shared subrecord's text ({typedMs:N0} ms)" : "")}, in {ms:N0} ms");
 
@@ -752,7 +766,10 @@ namespace SFSearch.Engine
                 foreach (var b in byPlugin.Take(8)) if (main.Plugin(b.Name) is { } p) answer.Source(EngineIndex.Source(p));
             }
             else
+            {
+                if (scope.Named != null) answer.Source(scope.Named);
                 foreach (var s in scope.Plugins) answer.Source(EngineIndex.Source(s.P, s.ByPath ? s.P.Path : null));
+            }
             answer.Source(eng.LoadOrderSource());
         }
 
@@ -1278,7 +1295,7 @@ namespace SFSearch.Engine
                     if (!second && v.Signature != shown.Signature) name += $" [as {v.Signature}]";
                     if (!second && !string.Equals(v.EditorId, shown.EditorId, StringComparison.Ordinal)) name += $" (as {v.EditorId ?? "[no EditorID]"})";
                     if (!p.Order.Enabled) name += " (not loaded)";
-                    else if (p.LeftOut != null) name += " (refused by Mutagen, left out)";
+                    else if (p.LeftOutShort != null) name += $" ({p.LeftOutShort}, left out)";
                     names.Add(name);
                 }
                 if (order.Count + (sp.ByPath ? 1 : 0) > names.Count) names.Add($"+{order.Count + (sp.ByPath ? 1 : 0) - names.Count} more");

@@ -11,12 +11,18 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- The Mutagen build the schema is made for. Its record definitions (the Loqui XML under loqui\, in the package
-         since fixes.14, C182) are read from the restored package. The build fails when the package's nuspec doesn't
-         name the compiled assembly's version and commit, or when an XML file differs from the package's .nupkg. -->
-    <MutagenVersion>0.55.0-fixes.17</MutagenVersion>
+         since fixes.14, C182) are read from the restored package, and Core's (MajorRecord, MasterReference, since
+         fixes.18, C49) from the Core package beside it. The build fails when the package's nuspec doesn't name the
+         compiled assembly's version and commit, or when an XML file differs from its package's .nupkg. -->
+    <MutagenVersion>0.55.0-fixes.25</MutagenVersion>
     <!-- NuGetPackageRoot ends in a slash only when NUGET_PACKAGES (or the default) does: add one when it doesn't -->
     <SchemaPackageDir>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))mutagen.bethesda.starfield\$(MutagenVersion)</SchemaPackageDir>
-    <SchemaPairs>$(MSBuildProjectDirectory)\inputs\xedit-pairs-2026-11-14.tsv</SchemaPairs>
+    <!-- Core's package, which carries MajorRecord.xml and MasterReference.xml since fixes.18 (C49): the version the
+         Starfield package depends on, the same as MutagenVersion -->
+    <SchemaCorePackageDir>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))mutagen.bethesda.core\$(MutagenVersion)</SchemaCorePackageDir>
+    <SchemaPairs>$(MSBuildProjectDirectory)\inputs\xedit-pairs-2026-11-15.tsv</SchemaPairs>
+    <!-- xEdit's record type names (GAPS S98), copied by schemagen import from the coverage project's inventory -->
+    <SchemaRecordNames>$(MSBuildProjectDirectory)/inputs/xedit-record-names-2026-11-15.tsv</SchemaRecordNames>
     <SchemaEvidence>$(MSBuildProjectDirectory)\inputs\unknown-fields-r4-2026-11-10.tsv</SchemaEvidence>
     <SchemaAnnotations>$(MSBuildProjectDirectory)\annotations.tsv</SchemaAnnotations>
     <SchemaReport>$(MSBuildProjectDirectory)\reports\unmatched-pairs.tsv</SchemaReport>
@@ -34,10 +40,10 @@
 
   <!-- schema.db is a product of the build: made right after compiling, beside the program. -->
   <ItemGroup>
-    <SchemaInput Include="$(SchemaPackageDir)\loqui\**\*.xml;$(SchemaPackageDir)\mutagen.bethesda.starfield.nuspec;$(SchemaPairs);$(SchemaEvidence);$(SchemaAnnotations);$(SchemaCkNames)" />
+    <SchemaInput Include="$(SchemaPackageDir)\loqui\**\*.xml;$(SchemaCorePackageDir)\loqui\**\*.xml;$(SchemaPackageDir)\mutagen.bethesda.starfield.nuspec;$(SchemaPairs);$(SchemaRecordNames);$(SchemaEvidence);$(SchemaAnnotations);$(SchemaCkNames)" />
   </ItemGroup>
   <Target Name="GenerateSchema" AfterTargets="Build" Inputs="@(SchemaInput);$(TargetPath)" Outputs="$(OutDir)schema.db">
-    <Exec Command="dotnet &quot;$(TargetPath)&quot; build --package &quot;$(SchemaPackageDir)&quot; --pairs &quot;$(SchemaPairs)&quot; --evidence &quot;$(SchemaEvidence)&quot; --annotations &quot;$(SchemaAnnotations)&quot; --ck-names &quot;$(SchemaCkNames)&quot; --report &quot;$(SchemaReport)&quot; --out &quot;$(OutDir)schema.db&quot;" />
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; build --package &quot;$(SchemaPackageDir)&quot; --pairs &quot;$(SchemaPairs)&quot; --record-names &quot;$(SchemaRecordNames)&quot; --evidence &quot;$(SchemaEvidence)&quot; --annotations &quot;$(SchemaAnnotations)&quot; --ck-names &quot;$(SchemaCkNames)&quot; --report &quot;$(SchemaReport)&quot; --out &quot;$(OutDir)schema.db&quot;" />
   </Target>
 
 </Project>

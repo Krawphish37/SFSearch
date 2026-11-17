@@ -37,10 +37,10 @@ namespace SFSearch
                     Console.Write(Call(new Request { Op = "status" }).Out);
                     break;
                 case "config":
-                    Console.WriteLine(ServiceConfig.Describe(Home.Dir));
+                    Console.WriteLine(ServiceConfig.Describe(Home.Dir, Home.SettingsOutsideFile()));
                     break;
                 default:
-                    Console.WriteLine("Usage: SFSearch Service start | stop | restart | status | config   (Session is the same command. For agents: while the service runs, every command goes to it. Settings: sfsearch.json)");
+                    Console.WriteLine("Usage: SFSearch Service start | stop | restart | status | config   (Session is the same command. For agents: while the service runs, every command goes to it. Settings: sfsearch.json; 'Service config' shows every setting in effect and where it came from)");
                     break;
             }
         }
@@ -94,8 +94,18 @@ namespace SFSearch
                 catch (UnauthorizedAccessException) { }
             }
             string exe = Path.Combine(copy, exeName);
-            // A hidden window of its own, so it never holds the caller's console open
-            Process.Start(new ProcessStartInfo(exe, $"service run \"{Home.Dir}\"") { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden });
+            // A hidden window of its own, so it never holds the caller's console open. The service itself runs .NET's
+            // workstation garbage collector (J59): the program starts on server for a command run without the service
+            // (SFSearch.csproj), and the service only hands out work. A shell start takes this process's environment.
+            string? gcWas = Environment.GetEnvironmentVariable("DOTNET_gcServer"), datasWas = Environment.GetEnvironmentVariable("DOTNET_GCDynamicAdaptationMode");
+            Environment.SetEnvironmentVariable("DOTNET_gcServer", "0");
+            Environment.SetEnvironmentVariable("DOTNET_GCDynamicAdaptationMode", null);
+            try { Process.Start(new ProcessStartInfo(exe, $"service run \"{Home.Dir}\"") { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden }); }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DOTNET_gcServer", gcWas);
+                Environment.SetEnvironmentVariable("DOTNET_GCDynamicAdaptationMode", datasWas);
+            }
             var clock = Stopwatch.StartNew();
             while (clock.Elapsed.TotalSeconds < 30)
             {

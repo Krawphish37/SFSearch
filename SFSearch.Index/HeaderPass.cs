@@ -1,6 +1,12 @@
 using System.IO.Compression;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Exceptions;
+using Mutagen.Bethesda.Plugins.Masters;
+using Mutagen.Bethesda.Plugins.Records;
+using MFormKey = Mutagen.Bethesda.Plugins.FormKey;
+using MStyle = Mutagen.Bethesda.Plugins.MasterStyle;
 
 namespace SFSearch.Index;
 
@@ -27,16 +33,24 @@ internal sealed class PassResult
 
 /// <summary>
 /// Turns a FormID as a plugin's file writes it into its owner and local ID, and back, with Starfield's separated
-/// master numbering: Full masters by the top byte, Medium masters as FD xx, Small masters as FE xxx. This is the one
-/// place that rule is written: the header pass, the record layer's raw reader and the byte search all use it.
+/// master numbering. The rule is Mutagen's (C58 W8, fixes.20): a <see cref="SeparatedMasterPackage"/> made from the
+/// plugin's masters and their sizes (<c>FromMasterStyles</c>, no load order and no file read), and Mutagen's
+/// <see cref="FormID"/> for where a numbering's index and ID sit. This class only maps Mutagen's masters to their places
+/// in the plugin's header (the owners), as arrays, so the header pass resolves every record without allocating; and it
+/// keeps SFSearch's one addition: a master whose file isn't there (Mutagen refuses such a plugin, C180). From the first
+/// missing master on no place in any numbering is certain, so the package holds the masters before it and FormIDs past
+/// them stay unresolved.
 /// </summary>
 public sealed class FormIdResolver
 {
     readonly int[] _full, _medium, _small;
     readonly int _self;
     readonly bool _missing;
-    readonly MasterStyle _selfStyle;
     readonly IReadOnlyList<string>? _names;
+    readonly ModKey[] _keys;
+
+    /// <summary>Mutagen's package of the masters this resolver knows (all of them unless one is missing).</summary>
+    public SeparatedMasterPackage Package { get; }
 
     /// <param name="styles">Each master's size, in header order. A missing master ends what can be resolved:
     /// from the first missing master on, no place in any of the three numberings is certain, so FormIDs there stay unresolved.</param>
@@ -47,15 +61,47 @@ public sealed class FormIdResolver
     /// <param name="names">The masters in header order, then the plugin itself. An owner is a place in this list.</param>
     public FormIdResolver(IReadOnlyList<MasterStyle> styles, MasterStyle selfStyle, IReadOnlyList<string>? names)
     {
-        var full = new List<int>(); var medium = new List<int>(); var small = new List<int>();
+        _self = styles.Count; _names = names;
+        // The masters as Mutagen keys them: their file names (or a stand-in name per place when none are given). A name
+        // that isn't a plugin's, a master listed twice or the plugin itself are no masters Mutagen takes: like a missing
+        // one, they end what is certain.
+        var self = names != null && names.Count > _self && ModKey.TryFromFileName(names[_self], out var own) ? own : ModKey.FromName($"SFSearchPlugin{_self}", ModType.Plugin);
+        var keyed = new List<KeyedMasterStyle>();
+        var seen = new HashSet<ModKey> { self };
         for (int i = 0; i < styles.Count; i++)
         {
-            if (styles[i] == MasterStyle.Missing) { _missing = true; break; }
-            (styles[i] switch { MasterStyle.Medium => medium, MasterStyle.Small => small, _ => full }).Add(i);
+            var key = names != null && i < names.Count && ModKey.TryFromFileName(names[i], out var k) ? k : names == null ? ModKey.FromName($"SFSearchMaster{i}", ModType.Master) : ModKey.Null;
+            if (styles[i] == MasterStyle.Missing || key.IsNull || !seen.Add(key)) { _missing = true; break; }
+            keyed.Add(new KeyedMasterStyle(key, ToMutagen(styles[i])));
         }
-        _full = full.ToArray(); _medium = medium.ToArray(); _small = small.ToArray();
-        _self = styles.Count; _selfStyle = selfStyle; _names = names;
+        SeparatedMasterPackage package;
+        while (true)
+        {
+            try { package = SeparatedMasterPackage.FromMasterStyles(self, ToMutagen(selfStyle), keyed); break; }
+            catch (TooManyMastersException)
+            {
+                // More masters of a size than a FormID can number: the ones that fit stay certain
+                keyed.RemoveAt(keyed.Count - 1);
+                _missing = true;
+            }
+        }
+        Package = package;
+        _keys = keyed.Select(x => x.ModKey).Append(self).ToArray();
+        var owners = new Dictionary<ModKey, int>();
+        for (int i = 0; i < keyed.Count; i++) owners[keyed[i].ModKey] = i;
+        int[] Owners(IReadOnlyList<ModKey> list, MStyle style)
+            => Enumerable.Range(0, (int)package.OwnIndex(style)).Select(i => owners[list[i]]).ToArray();
+        _full = Owners(package.Full, MStyle.Full);
+        _medium = Owners(package.Medium, MStyle.Medium);
+        _small = Owners(package.Small, MStyle.Small);
     }
+
+    static MStyle ToMutagen(MasterStyle s) => s switch
+    {
+        MasterStyle.Small => MStyle.Small,
+        MasterStyle.Medium => MStyle.Medium,
+        _ => MStyle.Full,
+    };
 
     /// <summary>The resolver of a plugin the header index knows: its masters and their sizes as the index has them.</summary>
     public static FormIdResolver For(IndexedPlugin plugin)
@@ -69,21 +115,27 @@ public sealed class FormIdResolver
 
     /// <summary>The place of the plugin itself among the owners: one past its last master.</summary>
     public int SelfOwner => _self;
-    /// <summary>How many masters each of the three numberings has. A FormID whose index is at or past that count is the plugin's own record.</summary>
+    /// <summary>How many masters each of the three numberings has (Mutagen's <c>OwnIndex</c>). A FormID whose index is at
+    /// or past that count is the plugin's own record.</summary>
     public int FullMasters => _full.Length;
     public int MediumMasters => _medium.Length;
     public int SmallMasters => _small.Length;
 
-    /// <summary>Owner &lt;&lt; 24 | local ID. A FormID past the plugin's masters is the plugin's own, as in Mutagen.</summary>
+    /// <summary>Owner &lt;&lt; 24 | local ID. A FormID past the plugin's masters is the plugin's own, as in Mutagen
+    /// (decision 6.1); past a missing master it is unresolved. The numbering, index and ID are Mutagen's FormID's.</summary>
     public ulong Key(uint formId)
     {
-        uint top = formId >> 24, index, local; int[] list;
-        if (top == 0xFE) { index = (formId >> 12) & 0xFFF; local = formId & 0xFFF; list = _small; }
-        else if (top == 0xFD) { index = (formId >> 16) & 0xFF; local = formId & 0xFFFF; list = _medium; }
-        else { index = top; local = formId & 0xFFFFFF; list = _full; }
+        var f = new FormID(formId);
+        uint index, local; int[] list;
+        switch (f.FullMasterIndex)
+        {
+            case FormID.SmallMasterMarker: index = f.LightMasterIndex; local = f.LightId; list = _small; break;
+            case FormID.MediumMasterMarker: index = f.MediumMasterIndex; local = f.MediumId; list = _medium; break;
+            default: index = f.FullMasterIndex; local = f.FullId; list = _full; break;
+        }
         if (index < (uint)list.Length) return (ulong)list[index] << 24 | local;
         if (!_missing) return (ulong)_self << 24 | local;
-        return (ulong)(Entry.UnresolvedOwner | (int)top) << 24 | (formId & 0xFFFFFF);
+        return (ulong)(Entry.UnresolvedOwner | (int)f.FullMasterIndex) << 24 | (formId & 0xFFFFFF);
     }
 
     /// <summary>The owner (a place among the masters, or <see cref="SelfOwner"/>) and the local ID of a FormID.
@@ -107,27 +159,14 @@ public sealed class FormIdResolver
 
     IReadOnlyList<string> Names => _names ?? throw new InvalidOperationException("This resolver was made without plugin names.");
 
-    /// <summary>The FormID this plugin's file writes for a record of an owner: the inverse of <see cref="TryResolve(uint, out int, out uint)"/>.
-    /// Null when the owner sits at or after a missing master, or the local ID doesn't fit the owner's size.</summary>
+    /// <summary>The FormID this plugin's file writes for a record of an owner: the inverse of <see cref="TryResolve(uint, out int, out uint)"/>,
+    /// the first of Mutagen's stored forms (<c>EnumerateStoredForms</c>: the one it writes). Null when the owner sits at
+    /// or after a missing master, or Mutagen has no form for it (a master's local ID that doesn't fit its size).</summary>
     public uint? Raw(int owner, uint localId)
     {
-        if (owner == _self)
-        {
-            // The plugin's own records, numbered after its masters in the plugin's own size
-            if (_missing) return null;
-            return _selfStyle switch
-            {
-                MasterStyle.Medium => localId <= 0xFFFF ? 0xFD000000u | (uint)_medium.Length << 16 | localId : null,
-                MasterStyle.Small => localId <= 0xFFF ? 0xFE000000u | (uint)_small.Length << 12 | localId : null,
-                _ => localId <= 0xFFFFFF ? (uint)_full.Length << 24 | localId : null,
-            };
-        }
-        int i = Array.IndexOf(_full, owner);
-        if (i >= 0) return localId <= 0xFFFFFF ? (uint)i << 24 | localId : null;
-        i = Array.IndexOf(_medium, owner);
-        if (i >= 0) return localId <= 0xFFFF ? 0xFD000000u | (uint)i << 16 | localId : null;
-        i = Array.IndexOf(_small, owner);
-        if (i >= 0) return localId <= 0xFFF ? 0xFE000000u | (uint)i << 12 | localId : null;
+        if (owner < 0 || owner > _self || owner == _self && _missing || owner < _self && owner >= _keys.Length - 1) return null;
+        var key = new MFormKey(owner == _self ? _keys[^1] : _keys[owner], localId);
+        foreach (var form in Package.EnumerateStoredForms(key)) return form.Raw;
         return null;
     }
 
@@ -138,6 +177,16 @@ public sealed class FormIdResolver
         for (int i = 0; i < names.Count - 1; i++)
             if (names[i].Equals(plugin, StringComparison.OrdinalIgnoreCase)) return Raw(i, localId);
         return names[^1].Equals(plugin, StringComparison.OrdinalIgnoreCase) ? Raw(_self, localId) : null;
+    }
+
+    /// <summary>Every FormID this plugin's file can store that reads as a record of an owner, the one it writes first:
+    /// Mutagen's <c>EnumerateStoredForms</c> (a master's record: its one form; the plugin's own: its full index, its FE or
+    /// FD form, and with <paramref name="pastList"/> every index past the list in each numbering its ID fits). Empty when
+    /// the owner sits at or after a missing master.</summary>
+    public IEnumerable<uint> StoredForms(int owner, uint localId, bool pastList)
+    {
+        if (owner < 0 || owner > _self || owner == _self && _missing || owner < _self && owner >= _keys.Length - 1) return Array.Empty<uint>();
+        return Package.EnumerateStoredForms(new MFormKey(owner == _self ? _keys[^1] : _keys[owner], localId), pastList).Select(f => f.Raw);
     }
 
     /// <summary>"0003C2:darkstar.esm", "Null" for 0, or the raw FormID with a note when a master is missing.</summary>

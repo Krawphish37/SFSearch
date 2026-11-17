@@ -12,8 +12,6 @@ public sealed class PairRow
     public int Checked, Agree, Disagree;
     // Filled by the matcher
     public string? Type, Match, Object, Part, SchemaSubrecord, Reason, Detail;
-    /// <summary>The path as the pairs file gives it, when it named a field Mutagen has since renamed (MutagenPath is then the new one).</summary>
-    public string? RenamedFrom;
     public int? Ord;
 }
 
@@ -31,13 +29,21 @@ public static class Inputs
     public const string PairsHeader = "Sig\tSubrecord\txEditPath\tMutagenPath\tMethod\tRecordsChecked\tAgree\tDisagree\tTranslation";
     public const string EvidenceHeader = "RecordType\tRecordClass\tObject\tField\tXmlType\tSubrecord\tKinds\tRecordsWithField\tRecordsNonDefault\tInstances\tInstancesNonDefault\tDistinctValues\tRecordsNonDefaultOfficial32\tNeverSet\tPriority\tNote\tEvidence\tTopValues";
 
-    // ---- the record definitions, read from the restored Mutagen package ----
+    // ---- the record definitions, read from the restored Mutagen packages ----
 
     /// <summary>The package's id, as NuGet names its folder and its files.</summary>
     public const string PackageId = "mutagen.bethesda.starfield";
 
+    /// <summary>Mutagen.Bethesda.Core's package id: it carries the base of every record (MajorRecord) and a plugin header's
+    /// master (MasterReference) since fixes.18 (C49).</summary>
+    public const string CorePackageId = "mutagen.bethesda.core";
+
     /// <summary>Where the record definitions sit inside the package (C182, fixes.14): the Loqui XML of the source tree.</summary>
-    public const string LoquiFolder = "loqui", RecordsPath = "loqui/Mutagen.Bethesda.Starfield/Records", LayoutsPath = "loqui/Mutagen.Bethesda.Starfield/Layouts/HandReadLayouts.xml";
+    public const string LoquiFolder = "loqui", RecordsPath = "loqui/Mutagen.Bethesda.Starfield/Records", LayoutsPath = "loqui/Mutagen.Bethesda.Starfield/Layouts/HandReadLayouts.xml",
+        ManifestPath = "loqui/Mutagen.Bethesda.Starfield/Manifest/Properties.xml";
+
+    /// <summary>Where Core's record definitions sit inside its package (C49, fixes.18): MajorRecord.xml, MasterReference.xml.</summary>
+    public const string CoreRecordsPath = "loqui/Mutagen.Bethesda.Core/Plugins/Records";
 
     /// <summary>
     /// The restored package's folder for a version: NuGet's global packages folder (<c>NUGET_PACKAGES</c>, else
@@ -50,20 +56,28 @@ public static class Inputs
         return Path.Combine(packages, PackageId, version.ToLowerInvariant());
     }
 
-    /// <summary>What the schema is made from: the package, its version and commit (from its nuspec), and its record XML.</summary>
-    public sealed record PackageSource(string Dir, string Version, string Commit, string RecordsDir, string? LayoutsFile, string Sha256, int Files);
+    /// <summary>What the schema is made from: the package, its version and commit (from its nuspec), its record XML and
+    /// Core's (from the Mutagen.Bethesda.Core package the Starfield package depends on).</summary>
+    public sealed record PackageSource(string Dir, string Version, string Commit, string RecordsDir, string CoreRecordsDir, string? LayoutsFile, string Sha256, int Files)
+    {
+        /// <summary>The package's generated property manifest (C60 W6, fixes.20 on): every object's compiled properties,
+        /// the derived ones and where the generated reader reads each. Null when the package carries none.</summary>
+        public string? ManifestFile { get; init; }
+    }
 
-    /// <summary>One hash over the package's XML files (relative path from <c>loqui\</c> and content, line endings ignored).</summary>
-    public static (string Hash, int Files) HashXml(string loquiDir)
+    /// <summary>One hash over the packages' XML files (each relative path from its <c>loqui\</c> and its content, line
+    /// endings ignored): the Starfield package's, then Core's.</summary>
+    public static (string Hash, int Files) HashXml(params string[] loquiDirs)
     {
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         int n = 0;
-        foreach (var f in Directory.EnumerateFiles(loquiDir, "*.xml", SearchOption.AllDirectories).OrderBy(f => Path.GetRelativePath(loquiDir, f).Replace('\\', '/'), StringComparer.Ordinal))
-        {
-            sha.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(loquiDir, f).Replace('\\', '/') + "\n"));
-            sha.AppendData(Encoding.UTF8.GetBytes(File.ReadAllText(f).Replace("\r\n", "\n")));
-            n++;
-        }
+        foreach (var loquiDir in loquiDirs)
+            foreach (var f in Directory.EnumerateFiles(loquiDir, "*.xml", SearchOption.AllDirectories).OrderBy(f => Path.GetRelativePath(loquiDir, f).Replace('\\', '/'), StringComparer.Ordinal))
+            {
+                sha.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(loquiDir, f).Replace('\\', '/') + "\n"));
+                sha.AppendData(Encoding.UTF8.GetBytes(File.ReadAllText(f).Replace("\r\n", "\n")));
+                n++;
+            }
         return (Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant(), n);
     }
 
@@ -71,7 +85,8 @@ public static class Inputs
     /// Reads the restored Mutagen.Bethesda.Starfield package's folder and says what doesn't fit: the nuspec must name
     /// the version and the commit of the compiled assembly the generator runs with, the package must carry its record
     /// XML (fixes.14 on), and every XML file in the folder must be the one in the package's own .nupkg (so a file
-    /// edited after the restore is caught).
+    /// edited after the restore is caught). The same for the Mutagen.Bethesda.Core package it depends on, restored beside
+    /// it in the packages folder: it must carry MajorRecord.xml and MasterReference.xml (fixes.18 on, C49).
     /// </summary>
     /// <param name="assemblyVersion">The compiled assembly's own version text ("0.55.0-fixes.14+3577da0118…").</param>
     public static (PackageSource? Source, List<string> Problems) CheckPackage(string packageDir, string assemblyVersion)
@@ -98,28 +113,51 @@ public static class Inputs
             problems.Add($"Mutagen {version} doesn't carry its record definitions ({RecordsPath} is missing; they ship from 0.55.0-fixes.14 on, C182).");
             return (null, problems);
         }
+        CheckAgainstNupkg(packageDir, Path.Combine(packageDir, $"{PackageId}.{version.ToLowerInvariant()}.nupkg"), problems);
 
-        // Every XML file must be the package's own: compared with the entries of the .nupkg NuGet keeps beside it
-        string nupkg = Path.Combine(packageDir, $"{PackageId}.{version.ToLowerInvariant()}.nupkg");
-        if (!File.Exists(nupkg)) problems.Add($"The package's .nupkg isn't in {packageDir}, so the XML files can't be checked against it.");
-        else
+        // Core: the version the Starfield package depends on, restored beside it (NuGet's folder layout: <id>\<version>)
+        string coreVersion = doc.Descendants(ns + "dependency").FirstOrDefault(d => string.Equals(d.Attribute("id")?.Value, CorePackageId, StringComparison.OrdinalIgnoreCase))
+            ?.Attribute("version")?.Value.Trim('[', ']', '(', ')').Split(',')[0] ?? version;
+        string packagesRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(packageDir).TrimEnd('\\', '/'))!)!;
+        string coreDir = Path.Combine(packagesRoot, CorePackageId, coreVersion.ToLowerInvariant());
+        string coreLoqui = Path.Combine(coreDir, LoquiFolder), coreRecords = Path.Combine(coreDir, CoreRecordsPath);
+        if (!Directory.Exists(coreDir))
         {
-            using var zip = System.IO.Compression.ZipFile.OpenRead(nupkg);
-            var entries = zip.Entries.Where(e => e.FullName.StartsWith(LoquiFolder + "/", StringComparison.Ordinal) && e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-                .ToDictionary(e => Uri.UnescapeDataString(e.FullName), StringComparer.Ordinal);
-            var onDisk = Directory.EnumerateFiles(loqui, "*.xml", SearchOption.AllDirectories)
-                .Select(f => (Rel: LoquiFolder + "/" + Path.GetRelativePath(loqui, f).Replace('\\', '/'), File: f)).ToList();
-            foreach (var (rel, file) in onDisk)
-            {
-                if (!entries.TryGetValue(rel, out var entry)) { problems.Add($"{rel} is in the package's folder but not in its .nupkg."); continue; }
-                using var s = entry.Open(); using var m = new MemoryStream(); s.CopyTo(m);
-                if (!m.ToArray().AsSpan().SequenceEqual(File.ReadAllBytes(file))) problems.Add($"{rel} differs from the package's .nupkg: it was edited after the restore.");
-            }
-            foreach (var missing in entries.Keys.Except(onDisk.Select(d => d.Rel), StringComparer.Ordinal))
-                problems.Add($"{missing} is in the package's .nupkg but missing from its folder.");
+            problems.Add($"There is no restored Mutagen.Bethesda.Core {coreVersion} package at {coreDir}, which Mutagen.Bethesda.Starfield {version} depends on. Restore the project first.");
+            return (null, problems);
         }
-        var (hash, files) = HashXml(loqui);
-        return (new PackageSource(packageDir, version, commit, records, File.Exists(layouts) ? layouts : null, hash, files), problems);
+        if (!File.Exists(Path.Combine(coreRecords, "MajorRecord.xml")) || !File.Exists(Path.Combine(coreRecords, "MasterReference.xml")))
+        {
+            problems.Add($"Mutagen.Bethesda.Core {coreVersion} doesn't carry its record definitions ({CoreRecordsPath}/MajorRecord.xml and MasterReference.xml; they ship from 0.55.0-fixes.18 on, C49).");
+            return (null, problems);
+        }
+        CheckAgainstNupkg(coreDir, Path.Combine(coreDir, $"{CorePackageId}.{coreVersion.ToLowerInvariant()}.nupkg"), problems);
+
+        var (hash, files) = HashXml(loqui, coreLoqui);
+        string manifest = Path.Combine(packageDir, ManifestPath);
+        return (new PackageSource(packageDir, version, commit, records, coreRecords, File.Exists(layouts) ? layouts : null, hash, files) { ManifestFile = File.Exists(manifest) ? manifest : null }, problems);
+    }
+
+    /// <summary>Every XML file under a restored package's <c>loqui\</c> must be the one in its .nupkg, which NuGet keeps
+    /// beside it, and none may be missing.</summary>
+    static void CheckAgainstNupkg(string packageDir, string nupkg, List<string> problems)
+    {
+        string loqui = Path.Combine(packageDir, LoquiFolder);
+        if (!File.Exists(nupkg)) { problems.Add($"The package's .nupkg isn't in {packageDir}, so the XML files can't be checked against it."); return; }
+        using var zip = System.IO.Compression.ZipFile.OpenRead(nupkg);
+        var entries = zip.Entries.Where(e => e.FullName.StartsWith(LoquiFolder + "/", StringComparison.Ordinal) && e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(e => Uri.UnescapeDataString(e.FullName), StringComparer.Ordinal);
+        var onDisk = Directory.Exists(loqui)
+            ? Directory.EnumerateFiles(loqui, "*.xml", SearchOption.AllDirectories).Select(f => (Rel: LoquiFolder + "/" + Path.GetRelativePath(loqui, f).Replace('\\', '/'), File: f)).ToList()
+            : new();
+        foreach (var (rel, file) in onDisk)
+        {
+            if (!entries.TryGetValue(rel, out var entry)) { problems.Add($"{rel} is in the package's folder but not in its .nupkg."); continue; }
+            using var s = entry.Open(); using var m = new MemoryStream(); s.CopyTo(m);
+            if (!m.ToArray().AsSpan().SequenceEqual(File.ReadAllBytes(file))) problems.Add($"{rel} differs from the package's .nupkg: it was edited after the restore.");
+        }
+        foreach (var missing in entries.Keys.Except(onDisk.Select(d => d.Rel), StringComparer.Ordinal))
+            problems.Add($"{missing} is in the package's .nupkg but missing from its folder.");
     }
 
     // ---- the snapshot files kept in the repo ----
@@ -136,6 +174,28 @@ public static class Inputs
         }
         return rows;
     }
+
+    /// <summary>xEdit's record type names (<c>Sig</c>, <c>Name</c>; GAPS S98), from the coverage project's
+    /// <c>xedit-record-names-&lt;date&gt;.tsv</c> (its <c>tools/xecompare/record_names.py</c> reads them from xEdit's
+    /// definitions and checks each against the SF1Edit binary that made the exports).</summary>
+    public static Dictionary<string, string> ReadRecordNames(string file)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var line in File.ReadLines(file))
+        {
+            if (line.Length == 0 || line.StartsWith('#') || line == RecordNamesHeader) continue;
+            var c = line.Split('\t');
+            if (c.Length != 2 || c[0].Length != 4 || c[1].Length == 0) throw new SchemaException($"{file}: a row needs a signature and a name: {line}");
+            if (!names.TryAdd(c[0], c[1])) throw new SchemaException($"{file}: {c[0]} is named twice.");
+        }
+        return names;
+    }
+
+    public const string RecordNamesHeader = "Sig\tName";
+
+    /// <summary>The newest <c>xedit-record-names-&lt;date&gt;.tsv</c> of an inventory, or null.</summary>
+    public static string? RecordNamesFile(string inventory)
+        => Directory.EnumerateFiles(inventory, "xedit-record-names-*.tsv").OrderBy(f => f, StringComparer.Ordinal).LastOrDefault();
 
     public static List<EvidenceRow> ReadEvidence(string file)
     {

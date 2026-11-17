@@ -1,0 +1,10 @@
+[
+  {
+    "set": "m8-saved",
+    "id": "sav04",
+    "why": "shipped.cobj names three list views of ConstructibleObject, which are read from the records' own bytes since condition lists are (GAPS S166): the run that reads them says in its notes which records hold each list's subrecord, and a run on a home that already holds them (the baseline's second pass) has nothing to read and no such note. The rows are the same.",
+    "only_this_run": [
+      "^\\[notes\\] ConstructibleObject_(ConstructibleComponents|RequiredPerks|RecipeFilters): \\d+ of the 55 ConstructibleObject records of kgcdoom\\.esm hold its subrecord \\(\\w{4}\\), found by stepping through their bytes in T; only those were read, the named columns from the records' own bytes\\.$"
+    ]
+  }
+]

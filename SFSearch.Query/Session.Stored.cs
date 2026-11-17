@@ -32,6 +32,20 @@ public sealed partial class QueryEngine
         /// the statement names and the request doesn't have stops the query with a plain line: before this, such a
         /// query ended in an exception of Microsoft.Data.Sqlite that Run didn't catch.
         /// </summary>
+        /// <summary>
+        /// A positional parameter (<c>?</c>, <c>?NNN</c>) stops the query with a plain line before anything is read (GAPS
+        /// S161): the request gives its parameters by name, so such a parameter can't have a value, and Microsoft.Data.Sqlite
+        /// ended the query in an exception Run didn't catch ("Must add values for the following parameters").
+        /// </summary>
+        static void CheckPositionalParameters(List<Tok> toks)
+        {
+            int at = toks.FindIndex(t => t.IsPunct("?"));
+            if (at < 0) return;
+            string p = at + 1 < toks.Count && toks[at + 1].Kind == TokKind.Number && toks[at + 1].Start == toks[at].End ? "?" + toks[at + 1].Text : "?";
+            throw new QueryException($"the SQL has the positional parameter {p}, and parameters are given by name",
+                "write it as a named parameter (:name) and give its value with the request, or write the value into the SQL");
+        }
+
         void BindParameters(SqliteCommand cmd, List<Tok> toks)
         {
             foreach (var t in toks)

@@ -14,7 +14,7 @@ using SFSearch.Index;
 
 using var index = new HeaderIndex(
     PluginSource.Folder(dataFolder),
-    new IndexOptions { ScratchFolder = scratch, VersionText = "sfsearch 2.0 / mutagen 0.55.0-fixes.17 / schema 1" });
+    new IndexOptions { ScratchFolder = scratch, VersionText = "sfsearch 2.0 / mutagen 0.55.0-fixes.25 / schema 1" });
 var report = index.Refresh();            // about 2 s for 370 plugins the first time, about 30 ms when nothing changed
 
 var versions = index.Versions("0476C4:Starfield.esm");                 // every holder in load order, and the winner
@@ -33,7 +33,7 @@ foreach (var p in index.Plugins.Where(p => p.Problems.Any)) { /* p.Problems.Line
 ## The files
 | File | Holds |
 |---|---|
-| `PluginHeader.cs` | The TES4 header: flags, size (Full, Medium, Small), masters. |
+| `PluginHeader.cs` | The TES4 header: flags, size (Full, Medium, Small), masters, and what query2's Plugins view shows of it: form version, HEDR (version, records, next object ID), author and description (read as Windows-1252, as Mutagen reads them), the overridden forms' count, INCC, the subrecords. |
 | `Stamps.cs` | The quick stamp, the content key (XXH3, 128 bit) and the reading key. |
 | `StringsStamps.cs` | The strings stamp of a localized plugin, and the hook (`StringFilesSource`) that finds its string files. |
 | `HeaderPass.cs` | The pass: FormIDs resolved with separated master numbering, EditorIDs, parent groups. A big plugin is cut into pieces of about 3 MB that any free thread reads. |
@@ -41,6 +41,7 @@ foreach (var p in index.Plugins.Where(p => p.Problems.Any)) { /* p.Problems.Line
 | `LoadOrder.cs` | plugins.txt, Starfield.ccc and the implicit plugins, read the way Mutagen reads them. |
 | `HeaderIndex.cs` | The whole: refresh, the override map, winners, problems, lookups. |
 | `ByteSearch.cs` | Which records of a plugin hold the bytes of a FormID (`FormIdPattern`, `ByteSearch`): the link search of `refs` and of the SQL layer's `Links WHERE ToKey` where no link file exists. Moved here from `SFSearch\Engine`. |
+| `RecordPipeline.cs` | The shared "read these records" pipeline every reader stands on: a plugin's records of the chosen types (or the entries named), mapped from the file, inflated when compressed, handed to a work callback on up to 8 threads (the cores, at most 8) within a memory budget the caller gives, the results in the order asked. It never calls Mutagen; a caller that reads through Mutagen does so in its callback (the records layer, the SQL layer's reads, refs into world data, `profile`). |
 
 ## A segment
 A file named `<reading key>.seg` in the scratch folder. Entries are 24 bytes each and sorted by FormKey.
@@ -67,6 +68,6 @@ dotnet build SFSearch.Index.Tests -c Release
 SFSearch.Index.Tests/bin/Release/net10.0/sfsindex-tests.exe "<Data folder>"
 ```
 - The runner's commands are listed at the top of `SFSearch.Index.Runner\Program.cs`. Its scratch folder is `%TEMP%\sfsindex-scratch` unless `--scratch` names another.
-- The tests need Mutagen 0.55.0-fixes.17 from the repository's `packages\` (`SFSearch.Index.Tests\nuget.config`). Only the test project uses Mutagen.
+- The tests need Mutagen 0.55.0-fixes.25 from the repository's `packages\` (`SFSearch.Index.Tests\nuget.config`). Only the test project uses Mutagen.
 - `--all-plugins` compares every plugin with Mutagen. `--starfield-whole` includes Starfield.esm's cells and worldspaces: run that one alone, on a PC with memory to spare (4.3 GB).
 - The tests copy a few small plugins to `%TEMP%\sfsindex-tests` and change the copies. They never write to the Data folder.

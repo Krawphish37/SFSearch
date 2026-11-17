@@ -414,7 +414,7 @@ public sealed class CheckReport
             int left = answer.WorldLeftOut.Values.Sum();
             if (left > 0)
                 answer.Notes.Add(WorldData.LeftOut("was left out of the link and ITM checks", left, answer.WorldBytesLeftOut, 0, $"about {2 + left * WorldSecondsPerRecord:F0} s more",
-                    string.Join(", ", answer.WorldLeftOut.OrderByDescending(k => k.Value).Take(6).Select(k => $"{k.Key} {N(k.Value)}")) + (answer.WorldLeftOut.Count > 6 ? ", …" : "")) +
+                    string.Join(", ", answer.WorldLeftOut.OrderByDescending(k => k.Value).Take(6).Select(k => $"{k.Key} {N(k.Value)}")) + (answer.WorldLeftOut.Count > 6 ? ", …" : ""), "the checks read each record") +
                     " The checks made from record headers covered them.");
             if (answer.BuiltInLinks > 0)
                 answer.Notes.Add($"{Plural(answer.BuiltInLinks, "link")} to the engine's built-in forms (Starfield.esm below 0x800, such as 000014, the player) aren't in any file and aren't errors.");
@@ -452,24 +452,25 @@ public sealed class CheckReport
             seen[e.Signature] = true;
             mask[e.Signature] = options.World || seg.SignatureOf(e) is "CELL" or "WRLD" || !ReportSession.IsWorld(seg, e);
         }
-        // A subrecord that text and other values both fill (a perk's entry point data, a component's DATA: GAPS S32)
-        // is offered when it holds a byte over 0x7F anywhere, and told by reading its record through Mutagen
-        var walked = RecordTexts.Walk(p, mask, _s.Schema, place => !localized || !place.Translated || place.Shared == RecordTexts.SharedKind.Typed, (place, data) =>
+        // A subrecord that text and other values both fill (a perk's entry point data, a component's DATA, a script's
+        // properties: GAPS S32) is offered when one of its runs of bytes that could be a text, as Mutagen writes them (a
+        // text up to a zero, a text after its length), holds a byte over 0x7F, and told by reading its record through Mutagen
+        var walked = RecordTexts.Walk(p, mask, _s.Schema, place => !localized || !place.Translated || place.ByMutagen, (place, data) =>
         {
-            bool shared = place.Shared == RecordTexts.SharedKind.Typed;
-            foreach (byte b in data) { if (b == 0 && !shared) return false; if (b > 0x7F) return true; }
+            if (place.ByMutagen) return RecordTexts.CouldHoldOutsideAscii(place, data);
+            foreach (byte b in data) { if (b == 0) return false; if (b > 0x7F) return true; }
             return false;
         });
-        var typed = walked.Found.Where(f => f.Place.Shared == RecordTexts.SharedKind.Typed).ToList();
+        var typed = walked.Found.Where(f => f.Place.ByMutagen).ToList();
         var confirmed = typed.Count == 0 || read == null ? null
             : RecordTexts.Confirm(typed, read, Mutagen.Bethesda.Strings.Language.English, t => !(localized && t.Translated) && t.StringId == null);
         answer.StoredTexts = walked.Texts + (confirmed?.Texts.Count ?? 0);
         if (confirmed is { Read: > 0 })
-            answer.Read.Add($"{Plural(confirmed.Read, "record")} through Mutagen's reader, whose subrecords that text and other values both fill hold a byte over 0x7F ({confirmed.Ms / 1000:0.0#} s)");
+            answer.Read.Add($"{Plural(confirmed.Read, "record")} through Mutagen's reader, whose subrecords that text and other values both fill (scripts' properties among them) could hold a text outside ASCII ({confirmed.Ms / 1000:0.0#} s)");
         var rows = new List<(int Entry, int Order, CheckRow Row)>();
         foreach (var f in walked.Found)
         {
-            if (f.Place.Shared == RecordTexts.SharedKind.Typed) continue;
+            if (f.Place.ByMutagen) continue;
             var r = RecordTexts.ReadingsOf(f.Data, f.Place.Translated, RecordTexts.Shipped);
             if (r == null) continue;
             rows.Add((f.Entry, rows.Count, row(f.Entry, StoredTextProblem(r), f.Place.Field, null)));

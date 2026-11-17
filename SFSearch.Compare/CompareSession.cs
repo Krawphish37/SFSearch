@@ -54,6 +54,8 @@ public sealed class RecordView
     public required string Type { get; init; }
     public required JsonObject Json { get; init; }
     public required RecordEngine Engine { get; init; }
+    /// <summary>Mutagen's object of the record (for a merged partial form, the record Mutagen's MergeOnto made).</summary>
+    public required Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter Record { get; init; }
     public string Plugin => Info.Plugin;
     public string Label => Info.Label;
     /// <summary>Set when this is a partial form merged over the version before it (CompareSession.Merge): says so,
@@ -127,7 +129,7 @@ public sealed partial class CompareSession : IDisposable
         }
         else
         {
-            Index = new HeaderIndex(PluginSource.Folder(DataFolder), new IndexOptions { ScratchFolder = Path.Combine(ScratchFolder, "index"), VersionText = VersionText, StringFiles = new StringFiles(DataFolder, Path.Combine(ScratchFolder, "index")), Refusals = new MutagenRefusals() });
+            Index = new HeaderIndex(PluginSource.Folder(DataFolder), new IndexOptions { ScratchFolder = Path.Combine(ScratchFolder, "index"), VersionText = VersionText, StringFiles = new StringFiles(DataFolder), Refusals = new MutagenRefusals() });
             _open.Add(Index);
             FirstRefresh = Index.Refresh();
             Engine = new RecordEngine(Index, schema, Path.Combine(ScratchFolder, "verify"), DataFolder, language);
@@ -226,7 +228,7 @@ public sealed partial class CompareSession : IDisposable
             files.Add(path);
             foreach (var mm in PluginHeader.Read(path)?.Masters ?? Array.Empty<string>()) queue.Enqueue(mm);
         }
-        var index = new HeaderIndex(PluginSource.FromFiles(files), new IndexOptions { ScratchFolder = Path.Combine(ScratchFolder, "index"), VersionText = VersionText, PluginsTxt = "", Ccc = "", StringFiles = new StringFiles(DataFolder, Path.Combine(ScratchFolder, "index")), Refusals = new MutagenRefusals() });
+        var index = new HeaderIndex(PluginSource.FromFiles(files), new IndexOptions { ScratchFolder = Path.Combine(ScratchFolder, "index"), VersionText = VersionText, PluginsTxt = "", Ccc = "", StringFiles = new StringFiles(DataFolder), Refusals = new MutagenRefusals() });
         _open.Add(index);
         index.Refresh();
         if (index.Plugin(name) is not { Header: not null })
@@ -311,7 +313,7 @@ public sealed partial class CompareSession : IDisposable
         try
         {
             var rec = engine.Load(r);
-            return new RecordView { Ref = r, Info = rec.Info, Type = rec.Type, Json = engine.Json(rec), Engine = engine };
+            return new RecordView { Ref = r, Info = rec.Info, Type = rec.Type, Json = engine.Json(rec), Engine = engine, Record = rec.Record };
         }
         catch (RecordException e) { throw new CompareException(e.Message); }
     }

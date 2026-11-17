@@ -72,6 +72,16 @@ public sealed class RawRecord
         return Parse(record[..HeaderLength].ToArray(), record.Slice(HeaderLength, (int)size).ToArray(), offset);
     }
 
+    /// <summary>From a record's 24-byte header and its subrecords already inflated (the record pipeline's): the header
+    /// copy says the data isn't compressed and gives its size.</summary>
+    public static RawRecord FromInflated(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data)
+    {
+        var header = head[..HeaderLength].ToArray();
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(8), BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8)) & ~CompressedFlag);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), (uint)data.Length);
+        return Parse(header, data.ToArray(), 0);
+    }
+
     static RawRecord Parse(byte[] header, byte[] stored, long offset)
     {
         string sig = Encoding.ASCII.GetString(header, 0, 4);

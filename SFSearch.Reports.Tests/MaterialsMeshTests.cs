@@ -12,6 +12,10 @@
 //  - The structured form stays under the 200,000 characters a caller gets for sfta01.esm and sfta04.esm (the
 //    materials named by hash and found are counted per database, not listed), and lists every material with a
 //    problem, every missing one and every one named by path, for those two, aa50_longwatch.esm and darkstar.esm.
+//  - The meshes the records name outside the plugin's own archives (GAPS S8, j811): SimpleImmersiveHelmets.esm has no
+//    archive, and its records name loose meshes and its masters'; Neon_Entertainers_Z.esm's own meshes are also loose
+//    files (the loose ones are read); darkstarpatch_aa50longwatch.esm names only its master's meshes, whose materials
+//    the structured form counts instead of listing, as it does darkstar.esm's hundreds of the game's.
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
@@ -41,11 +45,13 @@ static class MaterialsMeshTests
         string json = o.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         var listed = o["materials"]!.AsArray().Select(m => (string)m!["material"]!).ToHashSet(StringComparer.Ordinal);
         int folded = (int?)o["namedByHashFound"]?["materials"] ?? 0;
-        var lost = a.Rows.Where(m => (m.HasProblem || m.NotChecked || m.Hash == null) && !listed.Contains(m.Path)).Select(m => m.Path).ToList();
-        Check(lost.Count == 0, $"{plugin}: rows with a problem, or named by path, left out of the structured form: {string.Join(", ", lost.Take(5))}");
-        Check(listed.Count + folded == a.Rows.Count && a.Rows.Where(m => m.Missing).All(m => listed.Contains(m.Path)),
-            $"{plugin}: the structured form lists {listed.Count} and counts {folded} by hash, of {a.Rows.Count} materials");
-        log.Append(plugin).Append(": structured form ").Append(json.Length).Append(" characters, ").Append(listed.Count).Append(" listed, ").Append(folded).Append(" counted by hash").Append('\n');
+        int elsewhere = (int?)o["ofOtherMeshesFound"]?["materials"] ?? 0;
+        var lost = a.Rows.Where(m => (m.HasProblem || m.NotChecked || (m.Hash == null && !m.OnlyElsewhere)) && !listed.Contains(m.Path)).Select(m => m.Path).ToList();
+        Check(lost.Count == 0, $"{plugin}: rows with a problem, or named by path by the plugin itself, left out of the structured form: {string.Join(", ", lost.Take(5))}");
+        Check(listed.Count + folded + elsewhere == a.Rows.Count && a.Rows.Where(m => m.Missing).All(m => listed.Contains(m.Path))
+            && elsewhere == a.Rows.Count(m => m.Hash == null && m.OnlyElsewhere && !m.HasProblem),
+            $"{plugin}: the structured form lists {listed.Count}, counts {folded} by hash and {elsewhere} of other plugins' meshes, of {a.Rows.Count} materials");
+        log.Append(plugin).Append(": structured form ").Append(json.Length).Append(" characters, ").Append(listed.Count).Append(" listed, ").Append(folded).Append(" counted by hash, ").Append(elsewhere).Append(" counted as other plugins' meshes'").Append('\n');
         return json.Length;
     }
 
@@ -117,8 +123,51 @@ static class MaterialsMeshTests
         var dark = report.Materials("darkstar.esm");
         int darkSize = JsonSize(dark, "darkstar.esm", log);
         parts.Add($"aa50_longwatch.esm: laser_ir_glow.mat still MISSING; atom74.esm: its monocle glass used by its 3 meshes (the old reader saw 1); structured forms with every missing material and every problem listed: aa50_longwatch.esm {N(aaSize)} characters, darkstar.esm {N(darkSize)} ({dark.Missing} missing)");
+        RecordMeshes(ctx, report, dark, parts, log);
 
         ctx.WriteReport("materials-mesh.txt", log.ToString());
         return string.Join("; ", parts) + ".";
+    }
+
+    /// <summary>S8 (j811): the meshes a plugin's records name outside its own archives are read, from where the game
+    /// takes them: a loose file first, then its masters' archives, then other plugins'.</summary>
+    static void RecordMeshes(Ctx ctx, MaterialsReport report, MaterialsAnswer dark, List<string> parts, StringBuilder log)
+    {
+        // No archive: before j811 the report had nothing to read (0 materials). Its records name a loose visor mesh and
+        // its masters' helmets
+        var helmets = report.Materials("SimpleImmersiveHelmets.esm");
+        const string visor = @"meshes\clothes\simple_immersive_helmets\spacesuit_helmet_visor_1stperson.nif (loose)";
+        string helmetsText = helmets.ToText(new ReportTextOptions());
+        Check(helmets.OwnArchives.Count == 0 && helmets.Meshes == 0 && helmets.MeshesLoose >= 1 && helmets.MeshesMasters >= 10 && helmets.MeshesNamedMissing == 0
+            && helmets.Rows.Count >= 30 && helmets.Missing == 0 && helmets.Rows.Any(m => m.UsedBy.Contains(visor))
+            && helmetsText.Contains($"its records name elsewhere ({N(helmets.MeshesLoose)} loose, {N(helmets.MeshesMasters)} in its masters' archives)", StringComparison.Ordinal),
+            $"SimpleImmersiveHelmets.esm: {helmets.Rows.Count} materials; meshes its records name: {helmets.MeshesLoose} loose, {helmets.MeshesMasters} its masters', {helmets.MeshesNamedMissing} nowhere; the visor's materials: {helmets.Rows.Count(m => m.UsedBy.Contains(visor))}");
+        log.Append(helmetsText).Append('\n');
+        parts.Add($"S8: SimpleImmersiveHelmets.esm (no archive, 0 materials before): {N(helmets.Rows.Count)} materials of the {helmets.MeshesOutside} meshes its records name ({helmets.MeshesLoose} loose, {helmets.MeshesMasters} its masters'), none missing");
+
+        // Its own meshes are loose files too: the loose ones are read
+        var neon = report.Materials("Neon_Entertainers_Z.esm");
+        Check(neon.Meshes > 0 && neon.MeshesLooseOverOwn == neon.Meshes && neon.MeshesLoose > 0 && neon.Missing == 0
+            && neon.Rows.Where(m => m.UsedBy.Count > 0).SelectMany(m => m.UsedBy).Any(u => u.EndsWith(" (loose)", StringComparison.Ordinal))
+            && neon.Notes.Any(n => n.Contains("also a loose file in Data", StringComparison.Ordinal)),
+            $"Neon_Entertainers_Z.esm: {neon.Meshes} own meshes, {neon.MeshesLooseOverOwn} read from their loose files; {neon.MeshesLoose} loose meshes its records name");
+        parts.Add($"Neon_Entertainers_Z.esm: its {neon.Meshes} own meshes read from their loose copies, {neon.MeshesLoose} more loose meshes its records name");
+
+        // Only its master's meshes: every material counted, not listed, in the structured form
+        var patch = report.Materials("darkstarpatch_aa50longwatch.esm");
+        int patchSize = JsonSize(patch, "darkstarpatch_aa50longwatch.esm", log);
+        var patchJson = patch.ToJson();
+        Check(patch.OwnArchives.Count == 0 && patch.MeshesMasters >= 1 && patch.MeshesLoose == 0 && patch.Rows.Count >= 10 && patch.Missing == 0
+            && patch.Rows.All(m => m.UsedBy.All(u => u.EndsWith(".ba2)", StringComparison.Ordinal))) && patch.Rows.Any(m => m.UsedBy.Any(u => u.EndsWith("(aa50_longwatch - main.ba2)", StringComparison.Ordinal)))
+            && (int?)patchJson["ofOtherMeshesFound"]?["materials"] == patch.Rows.Count(m => !m.HasProblem) && (int?)patchJson["counts"]?["meshesOfMasters"] == patch.MeshesMasters,
+            $"darkstarpatch_aa50longwatch.esm: {patch.Rows.Count} materials ({patch.Rows.Count(m => !m.HasProblem)} with nothing wrong) of {patch.MeshesMasters} of its masters' meshes ({string.Join(", ", patch.Rows.SelectMany(m => m.UsedBy).Distinct().Take(4))}); counted in the structured form: {patchJson["ofOtherMeshesFound"]?["materials"]}, meshesOfMasters {patchJson["counts"]?["meshesOfMasters"]}");
+        parts.Add($"darkstarpatch_aa50longwatch.esm (no archive, 0 materials before): {patch.Rows.Count} materials of the {patch.MeshesMasters} meshes of its masters its records name, counted in the structured form ({N(patchSize)} characters)");
+
+        // darkstar.esm names hundreds of the game's meshes: their materials are counted; a mesh its records name that no
+        // file holds is said, with its path
+        Check(dark.MeshesMasters >= 300 && dark.Rows.Count(m => m.OnlyElsewhere) >= 300 && dark.MeshesNamedMissing > 0
+            && dark.Notes.Any(n => n.Contains("its records name are in no loose file and no loaded archive", StringComparison.Ordinal) && n.Contains(dark.MeshesNotFound[0], StringComparison.Ordinal)),
+            $"darkstar.esm: {dark.MeshesMasters} of its masters' meshes, {dark.Rows.Count(m => m.OnlyElsewhere)} materials only theirs, {dark.MeshesNamedMissing} meshes nowhere");
+        parts.Add($"darkstar.esm: {N(dark.MeshesMasters)} of its masters' meshes ({N(dark.Rows.Count(m => m.OnlyElsewhere))} materials only theirs), {dark.MeshesNamedMissing} meshes its records name are nowhere");
     }
 }

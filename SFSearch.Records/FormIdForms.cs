@@ -7,11 +7,16 @@
 // of tool can hold both forms, even in one record (12 darkstarpatch_* files; Mutagen's C158/C163).
 // check2's "FormID forms" rules count the forms; the raw view says which one a record header uses and what it means.
 // The header's FormID is read from the file (4 bytes at 12); where a record's links to its own records sit, and in which
-// form, Mutagen says since fixes.16 (GetStoredFormIds, C203; GAPS Part 2 row 35).
+// form, Mutagen says since fixes.16 (GetStoredFormIds, C203; GAPS Part 2 row 35). The rule itself is Mutagen's since
+// fixes.20 (C58 W8): which numbering a stored value is in (its FormID), whether it is the plugin's own record and at its
+// own place or past the list (SeparatedMasterPackage.Classify), the own index of each numbering (OwnIndex), through the
+// plugin's FormIdResolver. Only the wording is SFSearch's.
 using System.Buffers.Binary;
 using System.IO.MemoryMappedFiles;
+using FormID = Mutagen.Bethesda.Plugins.FormID;
 using Mutagen.Bethesda.Plugins.Records;
 using SFSearch.Index;
+using MasterStyle = SFSearch.Index.MasterStyle;
 
 namespace SFSearch.Records;
 
@@ -26,27 +31,19 @@ public static class FormIdForms
 {
     public const int Forms = 3;
 
-    /// <summary>The form of a stored FormID, by its top byte.</summary>
-    public static StoredForm FormOf(uint raw) => (raw >> 24) switch { 0xFE => StoredForm.Small, 0xFD => StoredForm.Medium, _ => StoredForm.FullIndex };
+    /// <summary>The form of a stored FormID: the numbering Mutagen's FormID reads it in (FE Small, FD Medium, else Full).</summary>
+    public static StoredForm FormOf(uint raw) => new FormID(raw).FullMasterIndex switch { FormID.SmallMasterMarker => StoredForm.Small, FormID.MediumMasterMarker => StoredForm.Medium, _ => StoredForm.FullIndex };
 
-    /// <summary>True when a stored FormID names the plugin's own record (its master number is at or past the plugin's
-    /// masters of that numbering, as Mutagen and the header index read it). <paramref name="atOwnNumber"/>: the number is
-    /// exactly the plugin's own (not past it).</summary>
+    /// <summary>True when a stored FormID names the plugin's own record, as Mutagen classifies it
+    /// (<c>SeparatedMasterPackage.Classify</c>: its index is at or past the plugin's masters of that numbering).
+    /// <paramref name="atOwnNumber"/>: at the plugin's own place, not past the list (Mutagen's own place exists in the
+    /// full form and in the form of the plugin's own size only).</summary>
     public static bool IsOwn(uint raw, FormIdResolver ids, out uint localId, out bool atOwnNumber)
     {
-        uint top = raw >> 24;
-        if (top == 0xFE)
-        {
-            uint i = (raw >> 12) & 0xFFF; localId = raw & 0xFFF; atOwnNumber = i == (uint)ids.SmallMasters;
-            return i >= (uint)ids.SmallMasters;
-        }
-        if (top == 0xFD)
-        {
-            uint i = (raw >> 16) & 0xFF; localId = raw & 0xFFFF; atOwnNumber = i == (uint)ids.MediumMasters;
-            return i >= (uint)ids.MediumMasters;
-        }
-        localId = raw & 0xFFFFFF; atOwnNumber = top == (uint)ids.FullMasters;
-        return raw != 0 && top >= (uint)ids.FullMasters;
+        var form = ids.Package.Classify(raw, out bool own);
+        ids.TryResolve(raw, out int _, out localId);
+        atOwnNumber = own && form != StoredFormIdForm.PastTheList;
+        return own;
     }
 
     /// <summary>The form the plugin's header gives its own records: FE for Small, FD for Medium, the full index for Full.</summary>
@@ -55,7 +52,8 @@ public static class FormIdForms
     /// <summary>The full index is read the same in a plugin of any size; FE only in a Small one, FD only in a Medium one.</summary>
     public static bool Allowed(StoredForm form, MasterStyle self) => form == StoredForm.FullIndex || form == Implied(self);
 
-    /// <summary>The plugin's own records in a form, as a pattern: 03xxxxxx, FE001xxx, FD01xxxx.</summary>
+    /// <summary>The plugin's own records in a form, as a pattern: 03xxxxxx, FE001xxx, FD01xxxx (Mutagen's own index of the
+    /// numbering, <c>OwnIndex</c>).</summary>
     public static string Pattern(StoredForm form, FormIdResolver ids) => form switch
     {
         StoredForm.Small => $"FE{ids.SmallMasters:X3}xxx",
@@ -88,7 +86,9 @@ public static class FormIdForms
         if (!IsOwn(raw, ids, out _, out bool atOwn))
             return $"{raw:X8}: {how}, record 0x{local:X} of its master {owner}";
         string text = $"{raw:X8}: {how}, own record 0x{local:X}";
-        if (!atOwn) text += $" (the number is past the plugin's own, {Pattern(form, ids)}: it reads as the plugin's own record)";
+        // Past the master list, as Mutagen classifies it (Classify, C203): a number past the plugin's own, or the plugin's own
+        // number in a numbering the plugin has no place in (only the full index and the form of its own size are its places)
+        if (!atOwn) text += $" (past the master list, as Mutagen classifies it: {(Allowed(form, self) ? $"the number is past the plugin's own, {Pattern(form, ids)}" : $"a {self} plugin has no place in this numbering")}; it reads as the plugin's own record)";
         if (!Allowed(form, self))
             text += $"; the plugin's header ({self}) doesn't give this form: it gives {Pattern(Implied(self), ids)}";
         else if (form != Implied(self))

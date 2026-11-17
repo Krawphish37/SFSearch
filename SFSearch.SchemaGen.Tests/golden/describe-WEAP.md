@@ -1,37 +1,39 @@
 # Weapon (WEAP)
 
-Record type. Signature WEAP, Mutagen name Weapon, defined in Major Records/Weapon.xml.
-297 rows below; 251 fields, 2 of them unknown, 199 with a name from xEdit.
+Record type. Signature WEAP, Mutagen name Weapon, xEdit name "Weapon", defined in Major Records/Weapon.xml.
+299 rows below; 253 fields, 4 of them unknown, 232 with a name from xEdit.
 Links to these also accept it: IBaseObject, IBindableEquipment, IConstructibleObjectTarget, IExplodeSpawn, IItem, IPlaceableObject, IResearchResourceTarget, IStaticTarget.
 Fields that can hold several kinds of object show one row. Add --all to spell every kind out, or describe the kind.
 
 | Path | Sig | Type | xEdit name | Notes |
 |---|---|---|---|---|
-| FormKey |  | FormKey, 4 B |  | the record's own ID, in the record header |
-| VersionControl |  | UInt32, 4 B |  | record header |
+| MajorRecordFlagsRaw |  | Int32, 4 B | Record Flags | Mutagen's layout: in the record header, offset 8 |
+| FormKey |  | FormKey, 4 B | FormID | Mutagen's layout: in the record header, offset 12 |
+| VersionControl |  | UInt32, 4 B | Version Control Info 1 | Mutagen's layout: in the record header, offset 16 |
 | EditorID | EDID | String | Editor ID | may be absent |
-| MajorRecordFlagsRaw |  | Int32, 4 B |  | record header flags |
-| IsCompressed |  | Bool |  | not declared in Mutagen's XML: MajorRecord (Mutagen.Bethesda.Core, hand-written); the record header's flag 0x40000 (compressed): a view of MajorRecordFlagsRaw |
-| IsDeleted |  | Bool |  | not declared in Mutagen's XML: MajorRecord (Mutagen.Bethesda.Core, hand-written); the record header's flag 0x20 (deleted): a view of MajorRecordFlagsRaw |
-| FormVersion |  | UInt16, 2 B |  |  |
-| Version2 |  | UInt16, 2 B |  |  |
-| StarfieldMajorRecordFlags |  | Enum StarfieldMajorRecord.StarfieldMajorRecordFlag, 4 B |  | read by hand-written Mutagen code |
+| UnknownSubrecords |  | ByteArray |  | **unknown**; may be absent; read by hand-written Mutagen code |
+| UnknownSubrecordsSource |  | String |  | **unknown**; may be absent; read by hand-written Mutagen code |
+| IsDeleted |  | Bool |  | not declared in Mutagen's XML: MajorRecord, hand-written in Mutagen; laid out in HandReadLayouts.xml's record Header; the record header's flag 0x20 (bit 5 of MajorRecordFlagsRaw): a view of MajorRecordFlagsRaw |
+| IsCompressed |  | Bool |  | not declared in Mutagen's XML: MajorRecord, hand-written in Mutagen; laid out in HandReadLayouts.xml's record Header; the record header's flag 0x40000 (bit 18 of MajorRecordFlagsRaw): a view of MajorRecordFlagsRaw |
+| FormVersion |  | UInt16, 2 B | Form Version | Mutagen's layout: in the record header, offset 20 |
+| Version2 |  | UInt16, 2 B | Version Control Info 2 | Mutagen's layout: in the record header, offset 22 |
+| StarfieldMajorRecordFlags |  | Enum StarfieldMajorRecord.StarfieldMajorRecordFlag, 4 B | Record Flags | read by hand-written Mutagen code; Mutagen's layout: in the record header, offset 8 |
 | VirtualMachineAdapter | VMAD | Object VirtualMachineAdapter |  | may be absent; may continue in XXXX |
 | VirtualMachineAdapter.Version | VMAD | Int16, 2 B @0 | Version | default 6 |
 | VirtualMachineAdapter.ObjectFormat | VMAD | UInt16, 2 B @2 | Object Format | default 2 |
-| VirtualMachineAdapter.Scripts | VMAD | List @4 |  | binary=Custom |
-| VirtualMachineAdapter.Scripts[*] | VMAD | Object ScriptEntry |  |  |
-| VirtualMachineAdapter.Scripts[*].Name | VMAD | String | ScriptName | stored with a 2-byte length before it; read by hand-written Mutagen code |
-| VirtualMachineAdapter.Scripts[*].Flags | VMAD | Enum ScriptEntry.Flag, 1 B | Flags | read by hand-written Mutagen code |
-| VirtualMachineAdapter.Scripts[*].Properties | VMAD | List |  | read by hand-written Mutagen code |
-| VirtualMachineAdapter.Scripts[*].Properties[*] | VMAD | Object ScriptProperty |  | one of 14 kinds of ScriptProperty: `describe ScriptProperty` lists them |
-| VirtualMachineAdapter.Scripts[*].Properties[*].Name | VMAD | String | propertyName | stored with a 2-byte length before it; read by hand-written Mutagen code |
-| VirtualMachineAdapter.Scripts[*].Properties[*].Flags | VMAD | Enum ScriptProperty.Flag, 1 B | Flags | default ScriptProperty.Flag.Edited; read by hand-written Mutagen code |
-| ObjectBounds | OBND | Object ObjectBounds, 24 B |  |  |
+| VirtualMachineAdapter.Scripts | VMAD | List @4 | Scripts | binary=Custom |
+| VirtualMachineAdapter.Scripts[*] | VMAD | Object ScriptEntry | Script |  |
+| VirtualMachineAdapter.Scripts[*].Name | VMAD | String | ScriptName | stored with a 2-byte length before it; read by hand-written Mutagen code; filled by Mutagen's hand-written code (AVirtualMachineAdapter.ReadEntry) |
+| VirtualMachineAdapter.Scripts[*].Flags | VMAD | Enum ScriptEntry.Flag, 1 B | Flags | read by hand-written Mutagen code; filled by Mutagen's hand-written code (AVirtualMachineAdapter.ReadEntry) |
+| VirtualMachineAdapter.Scripts[*].Properties | VMAD | List | Properties | read by hand-written Mutagen code; filled by Mutagen's hand-written code (AVirtualMachineAdapter.ReadEntry) |
+| VirtualMachineAdapter.Scripts[*].Properties[*] | VMAD | Object ScriptProperty | Property | one of 14 kinds of ScriptProperty: `describe ScriptProperty` lists them |
+| VirtualMachineAdapter.Scripts[*].Properties[*].Name | VMAD | String | propertyName | stored with a 2-byte length before it; read by hand-written Mutagen code; filled by Mutagen's hand-written code (AVirtualMachineAdapter.ParseProperty) |
+| VirtualMachineAdapter.Scripts[*].Properties[*].Flags | VMAD | Enum ScriptProperty.Flag, 1 B | Flags | default ScriptProperty.Flag.Edited; read by hand-written Mutagen code; filled by Mutagen's hand-written code (AVirtualMachineAdapter.ParseProperty) |
+| ObjectBounds | OBND | Object ObjectBounds, 24 B | Object Bounds |  |
 | ObjectBounds.First | OBND | P3Float, 12 B @0 | Min |  |
 | ObjectBounds.Second | OBND | P3Float, 12 B @12 | Max |  |
 | DirtinessScale | ODTY | Float, 4 B | Dirtiness Scale |  |
-| ObjectPaletteDefaults | OPDS | Object ObjectPaletteDefaults, 80 B |  | may be absent |
+| ObjectPaletteDefaults | OPDS | Object ObjectPaletteDefaults, 80 B | Object Palette Defaults | may be absent |
 | ObjectPaletteDefaults.Flags | OPDS | Enum ObjectPaletteDefaults.Flag, 4 B @0 | Flags |  |
 | ObjectPaletteDefaults.SinkMeters | OPDS | Float, 4 B @4 | Sink (Meters) | unit: meters |
 | ObjectPaletteDefaults.SinkVariance | OPDS | Float, 4 B @8 | Sink Variance +/- |  |
@@ -52,8 +54,8 @@ Fields that can hold several kinds of object show one row. Add --all to spell ev
 | ObjectPaletteDefaults.SlopeLimit | OPDS | Float, 4 B @68 | Slope Limit |  |
 | ObjectPaletteDefaults.DistanceBelowWater | OPDS | Float, 4 B @72 | Distance Below Water |  |
 | ObjectPaletteDefaults.DistanceAboveWater | OPDS | Float, 4 B @76 | Distance Above Water |  |
-| Transforms | PTT2 | Object Transforms, 32 B |  | may be absent |
-| Transforms.Versioning | PTT2 | Enum Transforms.VersioningBreaks |  | not declared in Mutagen's XML: Mutagen's generator adds it for <Break /> in the object's fields (VersioningModule); which of the object's 1 version break its data ended at (Break0, in the XML's order); the writer stops there |
+| Transforms | PTT2 | Object Transforms, 32 B | Transforms | may be absent |
+| Transforms.Versioning | PTT2 | Enum Transforms.VersioningBreaks |  | not declared in Mutagen's XML: Mutagen adds it for <Break /> in the object's fields (its property manifest: derived="Break"); which of the object's 1 version break its data ended at (Break0, in the XML's order); the writer stops there |
 | Transforms.InventoryIcon | PTT2 | FormLink → Transform, 4 B @0 | Inventory Icon Transform |  |
 | Transforms.Outpost | PTT2 | FormLink → Transform, 4 B @4 | Workshop Icon Transform |  |
 | Transforms.Ship | PTT2 | FormLink → Transform, 4 B @8 | Ship Builder Icon Transform |  |
@@ -64,69 +66,69 @@ Fields that can hold several kinds of object show one row. Add --all to spell ev
 | Transforms.#break | PTT2 | Break |  | older files end here (version break) |
 | Transforms.ResearchMenu | PTT2 | FormLink → Transform, 4 B @28 | Research Menu 3D Override Transform |  |
 | XalgFlags | XALG | Enum XalgFlag, 8 B |  | may be absent |
-| Components |  | List |  |  |
-| Components[*] |  | Object AComponent |  | one of 66 kinds of AComponent: `describe AComponent` lists them |
+| Components |  | List | Base Form Components |  |
+| Components[*] |  | Object AComponent | Component | one of 67 kinds of AComponent: `describe AComponent` lists them |
 | Name | FULL | String | Name | may be absent; translated text (.strings) |
 | Model |  | Object Model |  | may be absent |
 | Model.File | MODL | AssetLink | Model | may be absent |
 | Model.TextureFileHashes | MODT | ByteArray |  | may be absent; evidence: in no record of Starfield.esm |
-| Model.MaterialSwaps | MOLM | List |  | may be absent; its count (2 bytes) comes before the entries |
+| Model.MaterialSwaps | MOLM | List | Material Swaps | may be absent; its count (2 bytes) comes before the entries |
 | Model.MaterialSwaps[*] | MOLM | FormLink → LayeredMaterialSwap, 4 B | Layered Material Swap |  |
 | Model.MaterialSwaps2 | MOLM | List |  | may be absent; its count (2 bytes) comes before the entries |
 | Model.MaterialSwaps2[*] | MOLM | FormLink → LayeredMaterialSwap, 4 B |  |  |
-| Model.LightLayer | FLLD | Enum Light.LightLayer, 4 B |  | may be absent |
-| Model.Flags | XFLG | Enum Model.Flag, 1 B |  | may be absent |
+| Model.LightLayer | FLLD | Enum Light.LightLayer, 4 B | Light Layer | may be absent |
+| Model.Flags | XFLG | Enum Model.Flag, 1 B | Flags | may be absent |
 | Model.ColorRemappingIndex | MODC | Float, 4 B | Color Remapping Index | may be absent |
-| Model.FlagsVestigial | MODF | Enum Model.Flag, 1 B |  | may be absent |
+| Model.FlagsVestigial | MODF | Enum Model.Flag, 1 B | Flags | may be absent |
 | ObjectEffect | EITM | FormLink → ObjectEffect, 4 B | Effect | may be absent |
 | EnchantmentAmount | EAMT | UInt16, 2 B | Capacity | may be absent |
 | EquipmentType | ETYP | FormLink → EquipType, 4 B | Equipment Type | may be absent |
 | BlockBashImpactDataSet | BIDS | FormLink → ImpactDataSet, 4 B | Block Bash Impact Data Set | may be absent |
 | AlternateBlockMaterial | BAMT | FormLink → MaterialType, 4 B | Alternate Block Material | may be absent |
-| PickupSound | PUSH | Object SoundReference, 40 B |  | may be absent |
+| PickupSound | PUSH | Object SoundReference, 40 B | Pickup Sound | may be absent |
 | PickupSound.StartEvent | PUSH | Guid, 16 B @0 | Start Event/Form |  |
 | PickupSound.StopEvent | PUSH | Guid, 16 B @16 | Stop |  |
 | PickupSound.ConditionForm | PUSH | FormLink → ConditionRecord, 4 B @32 | Condition | CK: "Condition Form" |
 | PickupSound.EventForm | PUSH | FormLink → WWiseEventData, 4 B @36 | Start Form | CK: "Event Form" |
-| DropdownSound | PDSH | Object SoundReference, 40 B |  | may be absent |
+| DropdownSound | PDSH | Object SoundReference, 40 B | Putdown Sound | may be absent |
 | DropdownSound.StartEvent | PDSH | Guid, 16 B @0 | Start Event/Form |  |
 | DropdownSound.StopEvent | PDSH | Guid, 16 B @16 | Stop |  |
 | DropdownSound.ConditionForm | PDSH | FormLink → ConditionRecord, 4 B @32 | Condition | CK: "Condition Form" |
 | DropdownSound.EventForm | PDSH | FormLink → WWiseEventData, 4 B @36 | Start Form | CK: "Event Form" |
-| Keywords | KWDA | List |  | may be absent; counted by KSIZ |
+| Keywords | KWDA | List | Keywords | may be absent; counted by KSIZ |
 | Keywords[*] | KWDA | FormLink → Keyword, 4 B | Keyword |  |
 | Description | DESC | String |  | may be absent; translated text (.dlstrings) |
 | InstanceNaming | INRD | FormLink → InstanceNamingRules, 4 B | Instance Naming | may be absent |
-| AttachParentSlots | APPR | List |  | may be absent |
+| AttachParentSlots | APPR | List | Attach Parent Slots | may be absent |
 | AttachParentSlots[*] | APPR | FormLink → Keyword, 4 B | Keyword |  |
-| ObjectTemplates |  | List |  | may be absent; counted by OBTE |
-| ObjectTemplates[*] |  | Object ObjectTemplate |  |  |
+| ObjectTemplates |  | List | Combination | may be absent; counted by OBTE |
+| ObjectTemplates[*] |  | Object ObjectTemplate | Object Mod Template Item |  |
 | ObjectTemplates[*].IsEditorOnly | OBTF | Bool, 0 B |  | true when the subrecord is present |
 | ObjectTemplates[*].Name | FULL | String | Name | may be absent; translated text (.strings) |
-| ObjectTemplates[*].OBTSLogic | OBTS | CustomLogic |  | may be absent; read by hand-written Mutagen code; a parsing step, not a value: no property |
-| ObjectTemplates[*].AddonIndex | OBTS | Int16, 2 B | Parent Combination Index | default -1; read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].LevelMin | OBTS | UInt16, 2 B | Level Min | read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].LevelMax | OBTS | UInt16, 2 B | Level Max | read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].Default | OBTS | Bool, 1 B | Default | read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].Keywords | OBTS | List |  | read by hand-written Mutagen code; its count (1 byte) comes before the entries; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].Keywords[*] | OBTS | FormLink → Keyword, 4 B | Keyword #* | signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].MinLevelForRanks | OBTS | UInt8, 1 B | Min Level For Ranks | read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].AltLevelsPerTier | OBTS | UInt8, 1 B | Alt Levels Per Tier | read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].Includes | OBTS | List |  | read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].Includes[*] | OBTS | Object ObjectTemplateInclude |  | signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].Includes[*].Mod | OBTS | FormLink → AObjectModification, 4 B | Mod |  |
-| ObjectTemplates[*].Includes[*].AttachPointIndex | OBTS | UInt8, 1 B | Attach Point Index |  |
-| ObjectTemplates[*].Includes[*].Optional | OBTS | Bool, 1 B | Optional |  |
-| ObjectTemplates[*].Includes[*].DontUseAll | OBTS | Bool, 1 B | Don't Use All |  |
-| ObjectTemplates[*].Properties | OBTS | List |  | read by hand-written Mutagen code; signature from xEdit's pairs (the XML doesn't give one) |
-| ObjectTemplates[*].Properties[*] | OBTS | Object AObjectModProperty |  | one of 7 kinds of AObjectModProperty: `describe AObjectModProperty` lists them; signature from xEdit's pairs (the XML doesn't give one) |
+| ObjectTemplates[*].OBTSLogic | OBTS | CustomLogic |  | may be absent; read by hand-written Mutagen code; a parsing step, not a value: no property; reads OBTS; fills LevelMin, LevelMax, AddonIndex, Default, Keywords, MinLevelForRanks, AltLevelsPerTier, Includes, Properties |
+| ObjectTemplates[*].AddonIndex | OBTS | Int16, 2 B | Parent Combination Index | default -1; read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].LevelMin | OBTS | UInt16, 2 B | Level Min | read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].LevelMax | OBTS | UInt16, 2 B | Level Max | read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].Default | OBTS | Bool, 1 B | Default | read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].Keywords | OBTS | List | Keywords | read by hand-written Mutagen code; its count (1 byte) comes before the entries; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].Keywords[*] | OBTS | FormLink → Keyword, 4 B | Keyword #* | signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].MinLevelForRanks | OBTS | UInt8, 1 B | Min Level For Ranks | read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].AltLevelsPerTier | OBTS | UInt8, 1 B | Alt Levels Per Tier | read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].Includes | OBTS | List | Includes | read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].Includes[*] | OBTS | Object ObjectTemplateInclude | Include #* | signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].Includes[*].Mod | OBTS | FormLink → AObjectModification, 4 B @0 | Mod |  |
+| ObjectTemplates[*].Includes[*].AttachPointIndex | OBTS | UInt8, 1 B @4 | Attach Point Index |  |
+| ObjectTemplates[*].Includes[*].Optional | OBTS | Bool, 1 B @5 | Optional |  |
+| ObjectTemplates[*].Includes[*].DontUseAll | OBTS | Bool, 1 B @6 | Don't Use All |  |
+| ObjectTemplates[*].Properties | OBTS | List | Properties | read by hand-written Mutagen code; filled by Mutagen's hand-written code (OBTSLogic) from OBTS; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
+| ObjectTemplates[*].Properties[*] | OBTS | Object AObjectModProperty | Property | one of 7 kinds of AObjectModProperty: `describe AObjectModProperty` lists them; signature from xEdit's pairs (Mutagen's files name it for the hand-written code that fills the field, OBTSLogic) |
 | STOP | STOP | Marker, 0 B |  | empty marker subrecord, not a value; evidence: second pass: marker only; in no record of Starfield.esm; empty marker; nothing to name |
 | EmbeddedWeaponMod | NNAM | FormLink → AObjectModification, 4 B | Embedded Weapon Mod | may be absent |
 | IsEmbeddedWeapon | BNAM | Bool, 0 B |  | true when the subrecord is present |
 | SightedTransitionSeconds | WAIM | Float, 4 B @0 | Sighted Transition (Seconds) | unit: seconds |
 | AimDownSightTemplate | WAIM | FormLink → Zoom, 4 B @4 | Aim Down Sight Template |  |
 | AimModel | WAIM | FormLink → AimModel, 4 B @8 | Aim Model |  |
-| AccuracyBonus | WAIM | UInt8, 1 B @12 | Accuracy Bonus |  |
+| AccuracyBonus | WAIM | Int8, 1 B @12 | Accuracy Bonus |  |
 | HasScope | WAIM | Bool, 1 B @13 | Has Scope |  |
 | AimAssistTemplate | WAIM | FormLink → AimAssistModel, 4 B @14 | Aim Assist Template |  |
 | AimOpticalSightModel | WAIM | FormLink → AimOpticalSightMarker, 4 B @18 | Aim Optical Sight Model |  |
@@ -146,37 +148,37 @@ Fields that can hold several kinds of object show one row. Add --all to spell ev
 | NpcsUseAmmo | WAM2 | Bool, 1 B @21 | NPCs Use Ammo |  |
 | NumberOfImpactSounds | WAM2 | UInt8, 1 B @22 | Number of Impact Sounds |  |
 | WAMM | WAMM | ByteArray |  | **unknown**; may be absent; evidence: in no record of Starfield.esm |
-| MeleeOrCreature | WAUD | Object SoundReference, 40 B @0 |  |  |
+| MeleeOrCreature | WAUD | Object SoundReference, 40 B @0 | Attack Sound |  |
 | MeleeOrCreature.StartEvent | WAUD | Guid, 16 B @0 | Start Event/Form |  |
 | MeleeOrCreature.StopEvent | WAUD | Guid, 16 B @16 | Stop |  |
 | MeleeOrCreature.ConditionForm | WAUD | FormLink → ConditionRecord, 4 B @32 | Condition | CK: "Condition Form" |
 | MeleeOrCreature.EventForm | WAUD | FormLink → WWiseEventData, 4 B @36 | Start Form | CK: "Event Form" |
-| PrimedExplosive | WAUD | Object SoundReference, 40 B @40 |  |  |
+| PrimedExplosive | WAUD | Object SoundReference, 40 B @40 | Throwable Primed Sound |  |
 | PrimedExplosive.StartEvent | WAUD | Guid, 16 B @40 | Start Event/Form |  |
 | PrimedExplosive.StopEvent | WAUD | Guid, 16 B @56 | Stop |  |
 | PrimedExplosive.ConditionForm | WAUD | FormLink → ConditionRecord, 4 B @72 | Condition | CK: "Condition Form" |
 | PrimedExplosive.EventForm | WAUD | FormLink → WWiseEventData, 4 B @76 | Start Form | CK: "Event Form" |
-| DryFire | WAUD | Object SoundReference, 40 B @80 |  |  |
+| DryFire | WAUD | Object SoundReference, 40 B @80 | Attack Fail Sound |  |
 | DryFire.StartEvent | WAUD | Guid, 16 B @80 | Start Event/Form |  |
 | DryFire.StopEvent | WAUD | Guid, 16 B @96 | Stop |  |
 | DryFire.ConditionForm | WAUD | FormLink → ConditionRecord, 4 B @112 | Condition | CK: "Condition Form" |
 | DryFire.EventForm | WAUD | FormLink → WWiseEventData, 4 B @116 | Start Form | CK: "Event Form" |
-| Idle | WAUD | Object SoundReference, 40 B @120 |  |  |
+| Idle | WAUD | Object SoundReference, 40 B @120 | Idle Sound |  |
 | Idle.StartEvent | WAUD | Guid, 16 B @120 | Start Event/Form |  |
 | Idle.StopEvent | WAUD | Guid, 16 B @136 | Stop |  |
 | Idle.ConditionForm | WAUD | FormLink → ConditionRecord, 4 B @152 | Condition | CK: "Condition Form" |
 | Idle.EventForm | WAUD | FormLink → WWiseEventData, 4 B @156 | Start Form | CK: "Event Form" |
-| Equip | WAUD | Object SoundReference, 40 B @160 |  |  |
+| Equip | WAUD | Object SoundReference, 40 B @160 | Equip Sound |  |
 | Equip.StartEvent | WAUD | Guid, 16 B @160 | Start Event/Form |  |
 | Equip.StopEvent | WAUD | Guid, 16 B @176 | Stop |  |
 | Equip.ConditionForm | WAUD | FormLink → ConditionRecord, 4 B @192 | Condition | CK: "Condition Form" |
 | Equip.EventForm | WAUD | FormLink → WWiseEventData, 4 B @196 | Start Form | CK: "Event Form" |
-| Unequip | WAUD | Object SoundReference, 40 B @200 |  |  |
+| Unequip | WAUD | Object SoundReference, 40 B @200 | Unequip Sound |  |
 | Unequip.StartEvent | WAUD | Guid, 16 B @200 | Start Event/Form |  |
 | Unequip.StopEvent | WAUD | Guid, 16 B @216 | Stop |  |
 | Unequip.ConditionForm | WAUD | FormLink → ConditionRecord, 4 B @232 | Condition | CK: "Condition Form" |
 | Unequip.EventForm | WAUD | FormLink → WWiseEventData, 4 B @236 | Start Form | CK: "Event Form" |
-| FastEquip | WAUD | Object SoundReference, 40 B @240 |  |  |
+| FastEquip | WAUD | Object SoundReference, 40 B @240 | Fast Equip Sound |  |
 | FastEquip.StartEvent | WAUD | Guid, 16 B @240 | Start Event/Form |  |
 | FastEquip.StopEvent | WAUD | Guid, 16 B @256 | Stop |  |
 | FastEquip.ConditionForm | WAUD | FormLink → ConditionRecord, 4 B @272 | Condition | CK: "Condition Form" |
@@ -213,8 +215,8 @@ Fields that can hold several kinds of object show one row. Add --all to spell ev
 | HighGravityRangeMultMin | WDMG | Float, 4 B @50 | Min |  |
 | HighGravityRangeMultMax | WDMG | Float, 4 B @54 | Max |  |
 | CritChanceIncMult | WDMG | Float, 4 B @58 | Crit Chance Inc Mult |  |
-| DamageTypes | DAMA | List |  | may be absent |
-| DamageTypes[*] | DAMA | Object WeaponDamageType |  |  |
+| DamageTypes | DAMA | List | Damage Types | may be absent |
+| DamageTypes[*] | DAMA | Object WeaponDamageType | Damage Type |  |
 | DamageTypes[*].DamageType | DAMA | FormLink → DamageType, 4 B @0 | Type |  |
 | DamageTypes[*].Value | DAMA | UInt32, 4 B @4 | Amount |  |
 | DamageTypes[*].CurveTable | DAMA | FormLink → CurveTable, 4 B @8 | Curve Table |  |
@@ -303,4 +305,4 @@ Fields that can hold several kinds of object show one row. Add --all to spell ev
 | FiringCameraShakeIntensity | WTRM | Float, 4 B @5 | Firing Camera Shake Intensity |  |
 | FiringCameraShakeDuration | WTRM | Float, 4 B @9 | Firing Camera Shake Duration |  |
 | AiFiringArc | WTRM | Float, 4 B @13 | AI Firing Arc |  |
-| MajorFlags |  | Enum Weapon.MajorFlag |  | not declared in Mutagen's XML: Mutagen's generator adds it for majorFlag="true" (MajorRecordFlagModule); the record header's flags (MajorRecordFlagsRaw) as this record type names them |
+| MajorFlags |  | Enum Weapon.MajorFlag | Record Flags | not declared in Mutagen's XML: Mutagen adds it for majorFlag="true" (its property manifest: derived="majorFlag"); the record header's flags (MajorRecordFlagsRaw) as this record type names them |

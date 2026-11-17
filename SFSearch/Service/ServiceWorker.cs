@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Threading;
 
 namespace SFSearch.Service
@@ -92,6 +93,8 @@ namespace SFSearch.Service
                         switch (o.Kind)
                         {
                             case "grant":
+                                if (o.Job == _currentJob) HoldHeapUnder(o.LimitMB);
+                                _heavyAnswer = o; _heavyGate.Set(); break;
                             case "deny": _heavyAnswer = o; _heavyGate.Set(); break;
                             case "yield": if (o.Job == _currentJob) JobContext.AskedToYield(); break;
                             default: orders.Add(o); break;
@@ -110,6 +113,7 @@ namespace SFSearch.Service
             foreach (var order in orders.GetConsumingEnumerable())
             {
                 _currentJob = order.Job;
+                HoldHeapUnder(order.LimitMB);
                 var clock = Stopwatch.StartNew();
                 var (o, e, code) = RunOnce(order, stdout, stderr);
                 // SQLite can report a momentary "disk I/O error" when a reader opens a database just as the last writer
@@ -127,7 +131,97 @@ namespace SFSearch.Service
                 _currentJob = "";
                 try { Send(done); }
                 catch (IOException) { return; } // the coordinator is gone
+                if (_outOfMemory) return; // a fresh worker takes its place
             }
+        }
+
+        /// <summary>
+        /// What is kept between the heap's limit and the command's allowance for the worker's memory outside the heap (the
+        /// runtime and the server collector's own, Mutagen's and SQLite's: private bytes less the heap's committed bytes),
+        /// MB: at least this, and at least what it is now plus <see cref="OutsideGrowthMB"/>. Every cell of Starfield.esm at
+        /// an 8 GB PC's 1.5 GB finished in every run held 320 MB under (the worker at 1.41-1.47 GB), and was stopped in one
+        /// of two runs held only what was outside at the start plus 128 MB (J57).
+        /// </summary>
+        const long OutsideMinMB = 320;
+        /// <summary>Room for the memory outside the heap to grow before the next look (MB).</summary>
+        const long OutsideGrowthMB = 96;
+        /// <summary>The heap limit is never set under what the heap has committed now plus this (MB): .NET refuses a limit
+        /// under what is committed (InvalidOperationException), and a command can't fail at once by it.</summary>
+        const long HeapRoomMB = 64;
+        /// <summary>How often the limit follows the memory outside the heap while a command runs (ms).</summary>
+        const int HoldEveryMs = 250;
+        static long _limitMB, _heldMB, _allowanceMB;
+        static readonly object _holdLock = new();
+
+        /// <summary>What the coordinator lets the running command hold (MB): workerMaxMB, a heavy command's own allowance,
+        /// the indexer's; 0 before the first order.</summary>
+        internal static long AllowanceMB { get { lock (_holdLock) return _allowanceMB; } }
+        static Timer? _holdTimer;
+        static volatile bool _outOfMemory;
+
+        /// <summary>
+        /// Holds .NET's heap under what the coordinator lets the running command hold (J57, GAPS S84), on a worker with the
+        /// server collector and an allowance under 2.5 GB (<see cref="ServiceConfig.ServerGcMinWorkerMB"/>: an 8 GB PC's
+        /// 1.5 GB a command), where an unheld server worker passes it: every cell of Starfield.esm did in 4 to 7 s. The
+        /// limit is the allowance less what the worker holds outside the heap (<see cref="OutsideMinMB"/>), set when the
+        /// command starts and when a heavy part is granted, and looked at again four times a second while it runs, since
+        /// the memory outside the heap grows with the read. Near its limit the garbage collector collects harder instead of
+        /// growing; held, every cell finishes at 1.4-1.5 GB. A command that needs more ends with the same error the
+        /// coordinator's watchdog gives. With a larger allowance, or the workstation collector, nothing is held (J44:
+        /// a server worker read every cell at 2.0-2.3 GB, under a 16 GB PC's 2.7 GB).
+        /// </summary>
+        static void HoldHeapUnder(long limitMB)
+        {
+            lock (_holdLock)
+            {
+                if (limitMB > 0) _allowanceMB = limitMB;
+                bool hold = limitMB > 0 && limitMB < ServiceConfig.ServerGcMinWorkerMB && System.Runtime.GCSettings.IsServerGC;
+                if (!hold)
+                {
+                    if (_limitMB > 0) { AppContext.SetData("GCHeapHardLimit", 0UL); GC.RefreshMemoryLimit(); }
+                    _limitMB = 0; _heldMB = 0;
+                    return;
+                }
+                _limitMB = limitMB;
+                _heldMB = 0;
+                Hold();
+                _holdTimer ??= new Timer(_ =>
+                {
+                    // A timer's exception would end the worker: a look that fails leaves the limit as it was
+                    try { lock (_holdLock) Hold(); }
+                    catch (Exception e) when (e is InvalidOperationException or OutOfMemoryException or ArgumentException) { }
+                }, null, HoldEveryMs, HoldEveryMs);
+            }
+        }
+
+        /// <summary>Sets the heap's limit for the allowance in effect (call with _holdLock held).</summary>
+        static void Hold()
+        {
+            if (_limitMB <= 0) return;
+            var info = GC.GetGCMemoryInfo();
+            long privateMB;
+            using (var me = Process.GetCurrentProcess()) privateMB = me.PrivateMemorySize64 >> 20;
+            long outsideMB = Math.Max(OutsideMinMB, Math.Max(0, privateMB - (info.TotalCommittedBytes >> 20)) + OutsideGrowthMB);
+            long heapMB = Math.Max(_limitMB - outsideMB, Math.Max(info.HeapSizeBytes, info.TotalCommittedBytes) / 1048576 + HeapRoomMB);
+            if (Math.Abs(heapMB - _heldMB) < 16) return;
+            AppContext.SetData("GCHeapHardLimit", (ulong)heapMB << 20);
+            try { GC.RefreshMemoryLimit(); _heldMB = heapMB; }
+            catch (InvalidOperationException)
+            {
+                // Under what the heap has committed since the last look: kept as it was, looked at again in a moment
+                AppContext.SetData("GCHeapHardLimit", (ulong)_heldMB << 20);
+            }
+        }
+
+        /// <summary>The command needed more than its heap may hold: the coordinator's own words for a command over its limit.</summary>
+        static string OverLimitLine() =>
+            $"Error: the command was stopped: it used more than {MemoryInfo.GB(_allowanceMB)} GB of memory, this PC's limit for one command (workerMaxMB). Fix: ask for less at once (a narrower question, or the new tools), or raise workerMaxMB in sfsearch.json if this PC has the memory to spare.";
+
+        static bool IsOutOfMemory(Exception ex)
+        {
+            for (Exception? e = ex; e != null; e = e.InnerException)
+                if (e is OutOfMemoryException || (e is AggregateException a && a.InnerExceptions.Any(IsOutOfMemory))) return true;
+            return false;
         }
 
         static bool IsTransientSqlite(string text) =>
@@ -155,6 +249,13 @@ namespace SFSearch.Service
                     }
                     else Program.Main(order.Args);
                     code = Environment.ExitCode;
+                }
+                catch (Exception ex) when (IsOutOfMemory(ex))
+                {
+                    // Over the heap's limit (HoldHeapUnder): as if the watchdog had stopped it; this worker is replaced after
+                    _outOfMemory = true;
+                    e.WriteLine(OverLimitLine());
+                    code = 5;
                 }
                 catch (Exception ex)
                 {

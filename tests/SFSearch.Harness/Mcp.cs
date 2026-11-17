@@ -12,13 +12,16 @@ namespace SFSearch.Harness;
 /// <summary>
 /// The MCP server's own test (milestone M8): the 12 new tools driven through the harness's MCP client against a
 /// test home. The server lists the 12 and their definitions stay small; sfs_status answers while other calls run; a
-/// long answer is paged with the one cursor; a heavy call is refused and then run; a job is cancelled; and
+/// long answer is paged with the one cursor; a heavy call is refused with its three answers, then run with allow_heavy "save_index" and the index made, then run without it (J33); a job is cancelled; and
 /// --legacy-tools (removed in 2.0 with the 25 older tools) gives the 12 tools and a line that says so.
 /// The author's agent benchmark (a dev tool, not in the public repository) adds its own calls of every tool, with
 /// their known answers, through the partial method CallList; without it that part is skipped.
 /// </summary>
 public static partial class McpTest
 {
+    /// <summary>The budget of the 12 tools' definitions as the server sends them, names and schemas included (the user's
+    /// decision, 2026-11-15: 10,000 -> 15,000 characters, e623d0b). mcp describe and the MCP test both hold it.</summary>
+    public const int DefinitionsBudget = 15000;
     public static readonly string[] NewTools = { "sfs_find", "sfs_record", "sfs_describe", "sfs_query", "sfs_refs", "sfs_compare", "sfs_loadorder", "sfs_check", "sfs_saved", "sfs_run", "sfs_job", "sfs_status" };
     /// <summary>A tool's definition as the server sends it: fields that aren't set are left out.</summary>
     static readonly JsonSerializerOptions AsSent = new() { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -62,7 +65,7 @@ public static partial class McpTest
                 if (Environment.GetEnvironmentVariable("SFSHARNESS_SHOW_TOOL") == t.Name) sb.Append(JsonSerializer.Serialize(t.ProtocolTool, AsSent)).Append('\n');
             }
             string instructions = client.ServerInstructions ?? "";
-            sb.Append($"All {tools.Count} descriptions together (each tool's and its arguments'): {all:N0} characters. The {tools.Count} definitions as the server sends them, names and schemas included: {schema:N0} characters (the limit for the new tools is 10,000). The server's instructions: {instructions.Length:N0} characters.\n");
+            sb.Append($"All {tools.Count} descriptions together (each tool's and its arguments'): {all:N0} characters. The {tools.Count} definitions as the server sends them, names and schemas included: {schema:N0} characters (the limit for the new tools is {DefinitionsBudget:N0}). The server's instructions: {instructions.Length:N0} characters.\n");
             totals[kind] = schema; descriptions[kind] = all;
         }
         Descriptions = descriptions[0];
@@ -92,7 +95,14 @@ public static partial class McpTest
         }
         static string Cut(string s, int n = 300) => s.Length > n ? s[..n].Replace("\n", "\\n") + "…" : s.Replace("\n", "\\n");
 
-        sut.Extra["SFSEARCH_TEST_HOOKS"] = "1";
+        // The test add-on's `__test sleep` is the slow job of part 6 (J37: it was SFSearch's own, behind SFSEARCH_TEST_HOOKS=1).
+        // It goes into the test home for this part only, so the other parts see the home as a user's is.
+        string hooks = Path.Combine(sut.Home, "extensions", Path.GetFileName(Paths.TestHooksDll));
+        bool hooked = File.Exists(Paths.TestHooksDll);
+        Check("the test add-on is built", hooked, hooked ? Paths.TestHooksDll : $"{Paths.TestHooksDll} isn't there: dotnet build tests\\SFSearch.TestHooks -c Release -p:SfsExtensionsDir=<a folder outside the repo>, or give it with --testhooks");
+        if (hooked) { Directory.CreateDirectory(Path.GetDirectoryName(hooks)!); File.Copy(Paths.TestHooksDll, hooks, true); }
+        try
+        {
         await sut.StartService();
         var client = await sut.NewMcpClient();
 
@@ -100,7 +110,7 @@ public static partial class McpTest
         var listed = (await client.ListToolsAsync()).Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
         Check("the server lists the 12 new tools by default", listed.SequenceEqual(NewTools.OrderBy(n => n, StringComparer.Ordinal)), string.Join(", ", listed));
         var (newChars, _) = await Describe(sut);
-        Check("the 12 tools' definitions together stay under 10,000 characters", newChars < 10000,
+        Check($"the 12 tools' definitions together stay under {DefinitionsBudget:N0} characters", newChars < DefinitionsBudget,
             $"{newChars:N0} characters as the server sends them, names and schemas included; the description texts alone: {Descriptions:N0}");
 
         // ---- 2. Every tool, several ways, with known answers: the author's agent benchmark brings these calls
@@ -157,17 +167,52 @@ public static partial class McpTest
             Check("a cursor of another question is refused with a clear error", staleErr && Regex.IsMatch(stale, @"(?m)^Error: .*cursor.* Fix: "), Cut(stale, 200));
         }
 
-        // ---- 5. A heavy call: refused with its cost, then run when allowed
+        // ---- 5. A heavy call and its three answers (J33): left out, it is refused with its cost and the offer of the index
+        // that would make it fast; with allow_heavy="save_index" it runs and the index is made after the answer, so the same
+        // call then runs without allow_heavy; allow_heavy=true runs it (the round trip below, and refs' world true)
         if (withHeavy)
         {
-            var sql = new JsonObject { ["plugins"] = "Starfield.esm", ["sql"] = "SELECT count(*) AS N FROM PlacedObject WHERE Base = '0002F6:Starfield.esm'" };
+            // The placed objects of BlueprintShips-Starfield.esm (1,478,203: over the million a read may open unasked) that link to XMarker
+            var sql = new JsonObject { ["plugins"] = "BlueprintShips-Starfield.esm", ["sql"] = "SELECT FromType, Field, count(*) AS N FROM Links WHERE ToKey = '00003B:Starfield.esm' AND FromType = 'PlacedObject' GROUP BY Field;" };
+            await sut.McpText("sfs_run", new JsonObject { ["args"] = new JsonArray("indexes", "drop", "world") });
             var (refused, refusedErr) = await sut.McpText("sfs_query", sql);
-            Check("a heavy call is refused without allow_heavy: the answer is its cost", !refusedErr && Regex.IsMatch(refused, @"(?m)^Not run\. .*allow_heavy=true") && !refused.Contains("| N |"), Cut(refused, 260));
-            var allowed = (JsonObject)sql.DeepClone(); allowed["allow_heavy"] = true;
+            Check("a heavy call is refused without allow_heavy: the answer is its cost and the three answers, the third with the index's size and time",
+                !refusedErr && Regex.IsMatch(refused, @"(?m)^Not run\. .*Call again with allow_heavy=true \(command line: --allow-heavy\) to run it now\. Or allow_heavy=""save_index"" \(command line: --allow-heavy=save-index\) to run it now and then save the world link index of BlueprintShips-Starfield\.esm \(about [\d,]+ MB on disk, made in about \d+ s in the background after the answer\): .* Or leave it: nothing more is read and nothing is saved\.")
+                    && !refused.Contains("| N |"), Cut(refused, 400));
+            var asJson = (JsonObject)sql.DeepClone(); asJson["format"] = "json";
+            var (refusedJson, _) = await sut.McpText("sfs_query", asJson);
+            var heavyIndex = (JsonNode.Parse(refusedJson) as JsonObject)?["heavy"]?["saveIndex"];
+            Check("its JSON form has the offer as heavy.saveIndex (index, size, build time, later time, the answer to give)",
+                heavyIndex?["index"]?.GetValue<string>() == "world" && heavyIndex?["sizeMB"]?.GetValue<long>() > 0 && heavyIndex?["answer"]?.GetValue<string>() == "allow_heavy=\"save_index\"", Cut(heavyIndex?.ToJsonString() ?? refusedJson, 300));
+            var save = (JsonObject)sql.DeepClone(); save["allow_heavy"] = "save_index";
             var clock = Stopwatch.StartNew();
-            var (ran, ranErr) = await sut.McpText("sfs_query", allowed);
-            Check("the same call runs with allow_heavy=true", !ranErr && Regex.IsMatch(ran, @"(?m)^\| \d+ \|"), $"{clock.Elapsed.TotalSeconds:0.0} s; {Cut(ran, 200)}");
-            res.Calls += 2;
+            var (saved, savedErr) = await sut.McpText("sfs_query", save);
+            double savedSeconds = clock.Elapsed.TotalSeconds;
+            Check("allow_heavy=\"save_index\" runs it and says the world link index is being made",
+                !savedErr && Regex.IsMatch(saved, @"(?m)^\| FromType \| Field \| N \|") && saved.Contains("[notes] Saving the world link index of BlueprintShips-Starfield.esm") && saved.Contains("indexes drop world deletes it"), $"{savedSeconds:0.0} s; {Cut(saved, 300)}");
+            // The indexer lane makes it after the answer (below normal priority: 2.5 s estimated, 179 s measured on a PC at 97% load)
+            string indexes = "";
+            clock.Restart();
+            while (clock.Elapsed.TotalSeconds < 270 && !Regex.IsMatch(indexes, @"\| world \| [\d.,]+ (KB|MB) \| 1 of \d+ plugins with world data")) { await Task.Delay(3000); indexes = (await sut.McpText("sfs_run", new JsonObject { ["args"] = new JsonArray("indexes") })).Text; }
+            Check("the indexer lane makes the index after the answer", Regex.IsMatch(indexes, @"\| world \| [\d.,]+ (KB|MB) \| 1 of \d+ plugins with world data \(asked for: 1\)"), $"{clock.Elapsed.TotalSeconds:0} s; {Regex.Match(indexes, @"\| world \|[^\n]*").Value}");
+            clock.Restart();
+            var (again, againErr) = await sut.McpText("sfs_query", sql);
+            Check("the same call then runs without allow_heavy, its placed objects from the world link index",
+                !againErr && !again.StartsWith("Not run") && Regex.IsMatch(again, @"(?m)^\| FromType \| Field \| N \|") && again.Contains("came from the world link index of 1 plugin"), $"{clock.Elapsed.TotalSeconds:0.0} s (with allow_heavy=\"save_index\": {savedSeconds:0.0} s); {Cut(again, 300)}");
+            // refs: world "save_index" on a small plugin's record, then the same question from the index
+            var refs = new JsonObject { ["record"] = "00772F:kgcdoom.esm", ["world"] = "save_index", ["limit"] = 100 };
+            var (r1, r1Err) = await sut.McpText("sfs_refs", refs);
+            clock.Restart();
+            while (clock.Elapsed.TotalSeconds < 120 && !Regex.IsMatch(indexes, @"\| world \| [\d.,]+ (KB|MB) \| [2-9]\d* of \d+ plugins with world data")) { await Task.Delay(3000); indexes = (await sut.McpText("sfs_run", new JsonObject { ["args"] = new JsonArray("indexes") })).Text; }
+            var (r2, r2Err) = await sut.McpText("sfs_refs", new JsonObject { ["record"] = "00772F:kgcdoom.esm", ["limit"] = 100 });
+            static List<string> Rows(string t) => t.Split('\n').Where(l => l.StartsWith("| ") && !l.StartsWith("| Record") && !l.StartsWith("| :")).ToList();
+            Check("sfs_refs world \"save_index\": searched now, the index saved, and the same question then answers from it with the same rows",
+                !r1Err && !r2Err && r1.Contains("[notes] Saving the world link index of") && r2.Contains("from the world link index of") && Rows(r1).Count > 0 && Rows(r1).SequenceEqual(Rows(r2)),
+                $"{Rows(r1).Count} rows, then {Rows(r2).Count}; {Cut(Regex.Match(r2, @"(?m)^Searched:[^\n]*").Value, 240)}");
+            var (worldTrue, _) = await sut.McpText("sfs_refs", new JsonObject { ["record"] = "00772F:kgcdoom.esm", ["world"] = true, ["limit"] = 100 });
+            Check("sfs_refs world true still answers (from the index where there is one)", Rows(worldTrue).SequenceEqual(Rows(r1)), Cut(Regex.Match(worldTrue, @"(?m)^Searched:[^\n]*").Value, 240));
+            await sut.McpText("sfs_run", new JsonObject { ["args"] = new JsonArray("indexes", "drop", "world") });
+            res.Calls += 9;
             // The heavy lane itself: a round trip of a plugin big enough that its estimate is over the service's 2 GB limit
             var big = BigPlugin(sut.Data);
             if (big == null) Check("a call through the heavy lane", false, "no plugin of 190 to 330 MB in Data to make a round trip of");
@@ -229,6 +274,8 @@ public static partial class McpTest
 
         res.Line = $"{res.Checks - res.Failed} of {res.Checks} checks pass; {res.Calls} calls of the 12 tools through the MCP server ({string.Join(", ", NewTools.Select(t => $"{t[4..]} {res.PerTool.GetValueOrDefault(t)}"))})";
         return res;
+        }
+        finally { try { File.Delete(hooks); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
 
     /// <summary>Every tool's calls with known answers, from the author's agent benchmark: sets run to their work, or leaves it null when the benchmark isn't here.</summary>

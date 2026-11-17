@@ -1,0 +1,278 @@
+{
+  "about": "The polish cases of the indexes verb and the kept indexes (fix-j31-kept-indexes, 2026-11-15), in the shape of polish.json. In a file of their own so that other fixes' cases don't collide with them.",
+  "cases": [
+    {
+      "n": 131,
+      "title": "indexes: what SFSearch keeps on disk, each index's size, coverage and age, and how to drop it; sfs_status's line (fix-j31-kept-indexes)",
+      "before": "Nothing said what the service's two indexes take on disk, and they were made again at every start.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes"
+              ]
+            }
+          },
+          {
+            "tool": "sfs_status",
+            "params": {}
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "the three indexes with size, coverage and age (world: whether asked for); kept; how to drop; the status line",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| header \\| [\\d.,]+ (KB|MB|GB) \\| [\\d,]+ of [\\d,]+ plugins \\| \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| links \\| [\\d.,]+ (KB|MB|GB|bytes) \\| [\\d,]+ of [\\d,]+ plugins that can be walked \\|"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "Made again from nothing"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "indexes drop all"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "keepStartupIndexes"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^(Kept indexes|Indexes): header [\\d.,]+ (KB|MB|GB), links [\\d.,]+ (KB|MB|GB|bytes), world (none \\(made only when asked: indexes build world\\)|[\\d.,]+ (KB|MB|GB|bytes)) in .*indexes; .*indexes"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| world \\| [\\d.,]+ (KB|MB|GB|bytes) \\| [\\d,]+ of [\\d,]+ plugins with world data \\((not asked for|asked for: [\\w,]+)\\) \\|"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 132,
+      "title": "indexes build: makes what is missing, says when nothing is; --in is for the link index only (fix-j31-kept-indexes)",
+      "before": "There was no way to make the indexes on demand; __links build was the indexer's own job.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "build",
+                "links",
+                "--in",
+                "atom74.esm"
+              ]
+            }
+          },
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "build",
+                "header"
+              ]
+            }
+          },
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "build",
+                "header",
+                "--in",
+                "atom74.esm"
+              ]
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "made or already there; the header index is checked; --in refused for it",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "Link index: (up to date, nothing to make: 1 plugin\\(s\\) of the plugins --in atom74\\.esm names have their link file|1 plugin\\(s\\) of the plugins --in atom74\\.esm names walked)"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "Header index: (up to date, nothing to make|brought up to date)"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "Error: the header index covers every plugin in Data at once: --in doesn't apply to it\\. Fix: "
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 133,
+      "title": "indexes drop: deletes an index or one plugin's part while the service runs; says how it comes back (fix-j31-kept-indexes)",
+      "before": "The scratch folder held the indexes and was emptied only at a service start; nothing deleted one index.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "drop",
+                "links",
+                "--in",
+                "atom74.esm"
+              ]
+            }
+          },
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "build",
+                "links",
+                "--in",
+                "atom74.esm"
+              ]
+            }
+          },
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "drop"
+              ]
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "dropped, made again, and the missing index name refused",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "Deleted the link index of the plugins --in atom74\\.esm names: 1 file\\(s\\), [\\d.,]+ KB\\."
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "The service makes what it needs again"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "Link index: 1 plugin\\(s\\) of the plugins --in atom74\\.esm names walked"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "Error: indexes drop needs the index to delete\\. Fix: name it: indexes drop header\\|links\\|world\\|all"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 134,
+      "title": "indexes build world: the world link index of the plugins named, made only when asked; refs answers from it; drop forgets it (fix-j32-world-links)",
+      "before": "refs found links from world data (cells, placed objects, navmeshes) only by searching the world data's bytes: several seconds a question for a Starfield.esm record, left out by default.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "build",
+                "world",
+                "--in",
+                "kgcdoom.esm"
+              ]
+            }
+          },
+          {
+            "tool": "sfs_refs",
+            "params": {
+              "record": "00772F:kgcdoom.esm"
+            }
+          },
+          {
+            "tool": "sfs_run",
+            "params": {
+              "args": [
+                "indexes",
+                "drop",
+                "world",
+                "--in",
+                "kgcdoom.esm"
+              ]
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "made (or already there) and kept as asked; refs reads world data from it; dropped and forgotten",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "World link index: (1 plugin\\(s\\) of the plugins --in kgcdoom\\.esm names made in [\\d.]+ s|up to date, nothing to make)"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "SFSearch keeps it for these plugins"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "46 records point at kgcDoom_STAT_HiveNestGooMoundMedium01 \\(00772F:kgcdoom\\.esm\\)"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "from the world link index of 1 plugin"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "Deleted the world link index of the plugins --in kgcdoom\\.esm names: 1 file\\(s\\)"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "isn't made again until you ask for it"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

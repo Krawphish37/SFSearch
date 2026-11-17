@@ -21,6 +21,12 @@ sealed class ReadRow
     public string? Parent;
     public bool IsOverride, IsWinner;
     public long Pos;
+    /// <summary>For the Forms table: the record's bytes after its header as stored, as read (inflated), and whether
+    /// it is compressed (GAPS S81).</summary>
+    public long Size, DataSize;
+    public bool Compressed;
+    /// <summary>For the Forms table: the record header's flags as stored, bytes 8-11 (GAPS S108).</summary>
+    public uint Flags;
     public byte[]? Jsonb;
     /// <summary>The record's links as lines of "path TAB FormKey", UTF-8.</summary>
     public byte[]? Links;
@@ -29,6 +35,8 @@ sealed class ReadRow
     public string? Skip;
     /// <summary>The projected columns, when only named columns were read.</summary>
     public object?[]? Values;
+    /// <summary>A list view's rows of the record (its list places, then its columns), when a list's named columns were read.</summary>
+    public List<object?[]>? ListRows;
 }
 
 /// <summary>Finds the links in a record's JSON: every text value that is a FormKey, with its path.</summary>
@@ -160,7 +168,7 @@ sealed class JsonbMaker : IDisposable
 {
     readonly SqliteConnection _con;
     readonly sqlite3 _db;
-    readonly sqlite3_stmt _jsonb;
+    sqlite3_stmt _jsonb;
     sqlite3_stmt? _project;
     string? _projectSql;
 
@@ -192,7 +200,7 @@ sealed class JsonbMaker : IDisposable
             if (rc != raw.SQLITE_ROW) throw Error(rc);
             return raw.sqlite3_column_blob(_jsonb, 0).ToArray();
         }
-        finally { raw.sqlite3_reset(_jsonb); }
+        finally { raw.sqlite3_reset(_jsonb); if (utf8.Length > ForgetBytes) Forget(); }
     }
 
     /// <summary>The values of the given expressions (written over a column named Json) for one record's JSON.</summary>
@@ -223,7 +231,59 @@ sealed class JsonbMaker : IDisposable
             else if (rc != raw.SQLITE_DONE) throw Error(rc);
             return values;
         }
-        finally { raw.sqlite3_reset(stmt); }
+        finally { raw.sqlite3_reset(stmt); if (utf8.Length > ForgetBytes) Forget(); }
+    }
+
+    /// <summary>Every row a statement (written over a value named Json) gives for one record's JSON: a list view's rows
+    /// of the record (ViewBuilder.ListProjectSql, GAPS S58).</summary>
+    public List<object?[]> ProjectRows(ReadOnlySpan<byte> utf8, string sql, int columns)
+    {
+        if (!ReferenceEquals(_projectSql, sql) && _projectSql != sql)
+        {
+            _project?.Dispose();
+            _project = Prepare(sql);
+            _projectSql = sql;
+        }
+        var stmt = _project!;
+        raw.sqlite3_bind_blob(_jsonb, 1, utf8);
+        try
+        {
+            int rc = raw.sqlite3_step(_jsonb);
+            if (rc != raw.SQLITE_ROW) throw Error(rc);
+            raw.sqlite3_bind_blob(stmt, 1, raw.sqlite3_column_blob(_jsonb, 0));
+        }
+        finally { raw.sqlite3_reset(_jsonb); }
+        var rows = new List<object?[]>();
+        try
+        {
+            while (true)
+            {
+                int rc = raw.sqlite3_step(stmt);
+                if (rc == raw.SQLITE_DONE) break;
+                if (rc != raw.SQLITE_ROW) throw Error(rc);
+                var values = new object?[columns];
+                for (int i = 0; i < columns; i++) values[i] = Value(stmt, i);
+                rows.Add(values);
+            }
+            return rows;
+        }
+        finally { raw.sqlite3_reset(stmt); if (utf8.Length > ForgetBytes) Forget(); }
+    }
+
+    /// <summary>A record's JSON over this size isn't kept after it is read (see <see cref="Forget"/>).</summary>
+    const int ForgetBytes = 1 << 20;
+
+    /// <summary>
+    /// SQLite keeps the last few JSON values each statement parsed, for as long as the statement lives (its JSON
+    /// cache): after a cell with 6.8 MB of JSON, a reading thread held about 60 MB until it was given bigger ones. The
+    /// statements are made again, which lets that go.
+    /// </summary>
+    void Forget()
+    {
+        _jsonb.Dispose();
+        _jsonb = Prepare("SELECT jsonb(CAST($j AS TEXT))");
+        _project?.Dispose();
+        _project = null; _projectSql = null;
     }
 
     /// <summary>A column's value as Microsoft.Data.Sqlite's reader gives it: integer, real, text, bytes or nothing.</summary>
@@ -263,7 +323,80 @@ sealed class ReadPlan
     public DirectColumn?[]? Direct;
     /// <summary>Mark each row with whether it is the version the game uses.</summary>
     public bool Winners;
+    /// <summary>With <see cref="Full"/> off: a list view's named columns, straight from the object (GAPS S45).</summary>
+    public DirectList? List;
+    /// <summary>With <see cref="List"/>: the same columns from the record's own bytes (RawLists.cs, GAPS S123). A record
+    /// the bytes can't answer is read through Mutagen with <see cref="List"/>.</summary>
+    public RawList? RawList;
+    /// <summary>With <see cref="Full"/> off: a list view's rows taken out of each record's JSON, the record's JSON let
+    /// go at once (ViewBuilder.ListProjectSql, GAPS S58), and how many values a row has (its places, then its columns).</summary>
+    public string? ListSql;
+    public int ListValues;
+    /// <summary>With <see cref="Full"/> off: no field the JSON is read for can hold a nested record, so a record that
+    /// holds others needn't have them split out of its JSON first (RecordSchema.FieldHoldsRecords): the serializer's own
+    /// UTF-8 is read, with no parsed copy of the whole record (a cell with 6.8 MB of JSON took about 100 MB parsed).</summary>
+    public bool Unsplit;
+
+    /// <summary>With <see cref="Full"/> off and every column direct: the columns read from the record's own bytes
+    /// (RawColumns.cs, J30), in the same order as <see cref="Direct"/>. A record the bytes can't answer is read through
+    /// Mutagen with <see cref="Direct"/>.</summary>
+    public RawRecordColumns? Raw;
+    /// <summary>The query's language, for translated texts read from the records' own bytes (<see cref="Raw"/>,
+    /// <see cref="RawList"/>; GAPS S152). Null: such a text is read through Mutagen.</summary>
+    public string? TextLanguage;
+    /// <summary>With <see cref="Full"/> off: only the records whose named columns pass it give a row (a statement's
+    /// <c>col = literal</c>, applied while reading). Records that couldn't be read still give their row, with
+    /// <see cref="ReadRow.Skip"/>.</summary>
+    public RowFilter? Filter;
+
+    /// <summary>True when the records are opened through Mutagen (not the header index alone).</summary>
+    public bool Reads => Full || ProjectSql != null || Direct != null || List != null || ListSql != null;
 }
+
+/// <summary>
+/// A statement's <c>col = 'literal'</c> (or <c>IN (…)</c>) on a column it reads, applied while the records are read
+/// (J30): only the matching rows are inserted (2,648 of Starfield.esm's 3.29 million placed objects for one base).
+/// The values compare as SQLite compares them in the column's table: a link column with NOCASE (ASCII letters folded),
+/// any other column as it is; a text never equals a number, numbers by their value.
+/// </summary>
+sealed class RowFilter
+{
+    public required int Column { get; init; }
+    public required string Name { get; init; }
+    public required IReadOnlyList<object> Literals { get; init; }
+    public bool NoCase { get; init; }
+
+    public bool Accept(object? value)
+    {
+        if (value == null) return false;
+        foreach (var lit in Literals)
+            switch (lit, value)
+            {
+                case (string a, string b) when NoCase ? AsciiNoCase(a, b) : string.Equals(a, b, StringComparison.Ordinal): return true;
+                case (long a, long b) when a == b: return true;
+                case (long a, double b) when a == b: return true;
+                case (double a, long b) when a == b: return true;
+                case (double a, double b) when a == b: return true;
+            }
+        return false;
+    }
+
+    /// <summary>SQLite's NOCASE: equal once A to Z are folded to a to z, nothing else folded.</summary>
+    static bool AsciiNoCase(string a, string b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            char x = a[i], y = b[i];
+            if (x == y) continue;
+            if (x is >= 'A' and <= 'Z') x = (char)(x + 32);
+            if (y is >= 'A' and <= 'Z') y = (char)(y + 32);
+            if (x != y) return false;
+        }
+        return true;
+    }
+}
+
 
 sealed class RecordReader : IDisposable
 {
@@ -272,12 +405,6 @@ sealed class RecordReader : IDisposable
     readonly Action<SqliteConnection> _registerFunctions;
     readonly ConcurrentBag<JsonbMaker> _makers = new();
     readonly ThreadLocal<JsonbMaker> _maker;
-
-    /// <summary>Stopwatch ticks spent on the reading threads, by step: reading through Mutagen, to JSON, in SQLite (JSONB or the named columns).</summary>
-    public static long TicksLoad, TicksJson, TicksSql;
-    /// <summary>Stopwatch ticks the inserting thread spent waiting for the reading threads' next batch. The rest of a
-    /// read's time is the inserting thread's own work.</summary>
-    public static long TicksWait;
 
     public RecordReader(RecordEngine engine, int threads, int directReaders, Action<SqliteConnection> registerFunctions)
     {
@@ -293,33 +420,91 @@ sealed class RecordReader : IDisposable
         _maker.Dispose();
     }
 
-    /// <summary>A plugin's records of one signature in file order, as batches.</summary>
-    public IEnumerable<List<ReadRow>> Read(IndexedPlugin plugin, string signature, ReadPlan plan, CancellationToken cancel)
-    {
-        foreach (var batch in ReadEntries(plugin, plugin.Segment!.EntriesOf(signature).ToArray(), plan, cancel))
-            yield return batch;
-    }
+    /// <summary>A plugin's records of one signature in file order.</summary>
+    public IEnumerable<ReadRow> Read(IndexedPlugin plugin, string signature, ReadPlan plan, CancellationToken cancel) =>
+        ReadEntries(plugin, plugin.Segment!.EntriesOf(signature).ToArray(), plan, cancel);
 
-    /// <summary>Some records of a plugin, by their entries in its header index, in file order, as batches: what a query
-    /// narrowed by FormKey reads (Session.Keyed.cs).</summary>
-    public IEnumerable<List<ReadRow>> ReadEntries(IndexedPlugin plugin, int[] entries, ReadPlan plan, CancellationToken cancel)
+    /// <summary>
+    /// Some records of a plugin, by their entries in its header index, in file order: what a query narrowed by FormKey
+    /// reads (Session.Keyed.cs). Read on the shared record pipeline (SFSearch.Index\RecordPipeline.cs, J35): the
+    /// records' own bytes, inflated, when every column is read from them (RawColumns.cs); otherwise each record's
+    /// place, and the record read through Mutagen.
+    /// </summary>
+    public IEnumerable<ReadRow> ReadEntries(IndexedPlugin plugin, int[] entries, ReadPlan plan, CancellationToken cancel)
     {
         var seg = plugin.Segment!;
         if (entries.Length == 0) yield break;
-        var offsets = new long[entries.Length];
-        for (int i = 0; i < entries.Length; i++) offsets[i] = seg[entries[i]].Offset;
-        Array.Sort(offsets, entries);
+        // File order. With a filter only the rows it keeps are put in that order, after the read: sorting 3.29 million
+        // placed objects' places first took about a third of a read that keeps 2,648 of them
+        if (plan.Filter == null)
+        {
+            var offsets = new long[entries.Length];
+            for (int i = 0; i < entries.Length; i++) offsets[i] = seg[entries[i]].Offset;
+            entries = (int[])entries.Clone();
+            Array.Sort(offsets, entries);
+        }
         // The plugin is opened on this thread, before any reading thread asks for it
-        if (plan.Full || plan.ProjectSql != null || plan.Direct != null) _engine.Sessions.Get(plugin.Name);
-
-        foreach (var batch in OrderedParallel(Batches(seg, entries), b => Process(plugin, b, plan), _threads, cancel))
-            yield return batch;
+        if (plan.Reads) _engine.Sessions.Get(plugin.Name);
+        bool raw = !plan.Full && (plan.Raw != null || plan.List != null && plan.RawList != null);
+        bool json = plan.Full || plan.ProjectSql != null || plan.ListSql != null;
+        var rawPlugin = raw ? new RawPlugin(plugin, plan.Reads ? _engine.Sessions.Get(plugin.Name) : null, plan.TextLanguage) : null;
+        var types = new string?[seg.Signatures.Count];
+        var index = _engine.Index;
+        var options = new PipelineOptions
+        {
+            Threads = _threads, Cancel = cancel,
+            Data = raw ? PipelineData.Plain : PipelineData.None,
+            CostPerByte = plan.Reads && !raw ? PipelineOptions.MutagenCostPerByte : 1,
+            // A record's JSON is many times its bytes, and every finished piece holds its rows until they are
+            // inserted: small pieces and few ahead (a surface tree is 57 KB stored and 3 MB of JSONB)
+            // A list read by the value walk costs far more per record than a read at fixed places: smaller pieces keep
+            // every thread busy to the end
+            PieceRecords = raw && plan.RawList?.Walks != true ? 4096 : 512,
+            PieceBytes = json ? 256 << 10 : 4 << 20,
+            Ahead = json ? 2 * _threads : 0,
+        };
+        var rows = RecordPipeline.Read<ReadRow>(new[] { new ReadSet { Plugin = plugin, Entries = entries } }, (in PipelineRecord r, List<ReadRow> output) =>
+        {
+            if (raw && r.Problem == PipelineProblem.None && plan.RawList != null)
+            {
+                var listRows = new List<object?[]>();
+                if (plan.RawList.Read(r.Head, r.Data, rawPlugin!, listRows))
+                {
+                    var e = r.Header;
+                    var row = new ReadRow { FormKey = index.FormKeyOf(r.Ref), EditorId = seg.EditorId(r.EntryIndex), IsOverride = e.Owner < seg.SelfOwner, Pos = e.Offset };
+                    if (plan.Winners) row.IsWinner = index.IsWinner(r.Ref);
+                    if (e.IsUnresolved) row.Skip = "its FormID can't be resolved: a master of the plugin is missing";
+                    else { row.Type = types[e.Signature] ??= _engine.TypeFor(seg.SignatureOf(e)); row.ListRows = listRows; }
+                    output.Add(row);
+                    return;
+                }
+            }
+            else if (raw && r.Problem == PipelineProblem.None)
+            {
+                var values = new object?[plan.Raw!.Count];
+                if (plan.Raw.Read(r.Head, r.Data, rawPlugin!, values))
+                {
+                    if (plan.Filter != null && !plan.Filter.Accept(values[plan.Filter.Column])) return;
+                    // The header index's line without what this row doesn't keep (Describe's parent, sizes, plugin): every
+                    // object made per row here is the garbage collector's, and its pauses stop the one inserting thread too
+                    var e = r.Header;
+                    var row = new ReadRow { FormKey = index.FormKeyOf(r.Ref), EditorId = seg.EditorId(r.EntryIndex), IsOverride = e.Owner < seg.SelfOwner, Pos = e.Offset };
+                    if (plan.Winners) row.IsWinner = index.IsWinner(r.Ref);
+                    if (e.IsUnresolved) row.Skip = "its FormID can't be resolved: a master of the plugin is missing";
+                    else { row.Type = types[e.Signature] ??= _engine.TypeFor(seg.SignatureOf(e)); row.Values = values; }
+                    output.Add(row);
+                    return;
+                }
+            }
+            if (Process(r.Ref, plan) is { } made) output.Add(made);
+        }, options);
+        if (plan.Filter != null) rows = rows.ToList().OrderBy(x => x.Pos);
+        foreach (var row in rows) yield return row;
     }
-
 
     /// <summary>Every record of a plugin as the header index has it, in file order: what the Forms table is made of.
     /// No record is read.</summary>
-    public IEnumerable<List<ReadRow>> ReadIndex(IndexedPlugin plugin, bool winners, CancellationToken cancel)
+    public IEnumerable<ReadRow> ReadIndex(IndexedPlugin plugin, bool winners, CancellationToken cancel)
     {
         var seg = plugin.Segment!;
         int n = seg.Count;
@@ -328,42 +513,21 @@ sealed class RecordReader : IDisposable
         for (int i = 0; i < n; i++) { entries[i] = i; offsets[i] = seg[i].Offset; }
         Array.Sort(offsets, entries);
         var index = _engine.Index;
-        IEnumerable<ArraySegment<int>> Pieces() { for (int i = 0; i < n; i += 8192) yield return new ArraySegment<int>(entries, i, Math.Min(8192, n - i)); }
-        foreach (var batch in OrderedParallel(Pieces(), piece =>
+        foreach (var row in RecordPipeline.Read<ReadRow>(new[] { new ReadSet { Plugin = plugin, Entries = entries } }, (in PipelineRecord p, List<ReadRow> output) =>
         {
-            var rows = new List<ReadRow>(piece.Count);
-            foreach (int entry in piece)
-            {
-                var r = new RecordRef(plugin.Id, entry);
-                var info = index.Describe(r);
-                rows.Add(new ReadRow { FormKey = info.FormKey, EditorId = info.EditorId, IsOverride = info.IsOverride, Pos = info.Offset, Parent = info.Parent, Sig = info.Signature, IsWinner = winners && index.IsWinner(r) });
-            }
-            return rows;
-        }, _threads, cancel))
-            yield return batch;
-    }
-    static IEnumerable<ArraySegment<int>> Batches(Segment seg, int[] entries)
-    {
-        // A batch is at most 512 records and about 4 MB of record data. The header index has a compressed record's
-        // stored size only, so it counts sixteen times: a batch's rows wait in memory for the inserting thread, and
-        // 70 surface trees (57 KB each as stored, 3 MB each as JSONB) in one batch were 200 MB a batch.
-        const int maxCount = 512; const long maxBytes = 4 << 20; const int inflates = 16;
-        int start = 0; long bytes = 0;
-        for (int i = 0; i < entries.Length; i++)
-        {
-            var entry = seg[entries[i]];
-            bytes += entry.IsCompressed ? (long)entry.Size * inflates : entry.Size;
-            if (i - start + 1 >= maxCount || bytes >= maxBytes)
-            {
-                yield return new ArraySegment<int>(entries, start, i - start + 1);
-                start = i + 1; bytes = 0;
-            }
-        }
-        if (start < entries.Length) yield return new ArraySegment<int>(entries, start, entries.Length - start);
+            var r = p.Ref;
+            var info = index.Describe(r);
+            // A compressed record's first four bytes are its size inflated
+            bool zipped = p.Header.IsCompressed;
+            long data = zipped && p.Data.Length >= 4 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(p.Data) : p.Header.Size;
+            output.Add(new ReadRow { FormKey = info.FormKey, EditorId = info.EditorId, IsOverride = info.IsOverride, Pos = info.Offset, Parent = info.Parent, Sig = info.Signature, IsWinner = winners && index.IsWinner(r),
+                Size = p.Header.Size, DataSize = data, Compressed = zipped, Flags = p.Header.Flags });
+        }, new PipelineOptions { Threads = _threads, Cancel = cancel, Data = PipelineData.Stored, PieceRecords = 8192, PieceBytes = long.MaxValue }))
+            yield return row;
     }
 
     /// <summary>
-    /// A host's own limit on how many threads read records straight from their own bytes at once
+    /// A host's own limit on how many threads read records straight from their own bytes through Mutagen at once
     /// (QueryOptions.DirectReaders). Null: none, every reading thread does. There was a limit of two here while those
     /// reads went through one file handle, which Windows lets one thread at a time read through. Each reading thread
     /// now has a handle and a window of its own (PluginSession.ReadAt), and the reads scale with the threads:
@@ -371,77 +535,57 @@ sealed class RecordReader : IDisposable
     /// </summary>
     readonly SemaphoreSlim? _directGate;
 
-    List<ReadRow> Process(IndexedPlugin plugin, ArraySegment<int> batch, ReadPlan plan)
+    /// <summary>One record read through Mutagen (or from the header index alone), made into its row; null when the
+    /// plan's filter leaves it out. Each record is read, turned into JSON and let go before the next one is read: a
+    /// record that lives no longer than that costs the garbage collector nothing.</summary>
+    ReadRow? Process(RecordRef r, ReadPlan plan)
     {
-        var rows = new List<ReadRow>(batch.Count);
         var index = _engine.Index;
-        bool read = plan.Full || plan.ProjectSql != null || plan.Direct != null;
-        var maker = read ? _maker.Value! : null;
-        // Each record is read, turned into JSON and let go before the next one is read: a record that lives no
-        // longer than that costs the garbage collector nothing. Only under a host's limit on direct readers are a
-        // batch's records read first and turned into JSON after the turn has been given up.
-        LoadedRecord?[]? held = null;
-        bool gated = false;
-        var took = new Took();
-        try
-        {
-            for (int i = 0; i < batch.Count; i++)
-            {
-                var r = new RecordRef(plugin.Id, batch.Array![batch.Offset + i]);
-                var info = index.Describe(r);
-                // The parent isn't kept: only the Forms table has it, and that is made by ReadIndex
-                var row = new ReadRow { FormKey = info.FormKey, EditorId = info.EditorId, IsOverride = info.IsOverride, Pos = info.Offset };
-                if (plan.Winners) row.IsWinner = index.IsWinner(r);
-                rows.Add(row);
-                if (!read) continue;
-                if (info.Unresolved) { row.Skip = "its FormID can't be resolved: a master of the plugin is missing"; continue; }
-                if (i == 0 && _directGate != null && _engine.IsDirect(info)) { _directGate.Wait(); gated = true; held = new LoadedRecord?[batch.Count]; }
-                LoadedRecord? rec = null;
-                long a = System.Diagnostics.Stopwatch.GetTimestamp();
-                try { rec = _engine.Load(r, info); }
-                catch (RecordException e) { row.Skip = e.Message; }
-                catch (Exception e) when (e is not OperationCanceledException) { row.Skip = Failure(e); }
-                took.Load += System.Diagnostics.Stopwatch.GetTimestamp() - a;
-                if (rec == null) continue;
-                if (held != null) held[i] = rec;
-                else Finish(rec, row, plan, maker!, ref took);
-            }
-        }
+        var info = index.Describe(r);
+        var row = new ReadRow { FormKey = info.FormKey, EditorId = info.EditorId, IsOverride = info.IsOverride, Pos = info.Offset };
+        if (plan.Winners) row.IsWinner = index.IsWinner(r);
+        if (!plan.Reads) return row;
+        if (info.Unresolved) { row.Skip = "its FormID can't be resolved: a master of the plugin is missing"; return row; }
+        LoadedRecord? rec = null;
+        bool gated = _directGate != null && _engine.IsDirect(info);
+        if (gated) _directGate!.Wait();
+        try { rec = _engine.Load(r, info); }
+        catch (RecordException e) { row.Skip = e.Message; }
+        catch (Exception e) when (e is not OperationCanceledException) { row.Skip = Failure(e); }
         finally { if (gated) _directGate!.Release(); }
-        if (held != null)
-            for (int i = 0; i < held.Length; i++)
-                if (held[i] is { } rec) { Finish(rec, rows[i], plan, maker!, ref took); held[i] = null; }
-        if (read) { Interlocked.Add(ref TicksLoad, took.Load); Interlocked.Add(ref TicksJson, took.Json); Interlocked.Add(ref TicksSql, took.Sql); }
-        return rows;
+        if (rec != null) Finish(rec, row, plan, _maker.Value!);
+        if (row.Skip == null && plan.Filter != null && row.Values != null && !plan.Filter.Accept(row.Values[plan.Filter.Column])) return null;
+        return row;
     }
 
-    /// <summary>Stopwatch ticks of one batch, by step.</summary>
-    struct Took { public long Load, Json, Sql; }
 
     /// <summary>A record that was read becomes its row: its JSON, then its links and JSONB, or the named columns.</summary>
-    void Finish(LoadedRecord rec, ReadRow row, ReadPlan plan, JsonbMaker maker, ref Took took)
+    void Finish(LoadedRecord rec, ReadRow row, ReadPlan plan, JsonbMaker maker)
     {
         try
         {
-            long a = System.Diagnostics.Stopwatch.GetTimestamp();
             row.Type = rec.Type;
+            if (!plan.Full && plan.List != null)
+            {
+                row.ListRows = plan.List.Read(rec.Record);
+                return;
+            }
             if (!plan.Full && plan.Direct != null && plan.ProjectSql == null)
             {
                 // Every column straight from the object: no JSON
                 var direct = new object?[plan.Direct.Length];
                 for (int i = 0; i < direct.Length; i++) direct[i] = plan.Direct[i]!.Read(rec.Record);
                 row.Values = direct;
-                took.Sql += System.Diagnostics.Stopwatch.GetTimestamp() - a;
                 return;
             }
             // A record that holds others has its children taken out of its JSON first. Every other record's JSON
             // comes as the serializer's own UTF-8, in memory the serializer writes again for the next record.
-            ReadOnlySpan<byte> utf8 = _engine.Schema.HoldsRecords(rec.Type)
+            ReadOnlySpan<byte> utf8 = _engine.Schema.HoldsRecords(rec.Type) && !(!plan.Full && plan.Unsplit)
                 ? Encoding.UTF8.GetBytes(_engine.Json(rec).ToJsonString())
-                : RecordSerializer.ToUtf8(rec.Record, rec.Type);
+                : RecordSerializer.ToUtf8(rec.Record);
             row.JsonBytes = utf8.Length;
-            long b = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (plan.Full)
+            if (!plan.Full && plan.ListSql != null) row.ListRows = maker.ProjectRows(utf8, plan.ListSql, plan.ListValues);
+            else if (plan.Full)
             {
                 row.Links = LinkWalker.Walk(utf8, out _);
                 row.Jsonb = maker.ToJsonb(utf8);
@@ -455,7 +599,6 @@ sealed class RecordReader : IDisposable
                 for (int i = 0, j = 0; i < values.Length; i++) values[i] = plan.Direct[i] is { } d ? d.Read(rec.Record) : fromJson[j++];
                 row.Values = values;
             }
-            took.Json += b - a; took.Sql += System.Diagnostics.Stopwatch.GetTimestamp() - b;
         }
         catch (RecordException e) { row.Skip = e.Message; }
         catch (Exception e) when (e is not OperationCanceledException) { row.Skip = Failure(e); }
@@ -466,49 +609,5 @@ sealed class RecordReader : IDisposable
     {
         var inner = e is System.Reflection.TargetInvocationException { InnerException: { } ie } ? ie : e;
         return $"Mutagen couldn't read it: {inner.GetType().Name}: {inner.Message}";
-    }
-
-    /// <summary>Runs <paramref name="work"/> on up to <paramref name="threads"/> threads and gives the results in the
-    /// order of the items. At most twice that many results wait for the consumer, so memory stays bounded.</summary>
-    static IEnumerable<TOut> OrderedParallel<TIn, TOut>(IEnumerable<TIn> items, Func<TIn, TOut> work, int threads, CancellationToken cancel)
-    {
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancel);
-        using var queue = new BlockingCollection<Task<TOut>>(threads * 2);
-        using var slots = new SemaphoreSlim(threads);
-        var producer = Task.Run(() =>
-        {
-            try
-            {
-                foreach (var item in items)
-                {
-                    slots.Wait(stop.Token);
-                    var it = item;
-                    var task = Task.Run(() => { try { return work(it); } finally { try { slots.Release(); } catch (ObjectDisposedException) { } } });
-                    try { queue.Add(task, stop.Token); }
-                    catch (OperationCanceledException) { try { task.Wait(); } catch (AggregateException) { } throw; }
-                }
-            }
-            catch (OperationCanceledException) { }
-            finally { queue.CompleteAdding(); }
-        });
-        try
-        {
-            long waitFrom = System.Diagnostics.Stopwatch.GetTimestamp();
-            foreach (var task in queue.GetConsumingEnumerable())
-            {
-                cancel.ThrowIfCancellationRequested();
-                var result = task.GetAwaiter().GetResult();
-                Interlocked.Add(ref TicksWait, System.Diagnostics.Stopwatch.GetTimestamp() - waitFrom);
-                yield return result;
-                waitFrom = System.Diagnostics.Stopwatch.GetTimestamp();
-            }
-        }
-        finally
-        {
-            stop.Cancel();
-            try { producer.Wait(); } catch (AggregateException) { }
-            // Let the tasks still running finish before their semaphore goes away
-            while (queue.TryTake(out var left)) { try { left.Wait(); } catch (AggregateException) { } }
-        }
     }
 }

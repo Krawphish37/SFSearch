@@ -50,3 +50,8 @@
 {"id":"find50","tool":"sfs_find","params":{"text":"There.s a slate on the desk","in":"stlazarusawakened.esm"}}
 {"id":"find51","tool":"sfs_find","params":{"text":"^The Lodge$","in":"Starfield.esm","world":true}}
 {"id":"find52","tool":"sfs_find","params":{"query":"Eon","world":true}}
+{"id":"find53","tool":"sfs_find","params":{"text":"^Starborn Services$","in":"darkstar.esm","plain":true}}
+{"id":"find54","tool":"sfs_find","params":{"text":"^Quest Complete$","in":"Starfield.esm","type":"QUST","plain":true,"limit":5}}
+{"id":"find55","tool":"sfs_find","params":{"text":"^Starborn Services$","in":"darkstar.esm"}}
+{"id":"find56","tool":"sfs_find","params":{"text":"Quest","from":"strings","plain":true}}
+{"id":"find57","tool":"sfs_find","params":{"query":"Eon","plain":true}}

@@ -34,7 +34,7 @@ namespace SFSearch.Query;
 /// <summary>One column of a typed view read from the record's own bytes.</summary>
 sealed partial class RawColumn
 {
-    enum Form { Constant, Link, Signed, Unsigned, Bool, Float, Double, Half, Enum, P2Float, P3Float, P2Int16, P3Int16, P2Int32, Bytes, Color, Guid, Text, Translated, HeaderFlag, Present }
+    enum Form { Constant, Link, Signed, Unsigned, Bool, Float, Double, Half, Enum, P2Float, P3Float, P2Int16, P3Int16, P2Int32, Bytes, Color, Guid, Text, Translated, HeaderFlag, Present, Percent }
 
     /// <summary>The subrecord, as the four bytes read little-endian.</summary>
     public readonly uint Subrecord;
@@ -63,6 +63,25 @@ sealed partial class RawColumn
     public readonly uint[] ObjectSubrecords = Array.Empty<uint>();
     /// <summary>A float Mutagen scales (<see cref="Scaled"/>): times it, or divided by its negative; 0 for none.</summary>
     float _scale;
+    /// <summary>A percent (Form.Percent): the whole number it is stored as (the XML's integerType: Byte is a 255th,
+    /// ByteHundred a hundredth, UShort, UInt), read by Mutagen's own PercentBinaryTranslation.GetPercent.</summary>
+    Mutagen.Bethesda.Translations.Binary.FloatIntegerType _percent;
+
+    /// <summary>The whole number a percent field is stored as, when the XML names one whose width is
+    /// <paramref name="size"/>; null for any other field (a percent stored as a float is read through Mutagen).</summary>
+    static Mutagen.Bethesda.Translations.Binary.FloatIntegerType? PercentOf(FieldDef def, int size)
+    {
+        if (def.Kind != "Percent" || !Enum.TryParse<Mutagen.Bethesda.Translations.Binary.FloatIntegerType>(def.IntegerType, out var t)) return null;
+        if (def.Multiplier != null || def.Divisor != null || def.LayoutEncoding != null || def.LayoutBits != null) return null;
+        int width = t switch
+        {
+            Mutagen.Bethesda.Translations.Binary.FloatIntegerType.UInt => 4,
+            Mutagen.Bethesda.Translations.Binary.FloatIntegerType.UShort => 2,
+            Mutagen.Bethesda.Translations.Binary.FloatIntegerType.Byte or Mutagen.Bethesda.Translations.Binary.FloatIntegerType.ByteHundred => 1,
+            _ => 0,
+        };
+        return width == size ? t : null;
+    }
     /// <summary>A field of an object that starts at an empty marker subrecord (a placed object's map marker after XMRK):
     /// the marker, and the object's own subrecords in its fields' order. Mutagen's generated reader gives the object
     /// the subrecords after the marker while each is one of its fields' and comes after the last one it took (an item
@@ -87,6 +106,13 @@ sealed partial class RawColumn
     bool _swap;
     /// <summary>A link whose stored FFFFFFFF is no link (FieldDef.MaxIsNone).</summary>
     bool _maxIsNone;
+    /// <summary>A typed column the record's value walk places and reads (RawWalkTyped.cs): its reader; null for any other.</summary>
+    public RawList.TypedWalk? Typed { get; private init; }
+
+    /// <summary>The reader of a typed column by the record's value walk, where no fixed place and no layout's plan gives
+    /// it and the walk reaches its field; null otherwise.</summary>
+    static RawColumn? WalkedTyped(string type, ColumnSpec c, RecordSchema schema) =>
+        RawList.TypedWalk.For(type, c, schema) is { } walk ? new RawColumn(c.Name, "", 0, 0, Form.Constant, false, null, false, null) { Typed = walk } : null;
     /// <summary>The places of the Breaks before the field in its data block, among the block's own fields (not in an
     /// object laid inside it): a subrecord that ends at one of them holds no bytes of the field.</summary>
     int[] _breaks = Array.Empty<int>();
@@ -116,7 +142,8 @@ sealed partial class RawColumn
         // them a record is, only Mutagen's read says, so its bytes aren't read as this type's
         if (schema.SignatureOf(view.Types[0]) is not { } sig || schema.TypesOf(sig).Count != 1) return null;
         // Where no generated place gives it: by Mutagen's own layout of its subrecord (RawPlannedColumns.cs)
-        return Cache.GetOrAdd((schema, view.Types[0], c.Name), _ => Make(view.Types[0], c, schema) ?? Numbered(Planned(view.Types[0], c, schema), c));
+        // Then by the record's value walk, where it reaches the field (RawWalkTyped.cs)
+        return Cache.GetOrAdd((schema, view.Types[0], c.Name), _ => Make(view.Types[0], c, schema) ?? Numbered(Planned(view.Types[0], c, schema), c) ?? WalkedTyped(view.Types[0], c, schema));
     }
 
     /// <summary>A flags field's number column is read as its flags column is, and gives the number (FlagsRaw.cs).</summary>
@@ -150,7 +177,8 @@ sealed partial class RawColumn
         kind ??= c.Kind;
         if (FormOf(kind, size, enumType) is not { } form || form is Form.Text or Form.Present) return null;
         if (drop != 0 && form != Form.Enum) return null;
-        return new RawColumn(c.Name, "", offset, size, form, false, enumType, zeroIsDefault && form is not (Form.Link or Form.Bytes or Form.Color), viewDefault, drop: drop) { _swap = Swapped(def), _maxIsNone = def.MaxIsNone, _number = kind == FlagsRaw.Kind };
+        if (form == Form.Percent && PercentOf(def, size) == null) return null;
+        return new RawColumn(c.Name, "", offset, size, form, false, enumType, zeroIsDefault && form is not (Form.Link or Form.Bytes or Form.Color), viewDefault, drop: drop) { _swap = Swapped(def), _maxIsNone = def.MaxIsNone, _percent = PercentOf(def, size) ?? default, _number = kind == FlagsRaw.Kind };
     }
 
     /// <summary>A column whose value is the same for every entry of a kind: what the view gives an entry whose class
@@ -167,6 +195,8 @@ sealed partial class RawColumn
         "Float" when size == 4 => Form.Float,
         "Double" when size == 8 => Form.Double,
         "Half" when size == 2 => Form.Half,
+        // (stored as a whole number: the caller holds the field to PercentOf)
+        "Percent" when size is 1 or 2 or 4 => Form.Percent,
         "P2Float" when size == 8 => Form.P2Float,
         "P3Float" when size == 12 => Form.P3Float,
         "P2Int16" when size == 4 => Form.P2Int16,
@@ -289,6 +319,8 @@ sealed partial class RawColumn
             case "Float" when size == 4: form = Form.Float; break;
             case "Double" when size == 8: form = Form.Double; break;
             case "Half" when size == 2: form = Form.Half; break;
+            // A percent stored as a whole number (a grass's dirtiness, a weather's wind speed: a byte)
+            case "Percent" when PercentOf(def, size) != null: form = Form.Percent; break;
             case "P2Float" when size == 8: form = Form.P2Float; break;
             case "P3Float" when size == 12: form = Form.P3Float; break;
             case "P2Int16" when size == 4: form = Form.P2Int16; break;
@@ -396,7 +428,7 @@ sealed partial class RawColumn
             {
                 _table = form == Form.Translated ? Enum.Parse<Mutagen.Bethesda.Strings.StringsSource>(def.StringsTable!) : default,
                 Marker = marker, EndMarker = endMarker, RunSubrecords = runSubs, RunRepeats = runRepeat,
-                _swap = Swapped(def), _maxIsNone = def.MaxIsNone,
+                _swap = Swapped(def), _maxIsNone = def.MaxIsNone, _percent = PercentOf(def, size) ?? default,
                 // A translated text absent from the object: none when it may be absent, else Mutagen's default, an empty
                 // text (a map marker's Name, `= string.Empty`), which DirectColumn gives as ""
                 _runAbsent = form == Form.Present ? (zeroIsDefault ? viewDefault : 0L) : form == Form.Translated ? (def.Nullable ? null : "") : def.Nullable || form == Form.Link ? null : viewDefault,
@@ -414,7 +446,7 @@ sealed partial class RawColumn
             _breaks = walked || marker != 0 ? Array.Empty<int>()
                 : rows.Where(r => r.Def.Kind == "Break" && r.Subrecord == sub && ParentPath(r.PlainPath) == parent && r.Offset is int at && at > 0 && at <= offset && r.Stack == row.Stack).Select(r => r.Offset!.Value).Distinct().ToArray(),
             _scale = scale,
-            _swap = Swapped(def), _maxIsNone = def.MaxIsNone,
+            _swap = Swapped(def), _maxIsNone = def.MaxIsNone, _percent = PercentOf(def, size) ?? default,
             _table = form == Form.Translated ? Enum.Parse<Mutagen.Bethesda.Strings.StringsSource>(def.StringsTable!) : default,
         };
     }
@@ -663,6 +695,13 @@ sealed partial class RawColumn
                 return Outcome.Value;
             }
             case Form.Double: value = DirectColumn.Real(BinaryPrimitives.ReadDoubleLittleEndian(b)); return Outcome.Value;
+            case Form.Percent:
+            {
+                // Mutagen's own reading of the stored number (a byte past 100 of a hundredth is its zero)
+                double pc = PercentBinaryTranslation.GetPercent(b, _percent).Value;
+                value = _zeroIsDefault && pc == 0 ? _viewDefault : DirectColumn.Real(pc);
+                return Outcome.Value;
+            }
             case Form.Half: value = DirectColumn.Real(BinaryPrimitives.ReadHalfLittleEndian(b)); return Outcome.Value;
             case Form.P2Float: return Scaled(new P2Float(Scale(F(b, 0)), Scale(F(b, 4))), out value);
             case Form.P3Float: return Scaled(new P3Float(Scale(F(b, 0)), Scale(F(b, 4)), Scale(F(b, 8))), out value);
@@ -733,6 +772,8 @@ sealed class RawPlugin
         "PrependLengthWithNullIfContent" => BinaryStringUtility.ProcessWholeToZString(b[4..], encoding),
         "PrependLengthUShort" => BinaryStringUtility.ToZString(b[2..], encoding),
         "PrependLengthUInt8" => BinaryStringUtility.ToZString(b[1..], encoding),
+        // (Mutagen's StringBinaryType.Plain, parsed whole: every byte is the text's)
+        "Plain" => BinaryStringUtility.ToZString(b, encoding),
         _ => BinaryStringUtility.ProcessWholeToZString(b, encoding),
     };
 
@@ -868,6 +909,9 @@ sealed class RawRecordColumns
 
     /// <summary>The columns the record's value walk places (RawColumn.Walked), their paths, and what the walk is asked for.</summary>
     readonly int[] _walked;
+    /// <summary>The typed columns the value walk reads whole (RawColumn.Typed), and their walk together.</summary>
+    readonly int[] _typed = Array.Empty<int>();
+    readonly RawList.TypedWalks? _typedWalks;
     readonly LinkFields? _walkFields;
     readonly RecordSchema? _walkSchema;
     readonly Func<string, bool>? _walkWant;
@@ -877,6 +921,8 @@ sealed class RawRecordColumns
     {
         _columns = columns;
         _walked = Enumerable.Range(0, columns.Length).Where(i => columns[i].Walked != null).ToArray();
+        _typed = Enumerable.Range(0, columns.Length).Where(i => columns[i].Typed != null).ToArray();
+        if (_typed.Length > 0) _typedWalks = new RawList.TypedWalks(_typed.Select(i => columns[i].Typed!).ToArray());
         if (_walked.Length > 0)
         {
             var (schema, type, _) = columns[_walked[0]].Walked!.Value;
@@ -892,7 +938,7 @@ sealed class RawRecordColumns
             }
             _walkWant = paths.Contains;
         }
-        _subs = columns.Where(c => !c.InHeader && c.Marker == 0 && c.Walked == null).SelectMany(c => c.ObjectSubrecords.Prepend(c.Subrecord)).Distinct().ToArray();
+        _subs = columns.Where(c => !c.InHeader && c.Marker == 0 && c.Walked == null && c.Typed == null).SelectMany(c => c.ObjectSubrecords.Prepend(c.Subrecord)).Distinct().ToArray();
         var markers = columns.Where(c => c.Marker != 0).Select(c => c.Marker).Distinct().ToList();
         // Columns of two marker objects: not read from the bytes together (every record goes to Mutagen)
         _twoMarkers = markers.Count > 1;
@@ -965,9 +1011,11 @@ sealed class RawRecordColumns
         if (inRun && _end != 0) return false;
         // The columns the value walk places: the subrecord it gives each field (GAPS S165)
         if (_walked.Length > 0 && !ReadWalked(head, data, plugin, values)) return false;
+        // The typed columns the value walk reads: one walk for them all
+        if (_typedWalks != null && !_typedWalks.Read(head, data, plugin, values, _typed)) return false;
         for (int i = 0; i < _columns.Length; i++)
         {
-            if (_columns[i].Walked != null) continue;
+            if (_columns[i].Walked != null || _columns[i].Typed != null) continue;
             // A field of the record's header: its 24 bytes as the file stores them
             if (_columns[i].InHeader)
             {

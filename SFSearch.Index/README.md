@@ -14,7 +14,7 @@ using SFSearch.Index;
 
 using var index = new HeaderIndex(
     PluginSource.Folder(dataFolder),
-    new IndexOptions { ScratchFolder = scratch, VersionText = "sfsearch 2.0 / mutagen 0.55.0-fixes.25 / schema 1" });
+    new IndexOptions { ScratchFolder = scratch, VersionText = "sfsearch 2.0 / mutagen 0.55.0-fixes.26 / schema 1" });
 var report = index.Refresh();            // about 2 s for 370 plugins the first time, about 30 ms when nothing changed
 
 var versions = index.Versions("0476C4:Starfield.esm");                 // every holder in load order, and the winner
@@ -68,6 +68,6 @@ dotnet build SFSearch.Index.Tests -c Release
 SFSearch.Index.Tests/bin/Release/net10.0/sfsindex-tests.exe "<Data folder>"
 ```
 - The runner's commands are listed at the top of `SFSearch.Index.Runner\Program.cs`. Its scratch folder is `%TEMP%\sfsindex-scratch` unless `--scratch` names another.
-- The tests need Mutagen 0.55.0-fixes.25 from the repository's `packages\` (`SFSearch.Index.Tests\nuget.config`). Only the test project uses Mutagen.
+- The tests need Mutagen 0.55.0-fixes.26 from the repository's `packages\` (`SFSearch.Index.Tests\nuget.config`). Only the test project uses Mutagen.
 - `--all-plugins` compares every plugin with Mutagen. `--starfield-whole` includes Starfield.esm's cells and worldspaces: run that one alone, on a PC with memory to spare (4.3 GB).
 - The tests copy a few small plugins to `%TEMP%\sfsindex-tests` and change the copies. They never write to the Data folder.

@@ -35,7 +35,8 @@ public sealed class SchemaDb
         foreach (var r in Query(con, @"SELECT Object, Ord, Path, Name, Kind, Subrecord, Offset, OffsetRel, Size, StartsSubrecord, Nullable, InList, RefObject, LinkTo, Enum, DefaultValue,
                 Translated, Unknown, Custom, Property, SigMap, GenericArg, ClrType, Readable, XEdit, XEditPairs, Unit, Note, Marker, EndMarker,
                 StringsTable, CounterLength, TextForm, LayoutOffset, LayoutBits, LayoutSubrecord, LayoutEncoding, LayoutDroppedBits, LayoutPresentWhen, LayoutGroup, SelectedBy, LayoutMap, Source, ReadOnly, CkName, CkField,
-                CustomSubrecords, CustomFills, FilledBy, SelectorEnum, GenderRecord, MaleMarker, FemaleMarker, MaxIsNone, ItemMarker, ItemEndMarker
+                CustomSubrecords, CustomFills, FilledBy, SelectorEnum, GenderRecord, MaleMarker, FemaleMarker, MaxIsNone, ItemMarker, ItemEndMarker,
+                IntegerType, Multiplier, Divisor
                 FROM ObjectFields ORDER BY Object, Ord"))
             m.Objects[r.S(0)!].Fields.Add(new FieldDef
             {
@@ -48,6 +49,7 @@ public sealed class SchemaDb
                 LayoutPresentWhen = r.S(38), LayoutGroup = r.S(39), SelectedBy = r.S(40), LayoutMap = r.S(41), Source = r.S(42), ReadOnly = r.B(43), CkName = r.S(44), CkField = r.S(45),
                 CustomSubrecords = r.S(46), CustomFills = r.S(47), FilledBy = r.S(48), SelectorEnum = r.S(49),
                 GenderRecord = r.S(50), MaleMarker = r.S(51), FemaleMarker = r.S(52), MaxIsNone = r.B(53), ItemMarker = r.S(54), ItemEndMarker = r.S(55),
+                IntegerType = r.S(56), Multiplier = r.S(57), Divisor = r.S(58),
             });
         foreach (var r in Query(con, "SELECT Kind, Sig, Object, Name, Xml FROM HandLayouts ORDER BY Ord"))
             m.HandLayouts.Add(new HandLayout(r.S(0)!, r.S(1), r.S(2), r.S(3), r.S(4)!));

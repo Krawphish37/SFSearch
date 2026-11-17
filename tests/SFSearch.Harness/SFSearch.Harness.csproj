@@ -19,7 +19,7 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <!-- The round-trip check reads and writes a plugin through the same Mutagen build SFSearch uses -->
-    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.25" />
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.26" />
     <!-- 'sfsharness agree' reads record types (Mutagen name to signature) from the schema.db beside the SFSearch under test -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <!-- The message format shared with the SFSearch service -->

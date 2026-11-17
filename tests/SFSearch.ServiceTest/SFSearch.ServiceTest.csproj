@@ -15,7 +15,7 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <!-- npcflags reads Starfield.esm's NPCs straight through Mutagen, to hold the old Query's counts against -->
-    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.25" />
+    <PackageReference Include="Mutagen.Bethesda.Starfield" Version="0.55.0-fixes.26" />
     <!-- The message format shared with the SFSearch service -->
     <Compile Include="..\..\SFSearch\Service\Protocol.cs" Link="Protocol.cs" />
     <!-- The memory settings' arithmetic (ServiceConfig.PcDefaults), tested with the numbers of other PCs (smallpc, olderfile) -->

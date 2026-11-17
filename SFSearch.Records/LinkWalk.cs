@@ -49,6 +49,10 @@ public interface IRecordValueSink
     /// <c>WString</c> …), which may be narrower or wider than the field's own (an object mod property's FunctionType is
     /// one byte, its Property four).</summary>
     void LaidOut(string path, FieldDef field, int subrecord, int at, int end, string layoutKind) => Value(path, field, subrecord, at, end);
+    /// <summary>A value one of Mutagen's hand-read layouts states with no bytes of its own (a Const: a perk effect's
+    /// Modification by the function read before it, a field its reader leaves at a value): the value as the layout's
+    /// text has it, a variable's already put in. A sink that takes only bytes leaves it unread.</summary>
+    void Stated(string path, FieldDef field, string value) => Unread(path, "a value Mutagen's hand-written code works out from the bytes");
     /// <summary>A part whose values the walk doesn't give (a hand-read layout's, Mutagen's hand-written code's, a layout the
     /// bytes don't follow): nothing at or under the path is known from the walk.</summary>
     void Unread(string path, string why);
@@ -761,7 +765,10 @@ internal sealed partial class ItemLocator
     /// data block is read whole when one of its fields is wanted: its first field reads the others.</summary>
     bool[] Wanted(string obj, string? map, string place, List<Group> groups) => WantedCache.GetOrAdd((_want!, obj, map, place), _ =>
     {
-        var w = groups.Select(g => _want!(place.Length == 0 ? g.Name : place + "." + g.Name)).ToArray();
+        // (a parsing step that fills a gendered value from its markers, a race's MNAMLogic and its SkeletalModel, is
+        // wanted when that value is: the halves are walked at the step, under the value's name)
+        var w = groups.Select(g => _want!(place.Length == 0 ? g.Name : place + "." + g.Name)
+            || g.Halves is { } hg && hg != g && _want!(place.Length == 0 ? hg.Name : place + "." + hg.Name)).ToArray();
         var keep = (bool[])w.Clone();
         for (int i = 0; i < groups.Count; i++)
             if (!w[i] && groups[i].Own != null && groups[i].Kind is GroupKind.Single or GroupKind.StructObj or GroupKind.GenderedOne or GroupKind.ListArray)
@@ -1155,6 +1162,18 @@ internal sealed partial class ItemLocator
                 p = lo + 4;
                 continue;
             }
+            // A number Mutagen's hand-written code reads whole, at the width the record XML's layoutEncoding names and the
+            // place its layoutOffset gives (a subgraph's Role and Perspective, a uint16 each of SRAF; an alias's AliasID to
+            // find a ref near, an int32 in ALNA kept as a short): a value walk is given it as stored
+            if (_values != null && StoredWhole(f) is { } stored)
+            {
+                int at = f.LayoutOffset == null ? 0 : int.Parse(f.LayoutOffset, CultureInfo.InvariantCulture);
+                int size = StoredSize(f, prefix);
+                if (at + size > content.Length) throw new NotFollowed($"{PathOf(prefix, f.Name)}: {size} bytes at offset {at} run past the end of {Sig(x)} ({content.Length} bytes)");
+                _values.LaidOut(PathOf(prefix, f.Name), f, x, at, at + size, stored);
+                p = at + size;
+                continue;
+            }
             if (f.Offset is int o && !f.OffsetRel) p = o;
             // (a yes/no that is its subrecord's presence, Mutagen's boolAsMarker, is there with no bytes: a template's OBTF)
             if (p >= content.Length && !(f.Kind == "Bool" && f.Size == 0 && content.Length == 0)) break;
@@ -1402,6 +1421,20 @@ internal sealed partial class ItemLocator
                 return ((v >> bit & 1) != 0) == (parts[3] == "set");
         }
         throw new NotFollowed($"{PathOf(path, f.Name)}: there when {when}, which the walk doesn't read");
+    }
+
+    /// <summary>A whole number or an enum with a subrecord of its own that Mutagen's hand-written code reads as one stored
+    /// number and casts (the XML's layoutEncoding is that number alone: uint16, int32), at a place the XML gives as a
+    /// number or not at all (the subrecord's start): the stored number as a hand-read layout names one (U16, I32); null
+    /// for any other field.</summary>
+    static string? StoredWhole(FieldDef f)
+    {
+        if (!f.Custom || f.Subrecord == null || f.LayoutEncoding is not { } enc) return null;
+        if (f.Kind is not ("Int8" or "Int16" or "Int32" or "UInt8" or "UInt16" or "UInt32" or "Enum")) return null;
+        if (f.LayoutBits != null || f.LayoutDroppedBits != null || f.LayoutPresentWhen != null || f.LayoutGroup != null) return null;
+        if (f.LayoutSubrecord != null && f.LayoutSubrecord != f.Subrecord) return null;
+        if (f.LayoutOffset is { } lo && !(lo.Length > 0 && lo.All(char.IsAsciiDigit))) return null;
+        return enc switch { "uint8" => "U8", "int8" => "I8", "uint16" => "U16", "int16" => "I16", "uint32" => "U32", "int32" => "I32", _ => null };
     }
 
     /// <summary>A laid-out field's bytes: the stored number the XML's layoutEncoding names (uint16, uint8*10min,
@@ -1952,7 +1985,7 @@ internal sealed partial class ItemLocator
     void StaticField(Group g, FieldDef f, string? map, string prefix, Dictionary<string, string?> reach, string? stop, int depth, HashSet<string> stack)
     {
         string path = PathOf(prefix, f.Name);
-        string? why = stop ?? ((f.Kind == "CustomLogic" || f.Custom) && LaidOutLink(f) == null && !Placed(f) && !Selectable(f) && !(_staticInRun && f.Custom && RunGenerated(f)) ? "read by Mutagen's hand-written code" : null);
+        string? why = stop ?? ((f.Kind == "CustomLogic" || f.Custom) && LaidOutLink(f) == null && !Placed(f) && !Selectable(f) && !(_staticInRun && f.Custom && RunGenerated(f)) && !(_staticAll && StoredWhole(f) != null) ? "read by Mutagen's hand-written code" : null);
         if (f.Custom && Selectable(f) && f.RefObject is { } sro)
         {
             // The kinds a selector picks: placed by the layout attributes, or read from where the field stands
@@ -1985,7 +2018,7 @@ internal sealed partial class ItemLocator
                 return;
             default:
                 // A value walk gives a laid-out link and a value stored in another form as unread
-                if (_staticAll && why == null && (LaidOutLink(f) != null || Placed(f) && (f.LayoutEncoding != null || f.LayoutBits != null || f.LayoutDroppedBits != null))) why = "read by Mutagen's hand-written code";
+                if (_staticAll && why == null && StoredWhole(f) == null && (LaidOutLink(f) != null || Placed(f) && (f.LayoutEncoding != null || f.LayoutBits != null || f.LayoutDroppedBits != null))) why = "read by Mutagen's hand-written code";
                 if (Want(f)) Mark(reach, path, why);
                 return;
         }

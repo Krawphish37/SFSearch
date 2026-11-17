@@ -166,6 +166,11 @@ public sealed class FieldDef
     /// holds as FormKey.None and its serializer writes as "None" (a dialogue response's Emotion, an equip type's
     /// ConditionActorValue); in any other link field the FormID is read as any other.</summary>
     public bool MaxIsNone;
+    /// <summary>On a float (or a percent): the XML's <c>integerType</c>, <c>multiplier</c> and <c>divisor</c>, as written.
+    /// The field is stored as a whole number of that type (UInt, UShort, Byte, ByteHundred), which Mutagen's
+    /// FloatBinaryTranslation turns into the value (stored × multiplier ÷ divisor: a dialogue response's ResetHours, a
+    /// uint16 × 24 ÷ 65535).</summary>
+    public string? IntegerType, Multiplier, Divisor;
     /// <summary>On a list: the XML's <c>itemMarkerType</c> and <c>itemEndMarkerType</c>, the empty subrecords each item
     /// sits between (a sound echo marker's Markers: ECHO, the item's subrecords, ECHE; a perk's Ranks: PRRK to PRRF).
     /// Null for a list whose items have none.</summary>

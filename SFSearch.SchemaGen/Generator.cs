@@ -292,7 +292,8 @@ public static class Generator
             DefaultValue TEXT, Translated INTEGER, Unknown INTEGER, Custom INTEGER, Property INTEGER, SigMap TEXT, GenericArg TEXT, ClrType TEXT,
             Readable TEXT, XEdit TEXT, XEditPairs INTEGER, Unit TEXT, Note TEXT, Marker TEXT, EndMarker TEXT, StringsTable TEXT, CounterLength INTEGER, TextForm TEXT,
             LayoutOffset TEXT, LayoutBits TEXT, LayoutSubrecord TEXT, LayoutEncoding TEXT, LayoutDroppedBits TEXT, LayoutPresentWhen TEXT, LayoutGroup TEXT, SelectedBy TEXT,
-            LayoutMap TEXT, Source TEXT, ReadOnly INTEGER, CkName TEXT, CkField TEXT, CustomSubrecords TEXT, CustomFills TEXT, FilledBy TEXT, SelectorEnum TEXT, GenderRecord TEXT, MaleMarker TEXT, FemaleMarker TEXT, MaxIsNone INTEGER, ItemMarker TEXT, ItemEndMarker TEXT, PRIMARY KEY (Object, Ord)) WITHOUT ROWID;
+            LayoutMap TEXT, Source TEXT, ReadOnly INTEGER, CkName TEXT, CkField TEXT, CustomSubrecords TEXT, CustomFills TEXT, FilledBy TEXT, SelectorEnum TEXT, GenderRecord TEXT, MaleMarker TEXT, FemaleMarker TEXT, MaxIsNone INTEGER, ItemMarker TEXT, ItemEndMarker TEXT,
+            IntegerType TEXT, Multiplier TEXT, Divisor TEXT, PRIMARY KEY (Object, Ord)) WITHOUT ROWID;
         CREATE TABLE HandLayouts (Ord INTEGER PRIMARY KEY, Kind TEXT NOT NULL, Sig TEXT, Object TEXT, Name TEXT, Xml TEXT NOT NULL);
         CREATE TABLE ObjectAncestors (Object TEXT NOT NULL, Level INTEGER NOT NULL, Ancestor TEXT NOT NULL, PRIMARY KEY (Object, Level)) WITHOUT ROWID;
         CREATE TABLE ObjectTargets (Ref TEXT NOT NULL, Idx INTEGER NOT NULL, Target TEXT NOT NULL, Marker TEXT NOT NULL, PRIMARY KEY (Ref, Idx)) WITHOUT ROWID;
@@ -400,7 +401,8 @@ public static class Generator
                         f.RefObject, f.LinkTo, f.Enum, f.Default, f.Translated, f.Unknown, f.Custom, f.Property, f.SigMap, f.GenericArg, f.ClrType,
                         f.Readable, f.XEdit, f.XEditPairs, f.Unit, f.Note, f.Marker, f.EndMarker, f.StringsTable, f.CounterLength, f.TextForm,
                         f.LayoutOffset, f.LayoutBits, f.LayoutSubrecord, f.LayoutEncoding, f.LayoutDroppedBits, f.LayoutPresentWhen, f.LayoutGroup, f.SelectedBy, f.LayoutMap, f.Source, f.ReadOnly, f.CkName, f.CkField,
-                        f.CustomSubrecords, f.CustomFills, f.FilledBy, f.SelectorEnum, f.GenderRecord, f.MaleMarker, f.FemaleMarker, f.MaxIsNone, f.ItemMarker, f.ItemEndMarker);
+                        f.CustomSubrecords, f.CustomFills, f.FilledBy, f.SelectorEnum, f.GenderRecord, f.MaleMarker, f.FemaleMarker, f.MaxIsNone, f.ItemMarker, f.ItemEndMarker,
+                        f.IntegerType, f.Multiplier, f.Divisor);
             }
             int hl = 0;
             foreach (var h in model.HandLayouts) Insert(con, "HandLayouts", ++hl, h.Kind, h.Sig, h.Object, h.Name, h.Xml);

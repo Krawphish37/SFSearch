@@ -349,6 +349,8 @@ sealed class DirectColumn
         MemorySlice<byte> m => "0x" + System.Convert.ToHexString(m),
         byte[] a => "0x" + System.Convert.ToHexString(a),
         ulong u => u <= long.MaxValue ? (object)(long)u : (double)u,
+        // (a percent as the serializer writes it: its value, a double from 0 to 1)
+        Noggog.Percent pc => Real(pc.Value),
         IConvertible c => c.ToInt64(CultureInfo.InvariantCulture),
         _ => throw new InvalidOperationException($"a column gave a {v.GetType().Name}, which isn't read straight from the record"),
     };

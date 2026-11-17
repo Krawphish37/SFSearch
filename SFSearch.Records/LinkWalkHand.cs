@@ -190,6 +190,15 @@ internal sealed partial class ItemLocator
         {
             var v = hand.Values[vp];
             if (!Resolve(obj, gen, g, at, vp, out var def, out _, out var named)) { Unread(vp, "the schema has no field there"); continue; }
+            // A value the layout states (a Const): given as stated, with no bytes
+            if (v.Kind == "Const" && v.Const != null) { _values!.Stated(named, def, v.Const); continue; }
+            // A yes/no the layout takes from one bit of a value read earlier (a weather's cloud layers, each by a bit of
+            // NAM1, inverted): stated from that bit
+            if (v.Kind == "Bit" && def.Kind == "Bool" && v.Sub >= 0 && v.Sub < _raw.Subrecords.Count && _raw.Content(_raw.Subrecords[v.Sub]) is var bitsOf && v.Offset >= 0 && v.Offset < bitsOf.Length)
+            {
+                _values!.Stated(named, def, ((bitsOf[v.Offset] & v.Mask) != 0) != v.Invert ? "True" : "False");
+                continue;
+            }
             if (v.Kind is "Const" or "Bit" or "View" || v.Encoding is not (null or "bool")) { Unread(named, "a value Mutagen's hand-written code works out from the bytes"); continue; }
             int length = v.Kind switch { "WString" => 2, "I32String" => 4, _ => 0 };
             _values!.LaidOut(named, def, v.Sub, v.Offset - length, v.Offset + v.Size, v.Kind);

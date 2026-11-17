@@ -138,7 +138,7 @@ sealed partial class RawColumn
                 pv.Slots = vals; pv.Zero = new byte[Math.Max(size, 0)];
                 bool zeroIsDefault = !def.Nullable && def.Default == null;
                 object? viewDefault = c.DefaultSql != null && !c.Nullable && DirectColumn.TryLiteral(c.DefaultSql, out var dv) ? dv : null;
-                if (FormOf(c.Kind, pv.Rest ? 1 : size, et) is not { } form || form is Form.Text or Form.Present or Form.Translated) return null;
+                if (FormOf(c.Kind, pv.Rest ? 1 : size, et) is not { } form || form is Form.Text or Form.Present or Form.Translated or Form.Percent) return null;
                 return new RawColumn(c.Name, sub4, 0, pv.Rest ? -1 : size, form, absentIsNull, et, zeroIsDefault && form is not (Form.Link or Form.Bytes or Form.Color), viewDefault, whole: pv.Rest)
                 {
                     _planned = pv, _swap = Swapped(def),

@@ -226,7 +226,8 @@ internal sealed class HandLayoutWalk
                     while (cursor < to && sigs.Contains(Sig(cursor))) cursor++;
                     break;
                 }
-                case "Null": break;
+                // (no bytes: Mutagen's field is null or empty here, and the layout has said so)
+                case "Null": if (Named != null && A(e, "field") is { } nulled) Name(path, nulled); break;
                 case "Use": Subs(Define(e).Elements(), ref cursor, from, to, path, vars); break;
                 case "Sub":
                 {
@@ -569,7 +570,9 @@ internal sealed class HandLayoutWalk
                     c.P += size;
                     break;
                 }
-                case "Null": break;
+                // (no bytes: Mutagen's field is null or empty here, and the layout has said so: a script with no name has
+                // no properties)
+                case "Null": if (Named != null && field != null) Name(path, field); break;
                 case "WString":
                 {
                     Need(c, 2, Join(path, field ?? "text"));
@@ -683,6 +686,10 @@ internal sealed class HandLayoutWalk
                 }
                 case "IfMore":
                     if (c.Left > 0) Content(e.Elements(), c, path, vars, selector);
+                    // With no bytes left its fields are named all the same, as below a Versioning: Mutagen's reader stops
+                    // there, and each keeps what a new object has (an object that may be absent none, a list no entry, a
+                    // value its default): a script adapter with no fragments after its scripts
+                    else if (Named != null) foreach (var x in e.Elements()) if (A(x, "field") is { } mf) Name(path, mf);
                     break;
                 case "NotLast":
                     if (!vars.TryGetValue(LastVar, out var lastVar)) throw new Stop("NotLast outside a counted Repeat");

@@ -284,9 +284,9 @@ public static class LoquiXml
                 if (e.Attribute("expectedLengthLength") is { } el) row.Note = Join(row.Note, $"then the length of an entry ({el.Value} bytes)");
             }
             if (e.Attribute("counterRecType") is { } cr) row.Note = Join(row.Note, $"counted by {cr.Value}");
-            if (e.Attribute("divisor") is { } dv) row.Note = Join(row.Note, $"stored value divided by {dv.Value}");
-            if (e.Attribute("multiplier") is { } mu) row.Note = Join(row.Note, $"stored value multiplied by {mu.Value}");
-            if (e.Attribute("integerType") is { } it) row.Note = Join(row.Note, $"stored as {it.Value}");
+            if (e.Attribute("divisor") is { } dv) { row.Note = Join(row.Note, $"stored value divided by {dv.Value}"); row.Divisor = dv.Value; }
+            if (e.Attribute("multiplier") is { } mu) { row.Note = Join(row.Note, $"stored value multiplied by {mu.Value}"); row.Multiplier = mu.Value; }
+            if (e.Attribute("integerType") is { } it) { row.Note = Join(row.Note, $"stored as {it.Value}"); row.IntegerType = it.Value; }
 
             switch (kind)
             {

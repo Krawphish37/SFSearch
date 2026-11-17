@@ -92,6 +92,6 @@ dotnet build SFSearch.Records.Tests -c Release
 SFSearch.Records.Tests/bin/Release/net10.0/sfsrecord-tests.exe "<Data folder>" --report <folder>
 ```
 - The runner's commands and options are listed at the top of `SFSearch.Records.Runner\Program.cs`. Its scratch folder is `%TEMP%\sfsrecord-scratch` unless `--scratch` or `SFSRECORD_SCRATCH` names another.
-- The build needs the packages in the repo's `packages\` folder (Mutagen 0.55.0-fixes.25 and Mutagen.Bethesda.Serialization 1.38.6-fixes.7). `schema.db` comes from the build of `SFSearch.SchemaGen` and is copied beside the library.
+- The build needs the packages in the repo's `packages\` folder (Mutagen 0.55.0-fixes.26 and Mutagen.Bethesda.Serialization 1.38.6-fixes.7). `schema.db` comes from the build of `SFSearch.SchemaGen` and is copied beside the library.
 - The tests copy two small plugins to `%TEMP%\sfsrecord-tests` and change the copies. They never write to the Data folder. `--heavy` adds the checks that read Starfield.esm's cells through the overlay: run those alone, on a PC with memory to spare.
 - The verify writes small test plugins into its scratch folder and removes each one after comparing.

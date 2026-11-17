@@ -3,7 +3,7 @@
 SFSearch is released under the GNU General Public License version 3 (see `LICENSE`), because the libraries it is built on require that.
 
 Most of these libraries are downloaded from nuget.org when you build SFSearch. The exception is Mutagen and its serializer: SFSearch needs builds of them with fixes that aren't in a published version yet, so their six packages are in `packages/`. Their full source is public, as GPL-3.0 asks:
-- **Mutagen** (Mutagen.Bethesda.Starfield, .Core, .Kernel `0.55.0-fixes.25`): https://github.com/Krawphish37/Mutagen, branch `fixes25` (Mutagen's upstream code at commit 9da101acf2847a36d5b8e667c1bb92dedf981ca3, plus the changes on that branch).
+- **Mutagen** (Mutagen.Bethesda.Starfield, .Core, .Kernel `0.55.0-fixes.26`): https://github.com/Krawphish37/Mutagen, branch `fixes26` (Mutagen's upstream code at commit 9da101acf2847a36d5b8e667c1bb92dedf981ca3, plus the changes on that branch).
 - **Mutagen.Bethesda.Serialization** (with .Newtonsoft and .SourceGenerator, `1.38.6-fixes.7`): https://github.com/Krawphish37/Mutagen.Bethesda.Serialization, branch `fixes/1.38.6-fixes.7` (the upstream code at tag 1.38.6, commit 55675ef962e7e234fa015122e37f5c1019a04db3, plus the changes on that branch).
 
 Each package's `.nuspec` names the commit it was built from.
@@ -11,7 +11,7 @@ Each package's `.nuspec` names the commit it was built from.
 ## SFSearch (`SFSearch.exe` and its libraries)
 | Library | Version | License | Source |
 |---|---|---|---|
-| Mutagen.Bethesda.Starfield, .Core, .Kernel | 0.55.0-fixes.25 (modified; in `packages/`) | GPL-3.0-only | https://github.com/Krawphish37/Mutagen (branch `fixes25`; upstream: https://github.com/Mutagen-Modding/Mutagen) |
+| Mutagen.Bethesda.Starfield, .Core, .Kernel | 0.55.0-fixes.26 (modified; in `packages/`) | GPL-3.0-only | https://github.com/Krawphish37/Mutagen (branch `fixes26`; upstream: https://github.com/Mutagen-Modding/Mutagen) |
 | Mutagen.Bethesda.Serialization, .Newtonsoft | 1.38.6-fixes.7 (modified; in `packages/`) | GPL-3.0-only | https://github.com/Krawphish37/Mutagen.Bethesda.Serialization (branch `fixes/1.38.6-fixes.7`; upstream: https://github.com/Mutagen-Modding/Mutagen.Bethesda.Serialization, tag 1.38.6, commit 55675ef962e7e234fa015122e37f5c1019a04db3) |
 | Mutagen.Bethesda.Serialization.SourceGenerator (used while building only: it writes code into `SFSearch.Records`) | 1.38.6-fixes.7 (modified; in `packages/`) | GPL-3.0-only | as above |
 | Noggog.CSharpExt | 4.3.0 | GPL-3.0 | https://github.com/Noggog/CSharpExt |

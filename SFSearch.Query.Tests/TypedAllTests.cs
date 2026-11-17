@@ -33,6 +33,9 @@ static class TypedAllTests
         var left = new List<string>(); var none = new List<string>();
         bool heavy = c.Records.AllowHeavy;
         c.Records.AllowHeavy = true;
+        // Why the value walk sends a record to Mutagen, by list (lists-all-why.txt)
+        var why = new System.Collections.Concurrent.ConcurrentDictionary<(string List, string Why), int>();
+        RawList.LeftWhy = (list, w) => why.AddOrUpdate((list, w), 1, (_, n) => n + 1);
         try
         {
             foreach (string root in c.Engine.Views.RootNames.OrderBy(r => r, StringComparer.Ordinal))
@@ -58,8 +61,9 @@ static class TypedAllTests
                 }
             }
         }
-        finally { c.Records.AllowHeavy = heavy; }
+        finally { c.Records.AllowHeavy = heavy; RawList.LeftWhy = null; }
         c.Save("lists-all-left.txt", left);
+        c.Save("lists-all-why.txt", why.OrderBy(k => k.Key.List, StringComparer.Ordinal).ThenByDescending(k => k.Value).Select(k => $"{k.Key.List}\t{k.Value}\t{k.Key.Why}"));
         return $"{views:N0} list views of {types} types read from the bytes, {records:N0} records, {rows:N0} rows, {values:N0} values equal to Mutagen's"
             + $"; records left to Mutagen for a list view in {left.Count} types: {Cut(string.Join(" | ", left), 6000)}";
     }
@@ -68,9 +72,12 @@ static class TypedAllTests
     {
         int types = 0, columns = 0;
         long records = 0, values = 0;
-        var left = new List<string>(); var none = new List<string>();
+        var left = new List<string>(); var none = new List<string>(); var bad = new List<string>();
         bool heavy = c.Records.AllowHeavy;
         c.Records.AllowHeavy = true;
+        // Why the value walk sends a record to Mutagen for a typed column (typed-all-why.txt)
+        var why = new System.Collections.Concurrent.ConcurrentDictionary<(string List, string Why), int>();
+        RawList.LeftWhy = (list, w) => why.AddOrUpdate((list, w), 1, (_, n) => n + 1);
         try
         {
             foreach (string root in c.Engine.Views.RootNames.OrderBy(r => r, StringComparer.Ordinal))
@@ -87,7 +94,10 @@ static class TypedAllTests
                 types++;
                 foreach (string plugin in plugins)
                 {
-                    string said = GSqlTests.RawAgainstMutagen(c, plugin, view.Types[0]);
+                    string said;
+                    // (every type is held before the test fails, so that one run says all that differs)
+                    try { said = GSqlTests.RawAgainstMutagen(c, plugin, view.Types[0]); }
+                    catch (TestFailed e) { bad.Add(e.Message); continue; }
                     var m = Counts.Match(said);
                     Check(m.Success, $"{root} of {plugin}: an answer this test doesn't read: {Cut(said, 300)}");
                     long N(int g) => long.Parse(m.Groups[g].Value.Replace(",", ""));
@@ -97,8 +107,11 @@ static class TypedAllTests
                 }
             }
         }
-        finally { c.Records.AllowHeavy = heavy; }
+        finally { c.Records.AllowHeavy = heavy; RawList.LeftWhy = null; }
         c.Save("typed-all-left.txt", left);
+        c.Save("typed-all-why.txt", why.OrderBy(k => k.Key.List, StringComparer.Ordinal).ThenByDescending(k => k.Value).Select(k => $"{k.Key.List}\t{k.Value}\t{k.Key.Why}"));
+        c.Save("typed-all-differences.txt", bad);
+        Check(bad.Count == 0, $"{bad.Count} type(s) differ: " + Cut(string.Join(" || ", bad.Select(b => Cut(b, 700))), 9000));
         return $"{columns:N0} columns of {types} types read from the bytes, {records:N0} records, {values:N0} values equal to Mutagen's"
             + $"; no record anywhere tried: {(none.Count == 0 ? "none" : string.Join(", ", none))}"
             + $"; records left to Mutagen for a column in {left.Count} types: {Cut(string.Join(" | ", left), 6000)}";

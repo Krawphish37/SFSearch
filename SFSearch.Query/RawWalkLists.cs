@@ -126,13 +126,13 @@ sealed partial class RawList
     {
         "FormLink", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "Bool", "Float", "Double", "Half",
         "P2Float", "P3Float", "P2Int16", "P3Int16", "P2Int32", "ByteArray", "Color", "Guid", "Enum", "Flags", FlagsRaw.Kind, "String", "AssetLink",
-        "RecordType",
+        "RecordType", "Percent",
     };
 
     [ThreadStatic] static LinkByteWalker? t_walker;
 
     /// <summary>The value walk's findings for one record.</summary>
-    sealed class Found : IRecordValueSink
+    internal sealed class Found : IRecordValueSink
     {
         public readonly Dictionary<string, string> Objects = new(StringComparer.Ordinal);
         /// <summary>Each value kept: its field, its place, and the kind a hand-read layout stores it as (null: as the
@@ -181,6 +181,16 @@ sealed partial class RawList
             if (Keep != null && !Kept(path)) return;
             Values[Strip(path)] = (field, subrecord, at, end, null);
         }
+        /// <summary>The values a layout states with no bytes (IRecordValueSink.Stated), by path.</summary>
+        public readonly Dictionary<string, string> States = new(StringComparer.Ordinal);
+        public void Stated(string path, FieldDef field, string value)
+        {
+            // (what a stated value says of a guard object the serializer may leave out, the bytes can't say)
+            if (Guards != null) Track(Strip(path), null, 0, 0, 0);
+            if (Keep != null && !Kept(path)) return;
+            Values[Strip(path)] = (field, -1, 0, 0, "Const");
+            States[Strip(path)] = value;
+        }
         public void LaidOut(string path, FieldDef field, int subrecord, int at, int end, string layoutKind)
         {
             if (Guards != null) Track(Strip(path), field, subrecord, at, end);
@@ -194,8 +204,14 @@ sealed partial class RawList
             foreach (var k in Keep!) if (path.EndsWith(k, StringComparison.Ordinal)) return true;
             return false;
         }
-        void IRecordValueSink.Unread(string path, string why) => Unread.Add(Strip(path));
+        /// <summary>Why each of <see cref="Unread"/> wasn't read, in step with it.</summary>
+        public readonly List<string> UnreadWhy = new();
+        void IRecordValueSink.Unread(string path, string why) { Unread.Add(Strip(path)); UnreadWhy.Add(why); }
     }
+
+    /// <summary>For the tests (lists-all, typed-all): told each time a record goes to Mutagen from the value walk, with the
+    /// record type and the list (or "(typed)") and why. Null outside a test.</summary>
+    internal static Action<string, string>? LeftWhy;
 
     /// <summary>A walk's path with its kinds of object left out.</summary>
     static string Strip(string path)
@@ -226,11 +242,14 @@ sealed partial class RawList
         var found = new Found { Keep = _keep, Guards = _guardObjects, Raw = raw };
         walker.WalkValues(_fields!, raw, plugin.Localized, found, want: _want, component: k => plugin.Component(raw, k, _fields!.Type));
         // A part the walk didn't read, at or above the list or a column's field
-        foreach (string u in found.Unread)
+        for (int ui = 0; ui < found.Unread.Count; ui++)
         {
-            string g = Indexes.Replace(u, "[*]");
-            if (Under(_listPlain, g)) return false;
-            foreach (string cp in _colPlain) if (Under(cp, g)) return false;
+            string g = Indexes.Replace(found.Unread[ui], "[*]");
+            bool blocks = Under(_listPlain, g);
+            foreach (string cp in _colPlain) if (Under(cp, g)) blocks = true;
+            if (!blocks) continue;
+            LeftWhy?.Invoke(_fields!.Type + " " + _listPlain, $"unread {g}: {found.UnreadWhy[ui]}");
+            return false;
         }
         // The entries, by their indexes
         var entries = new List<(long[] Idx, string Path)>();
@@ -255,7 +274,11 @@ sealed partial class RawList
             for (int i = 0; i < _specs.Length; i++)
             {
                 var plan = _plans.GetOrAdd((i, kind), key => WalkColumn.Make(_specs[key.Column], key.Kind, _schema!));
-                if (plan == null || !plan.Read(path, found, raw, plugin, out row[_levels + i])) return false;
+                if (plan == null || !plan.Read(path, found, raw, plugin, out row[_levels + i]))
+                {
+                    LeftWhy?.Invoke(_fields!.Type + " " + _listPlain, (plan == null ? "no reader for column " : "no value for column ") + _specs[i].Name + (kind.Length > 0 ? " of a " + kind : ""));
+                    return false;
+                }
             }
             rows.Add(row);
         }
@@ -307,7 +330,7 @@ sealed partial class RawList
     /// the guards, the walk through the entry's class, the value read where the walk found it or Mutagen's value for a
     /// field the bytes don't hold.
     /// </summary>
-    sealed class WalkColumn
+    internal sealed class WalkColumn
     {
         ColumnSpec _c = null!;
         string[] _segs = Array.Empty<string>();
@@ -385,6 +408,9 @@ sealed partial class RawList
             return open == null || arg == null ? null : open.MakeGenericType(arg);
         });
 
+        /// <summary>A path under an entry; the record itself is the entry "" (a typed view's column, RawWalkTyped.cs).</summary>
+        static string At(string entry, string rest) => entry.Length == 0 ? rest : entry + "." + rest;
+
         /// <summary>The column's value for the entry at <paramref name="entry"/>; false when only Mutagen can say it.</summary>
         public bool Read(string entry, Found found, RawRecord raw, RawPlugin plugin, out object? value)
         {
@@ -392,14 +418,14 @@ sealed partial class RawList
             // The guards: the kind of the entry, or of an object in it, that the view takes
             foreach (var (depth, kinds) in _guards)
             {
-                string at = depth == 0 ? entry : entry + "." + string.Join(".", _segs.Take(depth));
+                string at = depth == 0 ? entry : At(entry, string.Join(".", _segs.Take(depth)));
                 if (!found.Objects.TryGetValue(at, out var k)) return true;
                 if (!kinds.Contains(KindOf(k))) return true;
             }
             if (_c.Kind == "ObjectType")
             {
                 if (_objectType != null) { value = _objectType; return true; }
-                string at = entry + "." + string.Join(".", _segs);
+                string at = At(entry, string.Join(".", _segs));
                 if (!found.Objects.TryGetValue(at, out var k)) return true;
                 if (ClassOf(k) is not { } kc) return false;
                 value = DirectColumn.ObjectTypeName(kc);
@@ -409,13 +435,14 @@ sealed partial class RawList
             // nothing in it to write (a dialogue action's Headtracking read from an HNAM HNAM pair), and the view gives NULL
             if (_omittableAt > 0)
             {
-                string guard = entry + "." + string.Join(".", _segs.Take(_omittableAt));
+                string guard = At(entry, string.Join(".", _segs.Take(_omittableAt)));
                 if (!found.Objects.ContainsKey(guard) || !found.Guard.TryGetValue(guard, out int state) || state == 0) { value = Missing(_omittableAt); return true; }
                 if (state == 2) return false;
             }
-            string path = _segs.Length == 0 ? entry : entry + "." + _c.RelPath;
+            string path = _segs.Length == 0 ? entry : At(entry, _c.RelPath!);
             if (found.Values.TryGetValue(path, out var v))
             {
+                if (v.Laid == "Const") return StatedValue(v.Field, found.States[path], plugin, out value);
                 var read = _readers.GetOrAdd((v.Field, v.Laid), x => x.Item2 == null ? Reader(x.Item1) : LaidReader(x.Item1, x.Item2));
                 if (read == null) return false;
                 var content = raw.Content(raw.Subrecords[v.Sub]);
@@ -436,15 +463,65 @@ sealed partial class RawList
                     if (d.Nullable || d.Kind is not ("String" or "ByteArray" or "AssetLink")) { value = Null(); return true; }
                     // A required text Mutagen holds as an empty one; bytes and assets as Mutagen makes them
                     if (d.Kind == "String") { value = ""; return true; }
+                    // Required bytes the record's data ends before (a surface block's UnknownEnding after a version break):
+                    // Mutagen's empty ones, or its zeros when the field has a size
+                    if (d.Kind == "ByteArray" && _c.Kind == "ByteArray") { value = "0x" + new string('0', 2 * (d.Size ?? 0)); return true; }
                     return false;
                 }
                 // An object on the way the bytes don't hold: absent when it may be (NULL past it), or when the view's guard
                 // needs it and the record always has it (the serializer leaves such an object out when it has nothing in
                 // it to write, as an object with no bytes: a dialogue action's Headtracking); else Mutagen's own with its
                 // fields' defaults
-                if (!found.Objects.ContainsKey(entry + "." + string.Join(".", _segs.Take(i + 1))) && (d.Nullable || i + 1 == _omittableAt)) { value = Missing(i + 1); return true; }
+                if (!found.Objects.ContainsKey(At(entry, string.Join(".", _segs.Take(i + 1)))) && (d.Nullable || i + 1 == _omittableAt)) { value = Missing(i + 1); return true; }
             }
             return false;
+        }
+
+        /// <summary>
+        /// A value a layout states with no bytes (a Const), as the column gives Mutagen's value: an enum by its member's
+        /// name, a yes/no, a whole number, each as the bytes of that value would read (so a value at its default is the
+        /// view's default, as the serializer leaves it out); a text as it stands. False when the column's kind isn't one of
+        /// these, or the text isn't a value of the field: Mutagen then says it.
+        /// </summary>
+        bool StatedValue(FieldDef f, string text, RawPlugin plugin, out object? value)
+        {
+            value = null;
+            if (_c.Kind == "String")
+            {
+                if (f.Kind != "String" || f.Translated) return false;
+                value = text;
+                return true;
+            }
+            if (ReadKind(f) is not { } kind) return false;
+            long n; int size; Type? et = null;
+            if (FlagsRaw.IsEnumKind(kind))
+            {
+                if ((et = EnumOf(f)) == null || !Enum.TryParse(et, text, out object? member) || member == null) return false;
+                n = Convert.ToInt64(member, CultureInfo.InvariantCulture);
+                size = System.Runtime.InteropServices.Marshal.SizeOf(Enum.GetUnderlyingType(et));
+            }
+            else if (kind == "Bool")
+            {
+                if (!bool.TryParse(text, out bool yes)) return false;
+                n = yes ? 1 : 0; size = 1;
+            }
+            else if (kind is "Int8" or "Int16" or "Int32" or "Int64" or "UInt8" or "UInt16" or "UInt32")
+            {
+                if (!long.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out n)) return false;
+                size = kind switch { "Int8" or "UInt8" => 1, "Int16" or "UInt16" => 2, "Int64" => 8, _ => 4 };
+            }
+            else return false;
+            var read = _readers.GetOrAdd((f, "Const:" + size.ToString(CultureInfo.InvariantCulture)), _ =>
+            {
+                var rc = RawColumn.Entry(_c, f, 0, size, et, kind: kind);
+                return rc == null ? null : (b, p) => rc.Read(b, true, p, out var x) == RawColumn.Outcome.Value ? (true, x) : (false, null);
+            });
+            if (read == null) return false;
+            Span<byte> bytes = stackalloc byte[size];
+            for (int i = 0; i < size; i++) bytes[i] = (byte)(n >> (8 * i));
+            bool ok;
+            (ok, value) = read(bytes, plugin);
+            return ok;
         }
 
         /// <summary>DirectColumn.Convert(null): a link NULL, else the view's default.</summary>
@@ -492,16 +569,38 @@ sealed partial class RawList
             if (laid is "Bytes")
             {
                 if (f.Kind != "ByteArray" || c.Kind != "ByteArray") return null;
-                return (b, _) => b.Length == 0 ? (false, null) : (true, "0x" + Convert.ToHexString(b));
+                // (no bytes left for required ones, a pattern swap's Unknown after its last item: Mutagen's empty ones)
+                bool emptyIs = !f.Nullable;
+                return (b, _) => b.Length == 0 ? (emptyIs ? (true, "0x") : (false, null)) : (true, "0x" + Convert.ToHexString(b));
             }
             // A number, a link, a point, a colour or a guid, at the layout's width
             if (ReadKind(f) is not { } kind) return null;
             Type? et = null;
             if (FlagsRaw.IsEnumKind(kind) && (et = EnumOf(f)) == null) return null;
             var cache = new ConcurrentDictionary<int, RawColumn?>();
+            // A layout's signed number into an enum (an NPC race override's Size: I8, -1 is Unknown): at the enum's own
+            // width, its sign kept, as Mutagen's hand-written reader casts it
+            int wide = et != null && laid is "I8" or "I16" ? System.Runtime.InteropServices.Marshal.SizeOf(Enum.GetUnderlyingType(et!)) : 0;
+            // A number stored wider than its field (an alias's AliasID to find a ref near: an int32 Mutagen keeps as a
+            // short, checked): its low bytes when the rest only repeat its sign (zeros, unsigned); else Mutagen says it
+            int narrow = kind switch { "Int8" or "UInt8" => 1, "Int16" or "UInt16" => 2, "Int32" or "UInt32" => 4, _ => 0 };
             return (b, p) =>
             {
                 if (b.Length == 0) return (false, null);
+                if (narrow > 0 && b.Length > narrow)
+                {
+                    byte rest = kind[0] == 'I' && (b[narrow - 1] & 0x80) != 0 ? (byte)0xFF : (byte)0;
+                    if (b[narrow..].IndexOfAnyExcept(rest) >= 0) return (false, null);
+                    b = b[..narrow];
+                }
+                if (wide > b.Length && wide <= 8)
+                {
+                    Span<byte> full = stackalloc byte[wide];
+                    b.CopyTo(full);
+                    full[b.Length..].Fill((b[^1] & 0x80) != 0 ? (byte)0xFF : (byte)0);
+                    var wrc = cache.GetOrAdd(wide, n => RawColumn.Entry(c, f, 0, n, et, kind: kind));
+                    return wrc != null && wrc.Read(full, true, p, out var wx) == RawColumn.Outcome.Value ? (true, wx) : (false, null);
+                }
                 var rc = cache.GetOrAdd(b.Length, n => RawColumn.Entry(c, f, 0, n, et, kind: kind));
                 if (rc == null) return (false, null);
                 return rc.Read(b, true, p, out var x) == RawColumn.Outcome.Value ? (true, x) : (false, null);
@@ -516,7 +615,10 @@ sealed partial class RawList
             {
                 if (f.Kind != "String") return null;
                 string form = f.TextForm ?? "NullTerminate";
-                if (form is not ("NullTerminate" or "PrependLength" or "PrependLengthUShort" or "PrependLengthUInt8" or "PrependLengthWithNullIfContent")) return null;
+                // (Plain: the subrecord's bytes are the text, with no zero after it: an activity's Configuration, a race's
+                // movement type names)
+                if (form is not ("NullTerminate" or "PrependLength" or "PrependLengthUShort" or "PrependLengthUInt8" or "PrependLengthWithNullIfContent" or "Plain")) return null;
+                if (form == "Plain" && f.Translated) return null;
                 if (f.Translated)
                 {
                     if (!Enum.TryParse<Mutagen.Bethesda.Strings.StringsSource>(f.StringsTable, out var table)) return null;
@@ -554,6 +656,29 @@ sealed partial class RawList
                     return bits.Read(one, true, p, out var x) == RawColumn.Outcome.Value ? (true, x) : (false, null);
                 };
             }
+            // A float Mutagen keeps as a whole number scaled (the XML's integerType, multiplier and divisor: a dialogue
+            // response's ResetHours, a uint16 times 24 over 65535; a music type's DuckingDecibel): Mutagen's own conversion
+            // of the stored number, then read as that float's bytes are
+            // (a percent stored so is read by the column itself: RawColumn's Form.Percent)
+            if (f.IntegerType != null && kind != "Percent")
+            {
+                if (kind != "Float" || f.LayoutEncoding != null || f.LayoutBits != null || f.LayoutDroppedBits != null) return null;
+                int width = f.IntegerType switch { "UInt" => 4, "UShort" => 2, "Byte" => 1, _ => 0 };
+                if (!Enum.TryParse<Mutagen.Bethesda.Translations.Binary.FloatIntegerType>(f.IntegerType, out var stored)) return null;
+                if (width == 0 || f.Size != width) return null;
+                float? mul = null, div = null;
+                if (f.Multiplier != null) { if (!float.TryParse(f.Multiplier, NumberStyles.Float, CultureInfo.InvariantCulture, out float m)) return null; mul = m; }
+                if (f.Divisor != null) { if (!float.TryParse(f.Divisor, NumberStyles.Float, CultureInfo.InvariantCulture, out float d)) return null; div = d; }
+                if (RawColumn.Entry(c, f, 0, 4, null, kind: kind) is not { } asFloat) return null;
+                return (b, p) =>
+                {
+                    if (b.Length != width) return (false, null);
+                    float v = Mutagen.Bethesda.Translations.Binary.FloatBinaryTranslation<Mutagen.Bethesda.Plugins.Binary.Streams.MutagenFrame, Mutagen.Bethesda.Plugins.Binary.Streams.MutagenWriter>.Instance.GetFloat(b, stored, multiplier: mul, divisor: div);
+                    Span<byte> four = stackalloc byte[4];
+                    BinaryPrimitives.WriteSingleLittleEndian(four, v);
+                    return asFloat.Read(four, true, p, out var x) == RawColumn.Outcome.Value ? (true, x) : (false, null);
+                };
+            }
             int size = f.Size ?? (kind == "ByteArray" ? -1 : kind == "Color" ? 4 : kind == "Guid" ? 16 : 0);
             Type? et = null;
             if (FlagsRaw.IsEnumKind(kind) && (et = EnumOf(f)) == null) return null;
@@ -565,6 +690,8 @@ sealed partial class RawList
             return (b, p) =>
             {
                 int n = size < 0 ? b.Length : size;
+                // (required bytes to the end of their data with none left: Mutagen's empty ones)
+                if (b.Length == 0 && size < 0 && kind == "ByteArray" && c.Kind == "ByteArray" && !f.Nullable) return (true, "0x");
                 if (n != b.Length || n <= 0) return (false, null);
                 var rc = cache.GetOrAdd(n, k => RawColumn.Entry(c, f, 0, k, et, drop, kind: kind));
                 if (rc == null) return (false, null);

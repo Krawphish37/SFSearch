@@ -139,6 +139,10 @@ public sealed partial class QueryEngine
         void NoteTexts()
         {
             if (_functions == null) return;
+            // A read of this query gave texts from a plugin's own strings tables (the reading threads have no notes)
+            foreach (var s in _e._records.Sessions.Open)
+                if (s.TagTextsMade is { } made && Interlocked.Read(ref made.Given) > _tagGiven.GetValueOrDefault(s.Name))
+                    lock (_functions.Notes.Lock) _functions.Notes.FromTables.Add(_language);
             foreach (var line in Languages.NoteLines(_functions.Notes, _language)) Note(line);
         }
     }

@@ -49,6 +49,9 @@ sealed partial class RawColumn
     /// is its type's default, all its bytes zero, and the view then gives <see cref="_viewDefault"/> (its coalesce, or
     /// NULL where it has none).</summary>
     readonly bool _zeroIsDefault;
+    /// <summary>For a presence yes/no Mutagen's hand-written code sets while it reads the subrecord: the bytes that
+    /// code reads from it. A shorter subrecord is left to Mutagen.</summary>
+    int _presentNeeds;
     readonly object? _viewDefault;
     /// <summary>A field of the record's 24-byte header (its flags, version control, form version), not of a subrecord.</summary>
     public readonly bool InHeader;
@@ -112,7 +115,7 @@ sealed partial class RawColumn
     /// <summary>The reader of a typed column by the record's value walk, where no fixed place and no layout's plan gives
     /// it and the walk reaches its field; null otherwise.</summary>
     static RawColumn? WalkedTyped(string type, ColumnSpec c, RecordSchema schema) =>
-        RawList.TypedWalk.For(type, c, schema) is { } walk ? new RawColumn(c.Name, "", 0, 0, Form.Constant, false, null, false, null) { Typed = walk } : null;
+        RawList.TypedWalk.For(type, c, schema, out _) is { } walk ? new RawColumn(c.Name, "", 0, 0, Form.Constant, false, null, false, null) { Typed = walk } : null;
     /// <summary>The places of the Breaks before the field in its data block, among the block's own fields (not in an
     /// object laid inside it): a subrecord that ends at one of them holds no bytes of the field.</summary>
     int[] _breaks = Array.Empty<int>();
@@ -138,9 +141,9 @@ sealed partial class RawColumn
     public static RawColumn? For(ViewSpec view, ColumnSpec c, RecordSchema schema)
     {
         if (view.IsList || view.IsUnion || view.Types.Count != 1) return null;
-        // A type that shares its signature with others (GMST's five game settings, OMOD's eight modifications): which of
-        // them a record is, only Mutagen's read says, so its bytes aren't read as this type's
-        if (schema.SignatureOf(view.Types[0]) is not { } sig || schema.TypesOf(sig).Count != 1) return null;
+        // (a type that shares its signature with others, GMST's five game settings and OMOD's eight modifications: a
+        // read gives these readers only the records that are the type's, ReadPlan.OnlyType)
+        if (schema.SignatureOf(view.Types[0]) == null) return null;
         // Where no generated place gives it: by Mutagen's own layout of its subrecord (RawPlannedColumns.cs)
         // Then by the record's value walk, where it reaches the field (RawWalkTyped.cs)
         return Cache.GetOrAdd((schema, view.Types[0], c.Name), _ => Make(view.Types[0], c, schema) ?? Numbered(Planned(view.Types[0], c, schema), c) ?? WalkedTyped(view.Types[0], c, schema));
@@ -221,6 +224,18 @@ sealed partial class RawColumn
         if (def.Default != null && c.DefaultSql == null && !c.Nullable) return null;
         bool zeroIsDefault = !c.Nullable && def.Default == null;
         object? viewDefault = c.DefaultSql != null && !c.Nullable && DirectColumn.TryLiteral(c.DefaultSql, out var dv) ? dv : null;
+        // A yes/no Mutagen's hand-written code sets when it reads a subrecord (the XML's layoutPresentWhen
+        // "subrecord:DATA": a placed object's HasPlacementData, which PlacementParse sets when the record has a DATA):
+        // the subrecord there or not. One too short for what that code reads from it is Mutagen's to refuse
+        if (c.Kind == "Bool" && def.Kind == "Bool" && row.Parent == null && !row.InList && def.FilledBy is { } filler && def.Source == null && def.LayoutOffset == null
+            && def.LayoutEncoding == null && def.LayoutBits == null && def.LayoutDroppedBits == null && def.LayoutPresentWhen is { Length: 14 } there && there.StartsWith("subrecord:", StringComparison.Ordinal))
+        {
+            string thereSig = there[10..];
+            int needs = 0;
+            foreach (var r in Rows(schema, type))
+                if (r.Parent == null && r.Def.FilledBy == filler && r.Def.LayoutSubrecord == thereSig && int.TryParse(r.Def.LayoutOffset, out int placed) && r.Def.Size is int width) needs = Math.Max(needs, placed + width);
+            return new RawColumn(c.Name, thereSig, 0, 0, Form.Present, false, null, zeroIsDefault, viewDefault) { _presentNeeds = needs };
+        }
         // The record's header: its fields where Mutagen's layout of the record header places them (HandReadLayouts.xml's
         // Header, C57 W2): the flags at 8, version control at 16, form version at 20, the second version at 22;
         // IsCompressed and IsDeleted flag bits; MajorFlags and StarfieldMajorRecordFlags the flags as the type's enums
@@ -241,7 +256,9 @@ sealed partial class RawColumn
             }
             return new RawColumn(c.Name, "", h.Offset, h.Size, hf, false, he, zeroIsDefault, viewDefault, inHeader: true);
         }
-        if (row.Subrecord is not { Length: 4 } sub) return null;
+        // (a field with no subrecord of its own that Mutagen's hand-written code fills from another field's, where the
+        // XML's layout attributes place it: a package's DataInputVersion, at 8 of its template's PKCU)
+        if ((row.Subrecord is { Length: 4 } ? row.Subrecord : def.Custom && def.FilledBy != null && int.TryParse(def.LayoutOffset, out _) ? def.LayoutSubrecord : null) is not { Length: 4 } sub) return null;
         // A text that is its subrecord, whole: Mutagen reads it null-terminated in the game's encoding for texts that
         // aren't translated (GameConstants.Starfield.Encodings.NonTranslated)
         int? textSize = c.Kind == "String" && def.Subrecord == sub && (def.TextForm ?? "NullTerminate") == "NullTerminate" && !def.Translated ? -1 : null;
@@ -259,6 +276,14 @@ sealed partial class RawColumn
         // DATA) is read the same way when the schema lays it out plainly: its subrecord and offset, no encoding, no bits
         bool handPlain = def.Custom && def.FilledBy != null && def.LayoutSubrecord == sub && int.TryParse(def.LayoutOffset, out _)
             && def.LayoutEncoding == null && def.LayoutPresentWhen == null && def.LayoutBits == null && def.LayoutDroppedBits == null;
+        // So is a link that code reads at a place inside the field's own subrecord, among other things it reads there (a
+        // package's PackageTemplate: the four bytes at 4 of PKCU, whose 8 bytes its reader takes with the version)
+        if (!handPlain && def.Custom && def.Kind == "FormLink" && c.Kind == "FormLink" && def.FilledBy == null && def.Subrecord == sub && def.LayoutSubrecord == null && int.TryParse(def.LayoutOffset, out _)
+            && def.LayoutEncoding == null && def.LayoutPresentWhen == null && def.LayoutBits == null && def.LayoutDroppedBits == null && size >= 4)
+        {
+            handPlain = true;
+            size = 4;
+        }
         // A field that is its own subrecord starts it; any other has its offset in the schema
         int offset = handPlain ? int.Parse(def.LayoutOffset!) : row.Offset ?? (def.Subrecord == sub ? 0 : -1);
         // A float or float point Mutagen's hand-written code reads at its place and scales (the XML's layoutEncoding
@@ -359,6 +384,10 @@ sealed partial class RawColumn
             if (stack.Any(o => model.EndMarkerOf(o) == "BFCE")) continue;
             // The hand-written step that fills this field, and the fields it fills beside it from the same layout
             if (handPlain && (r.Def.Kind == "CustomLogic" && r.Def.Path == def.FilledBy || r.Def.Custom && r.Def.FilledBy == def.FilledBy)) continue;
+            // The field whose reader fills this one, and a field this one's reader fills, each placed by the layout
+            // attributes (a package's PackageTemplate at 4 of PKCU and its DataInputVersion at 8)
+            if (handPlain && r.Def.Custom && int.TryParse(r.Def.LayoutOffset, out _) && ParentPath(r.PlainPath) == parent
+                && (def.FilledBy != null && r.Def.Path == def.FilledBy || r.Def.FilledBy != null && r.Def.FilledBy == def.Path)) continue;
             // A scaled float beside it is laid out plainly too (a primitive's Bounds before its Color)
             if (r.Def.Kind == "CustomLogic" || r.Def.Custom && Scaled(r.Def) == 0) return null;
             // A list in the same subrecord that starts after the field doesn't move it
@@ -633,7 +662,12 @@ sealed partial class RawColumn
         value = null;
         if (_form == Form.Constant) { value = _viewDefault; return Outcome.Value; }
         // A presence yes/no: there, true; absent, false, which the serializer leaves out (the view's default)
-        if (_form == Form.Present) { value = present ? 1L : _zeroIsDefault ? _viewDefault : 0L; return Outcome.Value; }
+        if (_form == Form.Present)
+        {
+            if (present && content.Length < _presentNeeds) return Outcome.Mutagen;
+            value = present ? 1L : _zeroIsDefault ? _viewDefault : 0L;
+            return Outcome.Value;
+        }
         if (!present) return _absentIsNull ? Outcome.Value : Outcome.Mutagen;
         if (_form == Form.Text)
         {
@@ -784,8 +818,17 @@ sealed class RawPlugin
         text = null;
         if (_session == null) return false;
         if (_session.Localized) return TryText(b, table, out text);
-        text = Decode(b, form, Mutagen.Bethesda.Plugins.Meta.GameConstants.Starfield.Encodings.NonLocalized);
+        text = FromTable(Decode(b, form, Mutagen.Bethesda.Plugins.Meta.GameConstants.Starfield.Encodings.NonLocalized));
         return true;
+    }
+
+    /// <summary>A text of a plugin that isn't localized, as DirectColumn.Text gives it: asked in another language than
+    /// English, a tagged text is that language's table's text when the plugin ships strings tables that hold its ID
+    /// (GAPS S190, TagTexts.cs).</summary>
+    string? FromTable(string? stored)
+    {
+        if (stored == null || _asked is not { } asked || asked == SFSearch.Records.TagTexts.Own || !stored.StartsWith("<ID=", StringComparison.Ordinal)) return stored;
+        return _session!.TagTexts?.Translate(stored, asked) ?? stored;
     }
 
     /// <summary>
@@ -853,7 +896,7 @@ sealed class RawPlugin
         if (_session == null) return false;
         if (!_session.Localized)
         {
-            text = BinaryStringUtility.ProcessWholeToZString(content, Mutagen.Bethesda.Plugins.Meta.GameConstants.Starfield.Encodings.NonLocalized);
+            text = FromTable(BinaryStringUtility.ProcessWholeToZString(content, Mutagen.Bethesda.Plugins.Meta.GameConstants.Starfield.Encodings.NonLocalized));
             return true;
         }
         if (content.Length != 4 || _session.StringsLookup is not { } lookup) return false;
@@ -953,8 +996,13 @@ sealed class RawRecordColumns
     public int Count => _columns.Length;
 
     /// <summary>The values of every column for one record's plain data; false when one of them must come from Mutagen.</summary>
-    public bool Read(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, object?[] values)
+    public bool Read(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, object?[] values) => Read(head, data, plugin, values, out _);
+
+    /// <summary><see cref="Read(ReadOnlySpan{byte}, ReadOnlySpan{byte}, RawPlugin, object?[])"/>, saying why when it is the
+    /// value walk of the typed columns that leaves the record to Mutagen.</summary>
+    internal bool Read(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, object?[] values, out RawList.WalkLeft left)
     {
+        left = default;
         Span<int> start = stackalloc int[_subs.Length], length = stackalloc int[_subs.Length];
         start.Fill(-1);
         if (_twoMarkers) return false;
@@ -1012,7 +1060,7 @@ sealed class RawRecordColumns
         // The columns the value walk places: the subrecord it gives each field (GAPS S165)
         if (_walked.Length > 0 && !ReadWalked(head, data, plugin, values)) return false;
         // The typed columns the value walk reads: one walk for them all
-        if (_typedWalks != null && !_typedWalks.Read(head, data, plugin, values, _typed)) return false;
+        if (_typedWalks != null && !_typedWalks.Read(head, data, plugin, values, _typed, out left)) return false;
         for (int i = 0; i < _columns.Length; i++)
         {
             if (_columns[i].Walked != null || _columns[i].Typed != null) continue;

@@ -24,7 +24,7 @@ namespace SFSearch.Engine
         public static readonly IReadOnlyList<VerbInfo> Verbs = new List<VerbInfo>
         {
             new("find", "sfs_find", "what a FormID, EditorID or in-game name is; records by pattern or type; who holds each and who wins", FindTool.Verb),
-            new("record", "sfs_record", "one record: card, fields, json, raw, versions, evidence, verify", RecordTool.Verb),
+            new("record", "sfs_record", "one record: card, full, fields, json, raw, versions, evidence, verify", RecordTool.Verb),
             new("describe", "sfs_describe", "a record type's fields, one field, an enum, or a search over field names (no plugin read)", DescribeTool.Verb),
             new("query2", "sfs_query", "SQL over typed views; scope plugins, winners or versions", QueryTool.Verb),
             new("saved", "sfs_saved", "the stored queries: list, show, check, run with named arguments, save", SavedTool.Verb),

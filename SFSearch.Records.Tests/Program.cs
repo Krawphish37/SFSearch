@@ -63,6 +63,7 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("names-with-spaces", Tests.NamesWithSpaces),
     ("fields-defaults", Tests.FieldsDefaults),
     ("card-defaults", Tests.CardDefaultsShown),
+    ("card-outline", Tests.CardOutline),
     ("derived-fields", Tests.DerivedFields),
     ("names-from-bytes", Tests.NamesFromBytes),
     ("names-load-order", Tests.NamesWholeLoadOrder),

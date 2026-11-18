@@ -51,6 +51,8 @@ namespace SFSearch.Engine
             {
                 if (!ReferenceEquals(_for, eng)) { CloseAllLocked(); _for = eng; }
                 if (_engines.TryGetValue((ix, language), out var e)) return e;
+                // (the names of Wwise events, read once from Data's sound banks, are kept here for the next command)
+                SFSearch.Records.WwiseEvents.CacheFolder ??= Path.Combine(ScratchRoot, "wwise");
                 e = new RecordEngine(ix, Schema, Path.Combine(ScratchRoot, "verify"), eng.DataFolder, language);
                 return _engines[(ix, language)] = e;
             }

@@ -751,6 +751,69 @@ static class Tests
         return $"Eon: \"Object Bounds (OBND): all zero (default)\" on the card, marked in its JSON, before Transforms; fields says \"all zero\". DarkStar_Mk3_MagShear: defaults added for {(added.Count == 0 ? "nothing" : string.Join(", ", added))}.";
     }
 
+    /// <summary>GAPS S192: the card as an outline. The record's own fields are all there; a list or object that would
+    /// print more than Card.OutlineLines lines is closed to one line that says how many lines it holds, and the fields
+    /// view of it has exactly those lines; everything else is the full card's lines, in their order. A short record's
+    /// outline is its full card.</summary>
+    public static string CardOutline(Ctx ctx)
+    {
+        var e = ctx.Engine;
+        e.Sessions.Use(Starfield, "darkstar.esm");
+        var said = new List<string>();
+        foreach (var (plugin, key) in new[] { (Starfield, "04716C:Starfield.esm"), (Starfield, "0476C4:Starfield.esm"), ("darkstar.esm", "0003C2:darkstar.esm") })
+        {
+            var rec = e.Load(plugin, key);
+            var card = e.Card(rec, null, withDefaults: true);
+            string full = card.ToText(int.MaxValue, 64);
+            var closed = new List<string>();
+            string outline = card.ToText(int.MaxValue, 64, Card.OutlineLines, closed);
+            var fullLines = full.TrimEnd('\n').Split('\n');
+            var lines = outline.TrimEnd('\n').Split('\n');
+            const string Mark = "   [closed: ";
+            // Every line of the record's own fields, as the full card has it (a closed one up to its mark)
+            foreach (string top in fullLines.Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("   ", StringComparison.Ordinal)))
+                Check(lines.Any(l => l == top || l.StartsWith(top + Mark, StringComparison.Ordinal) || l.StartsWith(top + ", the first: ", StringComparison.Ordinal)), $"{rec.Label}: the outline lacks the field \"{top.Trim()}\"");
+            // Every line that isn't a closed part's is a line of the full card, in the full card's order
+            int at = 0, closedLines = 0;
+            foreach (string l in lines)
+            {
+                int mark = l.IndexOf(Mark, StringComparison.Ordinal);
+                if (mark >= 0)
+                {
+                    string count = l[(mark + Mark.Length)..].Split(' ')[0];
+                    Check(int.TryParse(count, NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out int held) && held > Card.OutlineLines, $"{rec.Label}: a closed part of {count} lines: {l.Trim()}");
+                    closedLines += held;
+                    continue;
+                }
+                int found = Array.IndexOf(fullLines, l, at);
+                Check(found >= 0, $"{rec.Label}: the outline's line \"{l.Trim()}\" isn't in the full card after line {at}");
+                at = found + 1;
+            }
+            Check(lines.Length + closedLines == fullLines.Length, $"{rec.Label}: {lines.Length:N0} lines and {closedLines:N0} closed are not the full card's {fullLines.Length:N0}");
+            Check(lines.Count(l => l.Contains(Mark, StringComparison.Ordinal)) == closed.Count, $"{rec.Label}: {closed.Count} parts reported closed");
+            // The fields view of a closed part has the lines the mark counts
+            foreach (string path in closed)
+            {
+                string line = lines.First(l => l.Contains($"The fields view of {path} opens it", StringComparison.Ordinal));
+                int held = int.Parse(line[(line.IndexOf(Mark, StringComparison.Ordinal) + Mark.Length)..].Split(' ')[0], NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
+                var opened = e.Fields(rec, new[] { path })[0].ToText().TrimEnd('\n').Split('\n');
+                Check(opened.Length - 1 == held, $"{rec.Label}: the fields view of {path} has {opened.Length - 1:N0} lines under its own, the outline says {held:N0}");
+            }
+            said.Add($"{rec.Label} {fullLines.Length:N0} lines to {lines.Length:N0} ({closed.Count} closed: {string.Join(", ", closed)})");
+        }
+        // The Beowulf: the 21 object template combinations and the keywords are closed, the whole outline fits one answer
+        var beowulf = e.Card(e.Load(Starfield, "04716C:Starfield.esm"), null, withDefaults: true);
+        var parts = new List<string>();
+        string text = beowulf.ToText(int.MaxValue, 64, Card.OutlineLines, parts);
+        Check(parts.Contains("ObjectTemplates") && parts.Contains("Keywords") && text.Length < 12_000, $"the Beowulf's outline: {text.Length:N0} characters, closed {string.Join(", ", parts)}");
+        Check(text.Contains("Keywords (KWDA): 16 items, the first: ", StringComparison.Ordinal), "a closed list of plain values shows its first ones");
+        // A short record: nothing to close
+        var small = e.Card(e.Load("darkstar.esm", "000066:darkstar.esm"), null, withDefaults: true);
+        var none = new List<string>();
+        Check(small.ToText(int.MaxValue, 64, Card.OutlineLines, none) == small.ToText(int.MaxValue, 64) && none.Count == 0, "a keyword's outline differs from its full card");
+        return $"the outline keeps every field of the record and every line of the parts it leaves open, in order; each closed part says its lines, which the fields view of it gives: {string.Join("; ", said)}. A keyword's outline is its full card";
+    }
+
     // ---------------------------------------------------------------- In-game names from the record's own bytes
     static readonly HashSet<string> WorldTop = new(StringComparer.Ordinal) { "CELL", "WRLD", "SFTR", "SFBK", "SFPT", "NAVI" };
 

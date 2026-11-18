@@ -22,7 +22,7 @@ Each example call was run as written. `references/research.md` shows what the to
 | Is a plugin Full, Medium or Light (Small)? Loaded? Its console prefix, masters, room for new records, records per type (new and overrides)? Can I trust it? | `sfs_loadorder` | `{"view": "plugin", "plugin": "atom74.esm"}` |
 | The load order. Which plugins have problems (a missing master, a patch built for an older master)? | `sfs_loadorder` | `{}`, `{"view": "problems"}` |
 | What changed in Data since last time? Which patches are at risk? | `sfs_loadorder` | `{"view": "changes"}` |
-| Show me one record | `sfs_record` | `{"record": "kgcDoom_WEAP_SuperShotgun"}` |
+| Show me one record | `sfs_record` | `{"record": "kgcDoom_WEAP_SuperShotgun"}`: its card, long lists closed to a line each (`"view": "full"` opens them all) |
 | One value: its damage, its keywords, what a recipe makes, its templates | `sfs_record` | `{"record": "kgcDoom_WEAP_SuperShotgun", "view": "fields", "fields": "AttackDamage,Keywords"}` |
 | Prove a value from the file's bytes | `sfs_record` | `{"record": "kgcDoom_WEAP_SuperShotgun", "view": "evidence", "fields": "AttackDamage"}` |
 | A plugin file outside Data (a backup, a test build, a downloaded mod) | `sfs_record`, `sfs_compare` | `{"record": "kgcDoom_WEAP_SuperShotgun", "plugin": "C:/backup/kgcdoom.esm"}`; `sfs_compare` with `"kind": "plugins"` takes two paths |

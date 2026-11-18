@@ -82,6 +82,8 @@ public sealed partial class QueryEngine
         SqliteConnection _con = null!;
         Guard _guard = null!;
         Functions _functions = null!;
+        /// <summary>How many texts each open plugin's own strings tables had given when the query began (GAPS S190).</summary>
+        readonly Dictionary<string, long> _tagGiven = new(StringComparer.OrdinalIgnoreCase);
         bool _versions, _winners;
         string _cursorBase = "";
         long _cursorOffset;
@@ -328,6 +330,7 @@ public sealed partial class QueryEngine
                 RefreshDone(f);
             }
             _functions = new Functions(_e._records, _language) { Label = _e.LabelOf };
+            foreach (var s in _e._records.Sessions.Open) if (s.TagTextsMade is { } made) _tagGiven[s.Name] = Interlocked.Read(ref made.Given);
             _functions.Register(_con);
             // Signature to record type, for the Forms view (a signature with several types gives its union view)
             ScratchFile.Exec(_con, "CREATE TEMP TABLE sfs_sigtype(Sig TEXT PRIMARY KEY, Type TEXT) WITHOUT ROWID");

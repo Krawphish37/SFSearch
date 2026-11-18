@@ -1,8 +1,14 @@
 // The materials a mesh (.nif) names, read the way the mesh writes them (GAPS S46). A mesh names a material two ways:
-//  - As text: a string of the header ("materials\weapons\x\y.mat"; every geometry's shader names its material so),
+//  - As text: a string of the header ("materials\weapons\x\y.mat") that a shader of the mesh has for its name (a
+//    block whose type ends in "ShaderProperty": its first number is its name, an index into the header's strings);
 //    or a text inside a block, written as its length (32 bits) and its characters (a BSWeakReferenceNode names
 //    "materials/water/watersmooth.mat" so). Only a whole length-prefixed text counts: the bytes before ".mat" are
 //    never read as a name on their own.
+//    A header string no shader has for its name is not a material of the mesh (GAPS S8): a tool that edits a mesh
+//    keeps the strings of what was there before. In the game's own archives every one of the 288,944 ".mat" strings
+//    of 108,816 meshes is the name of a BSLightingShaderProperty; in the mods' archives of the Data folder this was
+//    written on, 21,941 of 69,249 are the name of no shader (a mesh of Nomad_Spacesuit_Z: 5 used, 27 left over, of
+//    which the report called the ones that are nowhere MISSING). They are counted (Unused), not listed.
 //  - By hash: a BSWeakReferenceNode (the object LOD meshes of a world, meshes\terrain\<world>\objects\*.nif) names
 //    each material of each object it places by its resource ID, 12 bytes: the folder's CRC-32, the file name's
 //    CRC-32, then "mat\0" (the order BSResource::ID's class lists them; a compiled material database stores the same
@@ -26,6 +32,8 @@ internal sealed class MeshHeader
     public List<(string Type, int Offset, int Size)> Blocks { get; } = new();
     /// <summary>Where the blocks start; -1 when the bytes end before that.</summary>
     public int BlocksStart { get; init; } = -1;
+    /// <summary>How many blocks the header says the mesh has.</summary>
+    public int BlockCount { get; init; }
 
     /// <summary>The header of a mesh (Gamebryo 20.2.0.7, as Starfield writes it). Null when the bytes end before the
     /// strings do or aren't such a header.</summary>
@@ -75,7 +83,7 @@ internal sealed class MeshHeader
         uint groups = BinaryPrimitives.ReadUInt32LittleEndian(b[q..]); q += 4;
         if (groups > 1_000_000 || !Has((long)groups * 4)) return new MeshHeader { Strings = strings };
         q += (int)groups * 4;
-        var header = new MeshHeader { Strings = strings, BlocksStart = q };
+        var header = new MeshHeader { Strings = strings, BlocksStart = q, BlockCount = (int)blocks };
         long at = q;
         for (int i = 0; i < blocks; i++)
         {
@@ -96,6 +104,9 @@ internal sealed class MeshMaterialNames
     public List<string> Texts { get; } = new();
     /// <summary>The materials named by resource ID: (folder hash, file hash), each once.</summary>
     public List<(uint Dir, uint File)> Hashed { get; } = new();
+    /// <summary>The ".mat" strings of the header that no shader of the mesh has for its name, as written, each once:
+    /// left over from editing, not materials of the mesh.</summary>
+    public List<string> Unused { get; } = new();
     /// <summary>False when the header couldn't be read: the texts were then looked for in the whole file, and the
     /// materials named by hash weren't (the blocks can't be told apart).</summary>
     public bool HeaderRead { get; init; }
@@ -114,8 +125,26 @@ internal sealed class MeshMaterialNames
             if (text.Length > 4 && !text.Contains("$(", StringComparison.Ordinal) && seen.Add(text)) names.Texts.Add(text);
         }
         if (header != null)
-            foreach (var s in header.Strings)
-                if (s.TrimEnd('\0').Trim().EndsWith(".mat", StringComparison.OrdinalIgnoreCase)) Add(s);
+        {
+            // The strings the mesh's shaders have for their names. When the blocks couldn't all be placed, every
+            // ".mat" string counts, as before
+            HashSet<int>? shaderNames = null;
+            if (header.BlocksStart >= 0 && header.Blocks.Count == header.BlockCount)
+            {
+                shaderNames = new HashSet<int>();
+                foreach (var (type, offset, size) in header.Blocks)
+                    if (type.EndsWith("ShaderProperty", StringComparison.Ordinal) && size >= 4 && offset + 4 <= b.Length)
+                        shaderNames.Add(BinaryPrimitives.ReadInt32LittleEndian(b[offset..]));
+            }
+            for (int i = 0; i < header.Strings.Count; i++)
+            {
+                string s = header.Strings[i];
+                string trimmed = s.TrimEnd('\0').Trim();
+                if (!trimmed.EndsWith(".mat", StringComparison.OrdinalIgnoreCase)) continue;
+                if (shaderNames == null || shaderNames.Contains(i)) Add(s);
+                else if (trimmed.Length > 4 && !names.Unused.Contains(trimmed)) names.Unused.Add(trimmed);
+            }
+        }
         // Length-prefixed texts in the blocks (in the whole file when the header couldn't be read)
         int from = header == null ? 0 : header.BlocksStart < 0 ? b.Length : header.BlocksStart;
         var spans = new List<(int Start, int End)>();

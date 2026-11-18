@@ -156,10 +156,25 @@ public sealed class Card
         return Walk(Fields);
     }
 
-    /// <summary>The card as text.</summary>
+    /// <summary>The lines a list or object may hold and still be printed open in the card's outline (<see cref="ToText"/>'s
+    /// closeOver): a sound's two events, a model's few fields and a short list stay open; a weapon's 21 object template
+    /// combinations (443 lines) close.</summary>
+    public const int OutlineLines = 12;
+
+    /// <summary>The card as text, every list and object open.</summary>
     /// <param name="maxItems">The most items of one list that are printed. The rest is counted on a line of its own; nothing is cut silently.</param>
     /// <param name="maxBytes">The most bytes of one byte field that are printed.</param>
-    public string ToText(int maxItems = int.MaxValue, int maxBytes = int.MaxValue)
+    /// <remarks>(Kept with these two parameters: an add-on built for 2.0 to 2.2 calls it so.)</remarks>
+    public string ToText(int maxItems = int.MaxValue, int maxBytes = int.MaxValue) => ToText(maxItems, maxBytes, int.MaxValue, null);
+
+    /// <summary>The card as text, as an outline.</summary>
+    /// <param name="maxItems">The most items of one list that are printed. The rest is counted on a line of its own; nothing is cut silently.</param>
+    /// <param name="maxBytes">The most bytes of one byte field that are printed.</param>
+    /// <param name="closeOver">The outline (GAPS S192): a list or object that would print more lines than this is closed,
+    /// one line with its count, the lines it holds and how to open it; of a list of plain values, the first two. The
+    /// record's own fields are always printed. int.MaxValue: nothing is closed.</param>
+    /// <param name="closed">Gets the path of each part that was closed.</param>
+    public string ToText(int maxItems, int maxBytes, int closeOver, List<string>? closed = null)
     {
         var sb = new StringBuilder();
         sb.Append(Label).Append('\n');
@@ -167,12 +182,20 @@ public sealed class Card
         sb.Append(IsOverride ? " (an override)" : " (its own record)");
         if (Parent != null) sb.Append(", inside ").Append(Parent);
         sb.Append($", at 0x{Offset:X}, {Size.ToString("N0", CultureInfo.InvariantCulture)} bytes").Append(Compressed ? ", compressed" : "").Append('\n');
-        Write(sb, Fields, 1, maxItems, maxBytes);
+        Write(sb, Fields, 1, maxItems, maxBytes, closeOver, closed);
         foreach (var n in Notes) sb.Append("[notes] ").Append(n).Append('\n');
         return sb.ToString();
     }
 
-    static void Write(StringBuilder sb, List<CardField> fields, int depth, int maxItems, int maxBytes)
+    /// <summary>The lines the fields print, with everything under them.</summary>
+    static int Lines(List<CardField> fields)
+    {
+        int n = fields.Count;
+        foreach (var f in fields) if (f.Children != null) n += Lines(f.Children);
+        return n;
+    }
+
+    static void Write(StringBuilder sb, List<CardField> fields, int depth, int maxItems, int maxBytes, int closeOver = int.MaxValue, List<string>? closed = null)
     {
         int items = 0, hidden = 0;
         foreach (var f in fields)
@@ -189,8 +212,18 @@ public sealed class Card
                 if (f.Unknown) sb.Append("   [unknown field").Append(f.Evidence != null ? "; " + f.Evidence : "").Append(']');
                 if (!f.InSchema) sb.Append("   [not in the schema]");
                 if (f.Note != null) sb.Append("   [").Append(f.Note).Append(']');
+                // The outline: a part that would print more lines than it allows is closed
+                if (closeOver != int.MaxValue && Lines(f.Children) is int held && held > closeOver)
+                {
+                    // (of a list of plain values, the first two)
+                    if (f.Children.All(c => c.Children == null))
+                        sb.Append(", the first: ").Append(string.Join("; ", f.Children.Take(2).Select(c => ValueText(c, maxBytes))));
+                    sb.Append("   [closed: ").Append(held.ToString("N0", CultureInfo.InvariantCulture)).Append(" lines. The fields view of ").Append(f.Path).Append(" opens it; the full view opens every one]\n");
+                    closed?.Add(f.Path);
+                    continue;
+                }
                 sb.Append('\n');
-                Write(sb, f.Children, depth + 1, maxItems, maxBytes);
+                Write(sb, f.Children, depth + 1, maxItems, maxBytes, closeOver, closed);
                 continue;
             }
             sb.Append(isItem ? " " : ": ").Append(ValueText(f, maxBytes));
@@ -228,7 +261,10 @@ public sealed class Card
         if (f.Languages is { Count: > 1 }) return $"{t}   [{f.Languages.Count} languages]";
         // A GUID (a sound reference's Wwise events): the form Wwise and xEdit show first, since that is the one that
         // finds the event; Mutagen's .NET form of the same 16 bytes, which the JSON and the views' columns give, beside it
-        if (f.Kind == "Guid" && WwiseGuid(t) is { } wwise) return $"{wwise}   [Wwise and xEdit's form; {t} as Mutagen reads it]";
+        // Before it the event's name and after it its path in the Wwise project, as xEdit shows them, where a sound
+        // bank's description in the Data folder names the GUID (GAPS S191, WwiseEvents.cs)
+        if (f.Kind == "Guid" && WwiseGuid(t) is { } wwise)
+            return $"{(WwiseEvents.Default is { } events && events.TryGet(wwise, out var ev) ? $"{ev.Name} {wwise} \"{ev.Path}\"" : wwise)}   [Wwise and xEdit's form; {t} as Mutagen reads it]";
         return t;
     }
 
@@ -279,6 +315,12 @@ public sealed class Card
                 if (f.Signature != null) j["signature"] = f.Signature;
                 if (f.Variant != null) j["variant"] = f.Variant;
                 if (f.Children == null) { j["value"] = f.Json?.DeepClone(); j["text"] = f.Text; }
+                // A sound's event: its GUID in Wwise's form, and its name and path where a sound bank names it (GAPS S191)
+                if (f.Children == null && f.Kind == "Guid" && WwiseGuid(f.Text) is { } wwise)
+                {
+                    j["wwise"] = wwise;
+                    if (WwiseEvents.Default is { } events && events.TryGet(wwise, out var ev)) { j["wwiseName"] = ev.Name; j["wwisePath"] = ev.Path; }
+                }
                 if (f.Unit != null) j["unit"] = f.Unit;
                 if (f.Languages != null) j["languages"] = new JsonArray(f.Languages.Select(l => (JsonNode)l).ToArray());
                 if (f.IsDefault) j["default"] = true;
@@ -390,11 +432,11 @@ public sealed class CardBuilder
         string? evidence = unknown ? _schema.Evidence(_signature, def!.Object, def.Name) : null;
 
         // The card's value is the JSON's own node, not a copy: the record's JSON must not be changed afterwards
-        CardField Value(string k, string text, string? bytes = null, IReadOnlyList<string>? languages = null) => new()
+        CardField Value(string k, string text, string? bytes = null, IReadOnlyList<string>? languages = null, string? note = null) => new()
         {
             Name = name, Readable = readable, Signature = sub, Kind = k, Json = value, Text = text,
             Unknown = unknown, Bytes = unknown ? bytes ?? SliceOrEncode(def!, sub, abs, value) : bytes, Evidence = evidence, Unit = def?.Unit,
-            Languages = languages, InSchema = def != null || structural || isItem,
+            Languages = languages, InSchema = def != null || structural || isItem, Note = note,
         };
         CardField Parent(string k, List<CardField> children, string? variant = null, string? obj = null)
         {
@@ -415,8 +457,8 @@ public sealed class CardBuilder
                 return Value("Child", "→ " + _label(childKey));
             case JsonObject o when SerializerNotes.IsText(o):
             {
-                var (text, languages) = Translated(o);
-                return Value("Text", text, null, languages);
+                var (text, languages, note) = Translated(o);
+                return Value("Text", text, null, languages, note);
             }
             case JsonObject o:
             {
@@ -521,7 +563,7 @@ public sealed class CardBuilder
 
     /// <summary>The text in the chosen language, found by the language's name. When the record has no text in that
     /// language, the first text it has is given with its language named.</summary>
-    (string Text, IReadOnlyList<string> Languages) Translated(JsonObject o)
+    (string Text, IReadOnlyList<string> Languages, string? Note) Translated(JsonObject o)
     {
         if (o["Values"] is JsonArray values)
         {
@@ -536,10 +578,23 @@ public sealed class CardBuilder
                 if (first == null) { first = text; firstLanguage = lang; }
                 if (found == null && string.Equals(lang, _language, StringComparison.OrdinalIgnoreCase)) found = text;
             }
-            return (NoTag(found) ?? (first == null ? "" : $"(no {_language} text; {firstLanguage}: {NoTag(first)})"), languages);
+            return (NoTag(found) ?? (first == null ? "" : $"(no {_language} text; {firstLanguage}: {NoTag(first)})"), languages, null);
         }
         string target = o["TargetLanguage"]?.GetValue<string>() ?? "";
-        return (NoTag(o["Value"]?.GetValue<string>()) ?? "", o.ContainsKey("Value") ? new[] { target } : Array.Empty<string>());
+        // A plugin that isn't localized but ships strings tables (GAPS S190, TagTexts.cs): the tables' texts that differ
+        // from the plugin's own. Asked in another language than English, the table's text; in English the plugin's
+        // own; the field's note says which it is, and what the other says
+        if (o["Tables"] is JsonObject tables && o["Value"] is JsonValue sv && sv.TryGetValue<string>(out var stored))
+        {
+            string own = NoTag(stored) ?? "";
+            string? Table(string language) => tables.FirstOrDefault(t => t.Key.Equals(language, StringComparison.OrdinalIgnoreCase)).Value is JsonValue tv && tv.TryGetValue<string>(out var tt) ? tt : null;
+            var has = new List<string> { "English" };
+            has.AddRange(tables.Select(t => t.Key).Where(k => !k.Equals("English", StringComparison.OrdinalIgnoreCase)));
+            if (!_language.Equals("English", StringComparison.OrdinalIgnoreCase) && Table(_language) is { } asked)
+                return (asked, has, $"from the plugin's own {_language} strings table; the plugin itself stores: {own}");
+            return (own, has, Table("English") is { } older ? $"the plugin's own English strings table says: {older}" : null);
+        }
+        return (NoTag(o["Value"]?.GetValue<string>()) ?? "", o.ContainsKey("Value") ? new[] { target } : Array.Empty<string>(), null);
     }
 
     /// <summary>
@@ -668,6 +723,8 @@ public sealed class TextCensus
     public int Missing { get; private set; }
     /// <summary>The languages those texts do have.</summary>
     public SortedSet<string> Held { get; } = new(StringComparer.Ordinal);
+    /// <summary>Texts given from the plugin's own strings tables, by the ID in their tag (GAPS S190).</summary>
+    public int FromTables { get; private set; }
 
     /// <summary>A translated text as the JSON writes it: an object with "TargetLanguage" and "Value" or "Values" (and its
     /// string ID, since the serializer's 1.38.6-fixes.3).</summary>
@@ -688,6 +745,10 @@ public sealed class TextCensus
                         foreach (var l in have) Held.Add(l);
                     }
                 }
+                // (a plugin that isn't localized but ships strings tables, asked in another language than English: the
+                // table's text is given, TagTexts.cs)
+                else if (!language.Equals("English", StringComparison.OrdinalIgnoreCase) && o["Tables"] is JsonObject tables && tables.Any(t => t.Key.Equals(language, StringComparison.OrdinalIgnoreCase)))
+                    FromTables++;
                 else if (o["Value"] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0
                          && o["TargetLanguage"]?.GetValue<string>() is { } stored && !stored.Equals(language, StringComparison.OrdinalIgnoreCase))
                 {

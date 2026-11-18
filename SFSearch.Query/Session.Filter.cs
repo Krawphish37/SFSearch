@@ -131,8 +131,11 @@ public sealed partial class QueryEngine
                 var raws = columns.Select(c => RawColumn.For(view, view.ByName[c], _e._schema)).ToArray();
                 if (raws.All(r => r != null)) raw = new RawRecordColumns(raws!);
             }
+            // A type that shares its signature with others: only its own records give rows (ReadPlan.OnlyType)
+            string? sharedSig = _e._schema.SignatureOf(view.Types[0]) is { } vs && _e._schema.TypesOf(vs).Count > 1 ? vs : null;
             return new ReadPlan
             {
+                OnlyType = sharedSig != null ? view.Types[0] : null, ClassOf = sharedSig != null ? SFSearch.Records.RecordClasses.For(_e._schema, sharedSig) : null,
                 Full = false, ProjectColumns = fromJson.Count, Winners = winners, Raw = raw, Filter = filter, TextLanguage = _language,
                 Unsplit = fromJson.All(c => view.ByName[c].RelPath is { Length: > 0 } rel && !_e._schema.FieldHoldsRecords(view.Types[0], rel.Split('.')[0])),
                 ProjectSql = fromJson.Count == 0 ? null : JsonbMaker.ProjectSql(ViewBuilder.ProjectionExprs(view, fromJson, _language)),
@@ -140,11 +143,19 @@ public sealed partial class QueryEngine
             };
         }
 
+        /// <summary>"; 3 records through Mutagen, where the bytes alone don't say": after a read from the records' own
+        /// bytes, the records that weren't read from them.</summary>
+        static string ViaMutagen(ReadPlan plan)
+        {
+            long n = Interlocked.Read(ref plan.ViaMutagen);
+            return n == 0 ? "" : $"; {n:N0} record{(n == 1 ? "" : "s")} through Mutagen, where the bytes alone don't say";
+        }
+
         /// <summary>"straight from the records", "from the records' bytes", "2 of them straight from the records".</summary>
         static string HowRead(ReadPlan plan, int columns)
         {
             if (columns == 0) return "";
-            if (plan.Raw != null) return ", from the records' own bytes";
+            if (plan.Raw != null) return ", from the records' own bytes" + ViaMutagen(plan);
             int directs = plan.Direct?.Count(d => d != null) ?? 0;
             return directs == 0 ? "" : directs == columns ? ", straight from the records" : $", {directs:N0} of them straight from the records";
         }

@@ -53,6 +53,11 @@ public interface IRecordValueSink
     /// Modification by the function read before it, a field its reader leaves at a value): the value as the layout's
     /// text has it, a variable's already put in. A sink that takes only bytes leaves it unread.</summary>
     void Stated(string path, FieldDef field, string value) => Unread(path, "a value Mutagen's hand-written code works out from the bytes");
+    /// <summary>A value one of Mutagen's hand-read layouts lays out with an encoding: the field isn't the stored number
+    /// but what the layout's <c>encoding</c> makes of it (<c>speed</c>: a cloud layer's X and Y speed, a byte b read as
+    /// (b - 127) / 127 / 10). Its bytes [at, end) and the layout's kind as for <see cref="LaidOut"/>. A sink that doesn't
+    /// know the encoding leaves the value unread.</summary>
+    void Encoded(string path, FieldDef field, int subrecord, int at, int end, string layoutKind, string encoding) => Unread(path, "a value Mutagen's hand-written code works out from the bytes");
     /// <summary>A part whose values the walk doesn't give (a hand-read layout's, Mutagen's hand-written code's, a layout the
     /// bytes don't follow): nothing at or under the path is known from the walk.</summary>
     void Unread(string path, string why);
@@ -362,7 +367,7 @@ public sealed class LinkByteWalker
 
     /// <summary>A record type whose own hand-read layout lays out only what a bulky reader reads (CELL's traversals,
     /// NAVI's map infos): its layout isn't walked.</summary>
-    static bool SkipLayout(string sig) => sig is "CELL" or "NAVI";
+    internal static bool SkipLayout(string sig) => sig is "CELL" or "NAVI";
 
     /// <summary>Every FormID a hand-read layout names, as a schema path with the kinds its Cases pick, with the
     /// subrecords the layout reads.</summary>
@@ -612,6 +617,19 @@ public sealed class LinkByteWalker
         return reach;
     });
 
+    /// <summary>Whether one of Mutagen's hand-read layouts that apply to the record type (its own, or an AnyRecord's)
+    /// names the field at this path (kinds left out, list entries as [*]): what Mutagen's hand-written code reads there
+    /// is what the layout lays out (an object modification's MaxRank and AttachPoint in DATA).</summary>
+    public static bool LaidOutByHand(RecordSchema schema, string type, string plainPath)
+    {
+        var m = schema.Model;
+        string sig = m.Objects.TryGetValue(type, out var od) ? od.Sig ?? "" : "";
+        if (SkipLayout(sig)) return false;
+        foreach (var h in m.HandLayouts.Where(h => h.Kind == "Record" && h.Sig == sig || h.Kind == "AnyRecord"))
+            if (HandLaidOut.Paths(m, h).Contains(plainPath)) return true;
+        return false;
+    }
+
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SchemaModel, ConcurrentDictionary<string, HashSet<string>>> CutSets = new();
 
     /// <summary>The type's cut paths (<see cref="CutPaths"/>) as a set.</summary>
@@ -677,7 +695,7 @@ public sealed class LinkByteWalker
 
     /// <summary>Every subrecord a layout reads or passes over (its Subs, SubRepeats, Segments' starts and Generated
     /// ones, through its Uses).</summary>
-    static HashSet<string> LayoutSubs(SchemaModel m, HandLayout h) => SubsOfLayout.GetOrAdd(h, x =>
+    internal static HashSet<string> LayoutSubs(SchemaModel m, HandLayout h) => SubsOfLayout.GetOrAdd(h, x =>
     {
         var defines = m.HandLayouts.Where(d => d.Kind == "Define" && d.Name != null).GroupBy(d => d.Name!).ToDictionary(g => g.Key, g => g.Last().Element, StringComparer.Ordinal);
         var set = new HashSet<string>(StringComparer.Ordinal);
@@ -752,12 +770,19 @@ internal sealed partial class ItemLocator
     List<string>? _problemPaths;
     bool _componentsOnly;
     HashSet<int>? _hidden;
+    /// <summary>A value walk's block states that wait for their block's walk, by the block's subrecord (LinkObject, Block).</summary>
+    Dictionary<int, (string Path, DerivedState State)>? _pendingStates;
     /// <summary>Walking a run a hand-read layout cut out (its object's own hand-written lists may call generated readers).</summary>
     bool _inRun;
     /// <summary>The value walk's receiver (<see cref="LinkByteWalker.WalkValues"/>, GAPS S153); null in a link walk.</summary>
     IRecordValueSink? _values;
     /// <summary>A value walk's choice of the parts it reads, by path with kinds left out and indexes as [*]; null: all.</summary>
     Func<string, bool>? _want;
+    /// <summary>A value walk: whether the record type's own hand-read layout lays out a field of the record (or something in it).</summary>
+    Func<string, bool>? _laidOutTop;
+    /// <summary>A value walk: the record holds none of the subrecords its type's own hand-read layout reads, so
+    /// Mutagen's hand-written code, which those subrecords call, reads nothing in it.</summary>
+    bool _ownLayoutAbsent;
 
     static readonly ConcurrentDictionary<(Func<string, bool>, string, string?, string), bool[]> WantedCache = new();
 
@@ -774,6 +799,11 @@ internal sealed partial class ItemLocator
             if (!w[i] && groups[i].Own != null && groups[i].Kind is GroupKind.Single or GroupKind.StructObj or GroupKind.GenderedOne or GroupKind.ListArray)
                 for (int j = 0; j < groups.Count; j++)
                     if (j != i && w[j] && groups[j].Own == groups[i].Own) { keep[i] = true; break; }
+        // A block's state that the block's walk tells (its breaks have no offsets): asked for, its block is walked
+        foreach (var d in DerivedStates(_m, obj))
+            if (d.Sig != null && d.Breaks == null && d.After != null && _want!(place.Length == 0 ? d.Def.Name : place + "." + d.Def.Name) && SchemaModel.MapSig(map, d.Sig) is { } stateSig)
+                for (int i = 0; i < groups.Count; i++)
+                    if (groups[i].Own == stateSig) keep[i] = true;
         return keep;
     });
 
@@ -813,6 +843,20 @@ internal sealed partial class ItemLocator
         HandLayoutWalk? hand = null, HashSet<string>? cuts = null)
     {
         var l = new ItemLocator(schema, raw, null, _ => "", null, tables) { _link = (_, _, _, _) => { }, _linkProblems = problems, _linkLocalized = localized, _linkSkip = skip, _linksUnder = _ => true, _sigOf = sigOf, _problemPaths = new List<string>(), _values = sink, _want = want, _hand = hand, _cuts = cuts };
+        string ownSig = schema.Model.Objects.TryGetValue(type, out var typeDef) ? typeDef.Sig ?? "" : "";
+        var own = LinkByteWalker.SkipLayout(ownSig) ? new List<HandLayout>() : schema.Model.HandLayouts.Where(h => h.Kind == "Record" && h.Sig == ownSig).ToList();
+        if (own.Count > 0)
+        {
+            l._laidOutTop = name => own.Any(h => HandLaidOut.Paths(schema.Model, h).Any(p => p == name || p.StartsWith(name + ".", StringComparison.Ordinal) || p.StartsWith(name + "[", StringComparison.Ordinal)));
+            bool held = false;
+            foreach (var h in own)
+            {
+                var subs = LinkByteWalker.LayoutSubs(schema.Model, h);
+                foreach (var s in raw.Subrecords) if (subs.Contains(s.Signature)) { held = true; break; }
+                if (held) break;
+            }
+            l._ownLayoutAbsent = !held;
+        }
         if (hand != null)
         {
             // Where a layout didn't follow the bytes, what it names there isn't known; a list whose file holds only its
@@ -943,6 +987,34 @@ internal sealed partial class ItemLocator
         _items = new(); _halves = new();
         var claims = Claim(obj, map, from, to);
         var groups = _lastGroups!;
+        List<int>? waiting = null;
+        // A subrecord that fields of the object take, where the reading of the object left it to none (a second run of
+        // components after the record's other subrecords): Mutagen's reader reads it its own way (a list read again
+        // takes the first one's place), which this walk doesn't follow. Those fields are unread
+        if (_values != null)
+            for (int x = from; x < to; x++)
+            {
+                if (claims[x - from] >= 0 || _linkSkip!.Contains(x) || _hidden != null && _hidden.Contains(x)) continue;
+                foreach (int taker in AcceptingOf(groups, Sig(x)))
+                    Unread(PathOf(prefix, groups[taker].Name), $"a {Sig(x)} subrecord stands where the reading of {obj} gives it to no field");
+            }
+        // Each data block's DataTypeState: Absent (or nothing) when the object has no such subrecord, else by where the
+        // block ends. A subrecord of the signature that another field took (an object in it) leaves the value unread.
+        if (_values != null)
+            foreach (var d in DerivedStates(_m, obj))
+            {
+                if (d.Sig == null) continue;
+                string statePath = PathOf(prefix, d.Def.Name);
+                string? stateSig = SchemaModel.MapSig(map, d.Sig);
+                int at = -1;
+                for (int y = from; y < to; y++) if (Sig(y) == stateSig) { at = y; break; }
+                if (at < 0) _values.Stated(statePath, d.Def, d.HasAbsent ? "Absent" : "0");
+                else if (claims[at - from] < 0 || groups[claims[at - from]].Own != stateSig || _linkSkip!.Contains(at)) Unread(statePath, $"{stateSig} isn't read as the object's own data block here");
+                // Breaks after fields of no fixed size (a block editor's DAT2, after its texts and a list): the walk of
+                // the block says where its data ended (Block)
+                else if (d.Breaks == null && d.After != null) { (_pendingStates ??= new())[at] = (statePath, d); (waiting ??= new()).Add(at); }
+                else GiveState(statePath, d, _raw.Content(_raw.Subrecords[at]).Length);
+            }
         var items = _items; var halves = _halves;
         var claimedBy = new Dictionary<int, int>();
         for (int x = from; x < to; x++) if (claims[x - from] >= 0) claimedBy[claims[x - from]] = claimedBy.GetValueOrDefault(claims[x - from]) + 1;
@@ -956,6 +1028,70 @@ internal sealed partial class ItemLocator
             if (wanted != null && !wanted[gi]) continue;
             // A field one of Mutagen's hand-read layouts names here: its values are the layout's (GAPS S164)
             if (_values != null && HandNames(prefix) is { } named && named.Contains(g.Name)) { HandGroup(prefix, obj, gen, g); continue; }
+            // An object whose kind a subrecord of this object picks (PickedBySubrecord): the kind as Mutagen's hand-written
+            // reader picks it, then its fields from the field's own subrecord as the kind's generated reader reads them
+            if (_values != null && PickedBySubrecord(g.Main) is { } pick && groups.Count(o => o.Main.Subrecord == g.Main.Subrecord && !NoBytes(o.Main)) == 1)
+            {
+                string pro = g.Main.RefObject!, pickedPath = PathOf(prefix, g.Name);
+                string ownSig = SchemaModel.MapSig(map, g.Main.Subrecord!) ?? g.Main.Subrecord!;
+                int x = -1;
+                for (int y = from; y < to && x < 0; y++) if (Sig(y) == ownSig && (_hidden == null || !_hidden.Contains(y))) x = y;
+                try
+                {
+                    if (x < 0) { if (!g.Main.Nullable) Unread(pickedPath, $"no {ownSig}: the object Mutagen makes without it isn't the bytes' to say"); }
+                    else if (_linkSkip!.Contains(x)) Unread(pickedPath, $"{ownSig} is a hand-read layout's");
+                    else
+                    {
+                        var content = _raw.Content(_raw.Subrecords[x]);
+                        string picked;
+                        int start = 0;
+                        if (pick.Bit < 0)
+                        {
+                            // The kind's name: a uint32 length, then that many bytes, a zero last when there are any
+                            // (Mutagen's StringBinaryType.PrependLengthWithNullIfContent)
+                            if (content.Length < 4) throw new NotFollowed($"{pickedPath}: {ownSig} is too short for the length of its kind's name");
+                            uint n = BinaryPrimitives.ReadUInt32LittleEndian(content);
+                            if (n > content.Length - 4) throw new NotFollowed($"{pickedPath}: its kind's name runs past the end of {ownSig}");
+                            var text = content.Slice(4, (int)n);
+                            if (text.Length > 0 && text[^1] == 0) text = text[..^1];
+                            picked = System.Text.Encoding.Latin1.GetString(text);
+                            start = 4 + (int)n;
+                        }
+                        else
+                        {
+                            // The first subrecord of the selector's signature after the field's own, as Mutagen's reader
+                            // scans on to it
+                            int at = -1;
+                            for (int y = x + 1; y < to && at < 0; y++) if (Sig(y) == pick.Sub) at = y;
+                            if (at < 0 || _raw.Content(_raw.Subrecords[at]).Length < 4) throw new NotFollowed($"{pickedPath}: no {pick.Sub} after {ownSig} to pick its kind");
+                            picked = ((BinaryPrimitives.ReadInt32LittleEndian(_raw.Content(_raw.Subrecords[at])) >> pick.Bit) & 1).ToString(CultureInfo.InvariantCulture);
+                        }
+                        string kind = TargetsOf(pro).FirstOrDefault(t => _m.Objects[t.Name].SelectorValue == picked)?.Name ?? throw new NotFollowed($"{pickedPath}: \"{picked}\" picks no kind of {pro}");
+                        Decode(x, content, start, kind, g.Main.SigMap ?? map, g.Main.GenericArg == "T" ? gen : g.Main.GenericArg ?? gen, pickedPath + MarkOf(pro, kind));
+                    }
+                }
+                catch (NotFollowed e) { Unread(pickedPath, e.Message); }
+                continue;
+            }
+            // An enum Mutagen's hand-written code reads whole and keeps without some bits (StoredRule: an NPC's Flags in
+            // ACBS, a colour record's in FNAM), where the walk doesn't take the field with its subrecord's block: at its
+            // place in the object's first subrecord of that signature (the first field of it, or at the schema's offset)
+            if (_values != null && g.Kind == GroupKind.InCustom && StoredRule(g.Main) == "dropped" && SchemaModel.MapSig(map, g.Main.Subrecord!) is { } droppedSig)
+            {
+                string droppedPath = PathOf(prefix, g.Name);
+                int at = g.Main.Offset is int fo && !g.Main.OffsetRel ? fo : groups.First(o => o.Main.Subrecord == g.Main.Subrecord && !NoBytes(o.Main)) == g ? 0 : -1;
+                int x = -1;
+                for (int y = from; y < to && x < 0; y++) if (Sig(y) == droppedSig && (_hidden == null || !_hidden.Contains(y))) x = y;
+                if (at < 0) Unread(droppedPath, "read by Mutagen's hand-written code");
+                else if (x >= 0 && _linkSkip!.Contains(x)) Unread(droppedPath, $"{droppedSig} is a hand-read layout's");
+                else if (x >= 0)
+                {
+                    int size = g.Main.Size!.Value;
+                    if (at + size > _raw.Content(_raw.Subrecords[x]).Length) Unread(droppedPath, $"{size} bytes at offset {at} run past the end of {droppedSig}");
+                    else _values.Value(droppedPath, g.Main, x, at, at + size);
+                }
+                continue;
+            }
             try
             {
                 if (g.Halves is { } hg)
@@ -1017,11 +1153,23 @@ internal sealed partial class ItemLocator
                         if (!items.TryGetValue(gi, out var list)) break;
                         var item = g.Item!;
                         string? itemMap = item.SigMap ?? g.Map;
-                        // Items that sit between markers of their own (the XML's itemMarkerType: a sound echo marker's Markers,
-                        // ECHO to ECHE), which this walk doesn't read: where one entry ends isn't sure, so a value walk gives
-                        // none of the list (its links are found either way). A hand-read layout's cut (a perk's ranks) is the
-                        // layout's, not read here
-                        if (_values != null && g.Main.ItemMarker != null) Unread(PathOf(prefix, g.Name), $"its items sit between {g.Main.ItemMarker} and {g.Main.ItemEndMarker ?? "the next"}, which this walk doesn't read");
+                        // Items in more than one run (a component after the record's other subrecords): Mutagen's reader reads
+                        // a run where it meets the list's first subrecord and sets the list to it, so a later run takes the
+                        // earlier one's place. A value walk doesn't follow that: the list is unread
+                        if (_values != null)
+                        {
+                            bool runs = false;
+                            // (items between markers of their own, the XML's itemMarkerType: the one's end marker, when it
+                            // is there, and the next one's start marker lie between two of a run)
+                            for (int n = 1; n < list.Count && !runs; n++)
+                            {
+                                int a = list[n - 1].Item2, b = list[n].Item1;
+                                runs = g.Main.ItemMarker is { } im
+                                    ? !(b - a == 1 && Sig(a) == im || b - a == 2 && Sig(a) == g.Main.ItemEndMarker && Sig(a + 1) == im)
+                                    : b != a;
+                            }
+                            if (runs) { Unread(PathOf(prefix, g.Name), "its items stand in more than one run of subrecords, of which Mutagen's reader keeps the last"); break; }
+                        }
                         long k = 0;
                         foreach (var (s, e) in list)
                         {
@@ -1126,6 +1274,12 @@ internal sealed partial class ItemLocator
                     // and a list or object the type's layout cuts into runs is given by its runs
                     default:
                         if (_values != null && _cuts != null && (_cuts.Contains(General(PathOf(prefix, g.Name)) + "[*]") || _cuts.Contains(General(PathOf(prefix, g.Name))))) break;
+                        // A field of the record that its own hand-read layout lays out, in a record where the layout's
+                        // walk came to none of it and followed the bytes all the way (a region with no RDAT block of
+                        // sounds), or which holds none of the subrecords the layout reads (a placed object with no XTV2:
+                        // no count of fluff bytes): it isn't there, and Mutagen's is null, empty or its default
+                        if (_values != null && prefix.Length == 0 && _laidOutTop != null && _laidOutTop(g.Name)
+                            && (_hand != null ? _hand.StoppedAt.Count == 0 && _hand.Problems.Count == 0 : _ownLayoutAbsent)) break;
                         Unread(PathOf(prefix, g.Name), "read by Mutagen's hand-written code");
                         break;
                 }
@@ -1143,6 +1297,10 @@ internal sealed partial class ItemLocator
                 }
             }
         }
+        // A state whose block the walk didn't come to (it wasn't asked for, or another reader took the subrecord)
+        if (waiting != null)
+            foreach (int at in waiting)
+                if (_pendingStates!.Remove(at, out var left)) Unread(left.Path, "its data block wasn't walked");
     }
 
     /// <summary>One subrecord's data block: its fields one after another (at the offset the schema gives, when it does).</summary>
@@ -1150,6 +1308,14 @@ internal sealed partial class ItemLocator
     {
         var content = _raw.Content(_raw.Subrecords[x]);
         int p = 0;
+        // The block's DataTypeState, when its breaks stand after fields of no fixed size: told below by the field the
+        // walk read last when the data ended
+        (string Path, DerivedState State)? state = null;
+        if (_values != null && _pendingStates != null && _pendingStates.Remove(x, out var waits)) state = waits;
+        string? last = null;
+        bool passed = false;
+        try
+        {
         for (int i = 0; i < block.Count; i++)
         {
             var f = block[i].Main;
@@ -1160,11 +1326,50 @@ internal sealed partial class ItemLocator
                 if (lo + 4 <= content.Length) _link!(PathOf(prefix, f.Name), BinaryPrimitives.ReadUInt32LittleEndian(content[lo..]), x, lo);
                 Unread(PathOf(prefix, f.Name), "read by Mutagen's hand-written code");
                 p = lo + 4;
+                passed = true;
                 continue;
             }
             // A number Mutagen's hand-written code reads whole, at the width the record XML's layoutEncoding names and the
             // place its layoutOffset gives (a subgraph's Role and Perspective, a uint16 each of SRAF; an alias's AliasID to
             // find a ref near, an int32 in ALNA kept as a short): a value walk is given it as stored
+            // A time of day Mutagen's hand-written code reads from one byte of tens of minutes, at the place the record
+            // XML's layoutOffset gives (a climate's sunrise and sunset in TNAM, layoutEncoding uint8*10min): a value walk
+            // is given the byte with its encoding
+            if (_values != null && StoredEncoded(f) is { } encoding)
+            {
+                int at = int.Parse(f.LayoutOffset!, CultureInfo.InvariantCulture);
+                if (at + 1 > content.Length) throw new NotFollowed($"{PathOf(prefix, f.Name)}: the byte at offset {at} is past the end of {Sig(x)} ({content.Length} bytes)");
+                _values.Encoded(PathOf(prefix, f.Name), f, x, at, at + 1, "U8", encoding);
+                p = at + 1;
+                last = f.Name;
+                continue;
+            }
+            if (_values != null && StoredRule(f) is { } rule)
+            {
+                string named = PathOf(prefix, f.Name);
+                if (rule == "dropped")
+                {
+                    // Stored whole, where the block has it: the first field, or at the schema's offset
+                    int at = f.Offset is int fo && !f.OffsetRel ? fo : p, size = f.Size!.Value;
+                    if (at + size > content.Length) throw new NotFollowed($"{named}: {size} bytes at offset {at} run past the end of {Sig(x)} ({content.Length} bytes)");
+                    _values.Value(named, f, x, at, at + size);
+                    p = at + size;
+                    last = f.Name;
+                    continue;
+                }
+                if (block.Count == 1)
+                {
+                    // The subrecord whole: a byte of 255 in a record of a form version before 510, else a float; a uint32
+                    bool old = rule == "chance" && _raw.FormVersion < 510;
+                    int size = old ? 1 : 4;
+                    if (content.Length != size) throw new NotFollowed($"{named}: {Sig(x)} holds {content.Length} bytes, not the {size} Mutagen's reader takes here");
+                    if (old) _values.Encoded(named, f, x, 0, 1, "U8", "/255");
+                    else _values.LaidOut(named, f, x, 0, 4, rule == "bool32" ? "U32" : "F32");
+                    p = size;
+                    last = f.Name;
+                    continue;
+                }
+            }
             if (_values != null && StoredWhole(f) is { } stored)
             {
                 int at = f.LayoutOffset == null ? 0 : int.Parse(f.LayoutOffset, CultureInfo.InvariantCulture);
@@ -1172,17 +1377,97 @@ internal sealed partial class ItemLocator
                 if (at + size > content.Length) throw new NotFollowed($"{PathOf(prefix, f.Name)}: {size} bytes at offset {at} run past the end of {Sig(x)} ({content.Length} bytes)");
                 _values.LaidOut(PathOf(prefix, f.Name), f, x, at, at + size, stored);
                 p = at + size;
+                last = f.Name;
                 continue;
             }
             if (f.Offset is int o && !f.OffsetRel) p = o;
             // (a yes/no that is its subrecord's presence, Mutagen's boolAsMarker, is there with no bytes: a template's OBTF)
             if (p >= content.Length && !(f.Kind == "Bool" && f.Size == 0 && content.Length == 0)) break;
             // A step Mutagen's hand-written code reads (a component's BFCB text): nothing after it in the subrecord to find
-            if ((f.Kind == "CustomLogic" || f.Custom) && !Selectable(f) && !(_inRun && f.Custom && RunGenerated(f)) && i == block.Count - 1) { Unread(PathOf(prefix, f.Name), "read by Mutagen's hand-written code"); break; }
+            if ((f.Kind == "CustomLogic" || f.Custom) && !Selectable(f) && !(_inRun && f.Custom && RunGenerated(f)) && i == block.Count - 1) { Unread(PathOf(prefix, f.Name), "read by Mutagen's hand-written code"); passed = true; break; }
             // A value Mutagen reads by hand, when the schema places the next field: the walk goes on there
-            if ((f.Kind == "CustomLogic" || f.Custom) && !Selectable(f) && !(_inRun && f.Custom && RunGenerated(f)) && block[i + 1].Main.Offset is int && !block[i + 1].Main.OffsetRel) { Unread(PathOf(prefix, f.Name), "read by Mutagen's hand-written code"); continue; }
+            if ((f.Kind == "CustomLogic" || f.Custom) && !Selectable(f) && !(_inRun && f.Custom && RunGenerated(f)) && block[i + 1].Main.Offset is int && !block[i + 1].Main.OffsetRel) { Unread(PathOf(prefix, f.Name), "read by Mutagen's hand-written code"); passed = true; continue; }
             p = Field(x, content, p, block[i], f, map, gen, prefix);
+            last = f.Name;
         }
+        }
+        catch (NotFollowed) when (state != null) { Unread(state.Value.Path, "its data block wasn't followed to its end"); throw; }
+        if (state is { } st)
+        {
+            // As Mutagen's generated reader: at each break, a block that is complete there sets that break's member and
+            // reads no further. One that ends anywhere else sets none: it goes on past the last break (a block editor's
+            // DAT2 that ends with its Latitude, its UnknownEnding empty), or it stops where a field no longer fits, which
+            // the reader leaves quietly (if (dataFrame.Remaining < n) return null)
+            int at = last == null ? -1 : Array.IndexOf(st.State.After!, last);
+            if (passed) Unread(st.Path, "a field of its data block is read by Mutagen's hand-written code");
+            else if (at >= 0 && p == content.Length) _values!.Stated(st.Path, st.State.Def, "Break" + at.ToString(CultureInfo.InvariantCulture));
+            else _values!.Stated(st.Path, st.State.Def, "0");
+        }
+    }
+
+
+    /// <summary>
+    /// A value Mutagen works out from how far an object's data went (GAPS S122): <c>Versioning</c>, for an object whose
+    /// fields hold a version break (a Transforms' PTT2 of 28 or 32 bytes), and <c>{SIG}DataTypeState</c>, for a data
+    /// block with a break or one that may be absent (a destruction stage's DSTD). Mutagen's generated reader sets
+    /// Break{i} when the data ends exactly at the i-th break (<c>if (frame.Complete) { state |= Break_i; return; }</c>),
+    /// nothing when it goes on past the last, and starts a block's state at Absent where its enum has that member,
+    /// cleared when the block is read. <see cref="Breaks"/>: the breaks' offsets (in the object for Versioning, in the
+    /// subrecord for a block); null when one of them has no offset in the schema (a text or a list stands before it).
+    /// </summary>
+    /// <see cref="After"/>: for a block's state, the block's last field with bytes before each break (a block editor's
+    /// DAT2: SatelliteId, then Longitude), by which the walk of the block tells the break its data ended at when the
+    /// breaks have no offsets; null when a break has no field before it.
+    internal sealed record DerivedState(FieldDef Def, string? Sig, int[]? Breaks, bool HasAbsent, string[]? After = null);
+
+    static readonly ConcurrentDictionary<(SchemaModel, string), DerivedState[]> DerivedStatesOf = new();
+
+    /// <summary>The derived state values of an object's own fields (see <see cref="DerivedState"/>).</summary>
+    internal static DerivedState[] DerivedStates(SchemaModel m, string obj) => DerivedStatesOf.GetOrAdd((m, obj), k =>
+    {
+        var fields = k.Item1.AllFields(k.Item2).Select(x => x.F).Where(f => f.Path == f.Name).ToList();
+        var found = new List<DerivedState>();
+        foreach (var d in fields)
+        {
+            if (d.Source == null || d.Kind != "Enum" || d.Enum == null) continue;
+            bool versioning = d.Name == "Versioning";
+            if (!versioning && !(d.Name.Length == 17 && d.Name.EndsWith("DataTypeState", StringComparison.Ordinal))) continue;
+            string? sig = versioning ? null : d.Name[..4];
+            // The breaks of the same object (the one that declares the value), in order: the object's own for
+            // Versioning, the block's for a DataTypeState
+            var breaks = fields.Where(f => f.Kind == "Break" && f.Object == d.Object && (versioning ? f.OffsetRel || f.Subrecord == null : f.Subrecord == sig)).ToList();
+            bool placed = breaks.All(b => b.Offset != null && b.OffsetRel == versioning);
+            bool absent = k.Item1.Enums.TryGetValue(d.Enum, out var members) && members.Any(x => x.Name == "Absent");
+            // (the enum has a member for each break and no other: Break0 … and Absent)
+            if (members == null || breaks.Count != members.Count(x => x.Name.StartsWith("Break", StringComparison.Ordinal))) placed = false;
+            // The block's last field with bytes before each break, in the object's own order
+            string[]? after = null;
+            if (!versioning && members != null && breaks.Count > 0 && breaks.Count == members.Count(x => x.Name.StartsWith("Break", StringComparison.Ordinal)))
+            {
+                var before = new List<string>();
+                foreach (var b in breaks)
+                {
+                    string? last = null;
+                    for (int j = fields.IndexOf(b) - 1; j >= 0 && last == null; j--)
+                        if (fields[j].Subrecord == sig && !NoBytes(fields[j])) last = fields[j].Name;
+                    if (last != null) before.Add(last);
+                }
+                if (before.Count == breaks.Count) after = before.ToArray();
+            }
+            found.Add(new DerivedState(d, sig, placed ? breaks.Select(b => b.Offset!.Value).ToArray() : null, absent, after));
+        }
+        return found.ToArray();
+    });
+
+    /// <summary>Gives a derived state value for data of <paramref name="length"/> bytes (the object's, or the block's).</summary>
+    void GiveState(string path, DerivedState d, int length)
+    {
+        if (_values == null) return;
+        if (d.Breaks == null) { Unread(path, "a value Mutagen works out from where its data ends, after a field of no fixed size"); return; }
+        for (int i = 0; i < d.Breaks.Length; i++)
+            if (length == d.Breaks[i]) { _values.Stated(path, d.Def, "Break" + i.ToString(CultureInfo.InvariantCulture)); return; }
+        if (d.Breaks.Length == 0 || length > d.Breaks[^1]) { _values.Stated(path, d.Def, "0"); return; }
+        Unread(path, "its data ends where Mutagen's reader has no version break");
     }
 
     /// <summary>A property Mutagen adds beyond its XML (Versioning, a data block's DataTypeState …): no bytes of its own,
@@ -1315,7 +1600,15 @@ internal sealed partial class ItemLocator
             v = size switch { 1 => c[off], 2 => BinaryPrimitives.ReadUInt16LittleEndian(c[off..]), _ => BinaryPrimitives.ReadUInt32LittleEndian(c[off..]) };
             if (parts[2].StartsWith("bit=", StringComparison.Ordinal))
             {
-                foreach (var b in parts[2][4..].Split(','))
+                // The kinds' selector values are the bits' numbers and "none" (a book's Teaches: bit=0,2,4), or, with one bit
+                // named, the bit's value, 0 or 1 (an NPC's Level by bit 7 of its Flags: NpcLevel 0, PcLevelMult 1)
+                var bits = parts[2][4..].Split(',');
+                if (bits.Length == 1 && targets.Count > 0 && targets.All(t => _m.Objects[t.Name].SelectorValue is "0" or "1"))
+                {
+                    string value = (v >> int.Parse(bits[0], CultureInfo.InvariantCulture) & 1) != 0 ? "1" : "0";
+                    return targets.FirstOrDefault(t => _m.Objects[t.Name].SelectorValue == value)?.Name ?? throw new NotFollowed($"{f.Name}: no kind of {ro} for bit {bits[0]} at {value}");
+                }
+                foreach (var b in bits)
                     if ((v >> int.Parse(b, CultureInfo.InvariantCulture) & 1) != 0)
                         return targets.FirstOrDefault(t => _m.Objects[t.Name].SelectorValue == b)?.Name ?? throw new NotFollowed($"{f.Name}: no kind of {ro} for bit {b}");
                 return targets.FirstOrDefault(t => _m.Objects[t.Name].SelectorValue == "none")?.Name ?? throw new NotFollowed($"{f.Name}: no kind of {ro} for no bit set");
@@ -1344,8 +1637,11 @@ internal sealed partial class ItemLocator
         var own = _m.Ancestry(kind).SelectMany(o => o.Fields).Where(d => d.Path == d.Name && !NoBytes(d)).ToList();
         if (own.Count > 0 && own.All(d => d.LayoutOffsetNumber != null))
         {
-            Unread(at, "a kind whose fields Mutagen's code reads where the layout places them");
-            foreach (var d in own.Where(IsLinkDef))
+            // A kind whose fields Mutagen's code reads where the layout attributes place them (a magic effect's
+            // archetype: its Type at 80 of DATA, its Association at 0): each given at its place when it is stored as it
+            // is, else said unread
+            _values?.Object(at, KindName(kind, gen));
+            foreach (var d in own)
             {
                 int lo = d.LayoutOffsetNumber!.Value;
                 ReadOnlySpan<byte> c = content;
@@ -1354,10 +1650,15 @@ internal sealed partial class ItemLocator
                 {
                     y = -1;
                     for (int k = 0; k < _raw.Subrecords.Count; k++) if (Sig(k) == ls) { y = k; break; }
-                    if (y < 0) continue;
+                    if (y < 0) { Unread(at + "." + d.Name, $"no {ls} to read it from"); continue; }
                     c = _raw.Content(_raw.Subrecords[y]);
                 }
-                if (lo + 4 <= c.Length) _link!(at + "." + d.Name, BinaryPrimitives.ReadUInt32LittleEndian(c[lo..]), y, lo);
+                bool link = IsLinkDef(d);
+                if (link && lo + 4 <= c.Length) _link!(at + "." + d.Name, BinaryPrimitives.ReadUInt32LittleEndian(c[lo..]), y, lo);
+                if (_values == null) continue;
+                int size = d.Size ?? (link ? 4 : 0);
+                if (PlacedPlain(d) && size > 0 && lo + size <= c.Length) _values.Value(at + "." + d.Name, d, y, lo, lo + size);
+                else Unread(at + "." + d.Name, "a field Mutagen's code reads where the layout places it, in a form of its own");
             }
             return p + (f.Size ?? 4);
         }
@@ -1427,6 +1728,57 @@ internal sealed partial class ItemLocator
     /// number and casts (the XML's layoutEncoding is that number alone: uint16, int32), at a place the XML gives as a
     /// number or not at all (the subrecord's start): the stored number as a hand-read layout names one (U16, I32); null
     /// for any other field.</summary>
+    /// <summary>The encoding of a value Mutagen's hand-written code reads from one stored byte that isn't the value
+    /// itself, when the record XML places and names it: <c>10min</c> for a time of day (layoutEncoding uint8*10min).
+    /// Null for any other field.</summary>
+    static string? StoredEncoded(FieldDef f) =>
+        f.Custom && f.Kind == "TimeOnly" && f.Subrecord != null && f.LayoutEncoding == "uint8*10min" && f.LayoutOffset is { Length: > 0 } lo && lo.All(char.IsAsciiDigit)
+        && f.LayoutBits == null && f.LayoutDroppedBits == null && f.LayoutPresentWhen == null && f.LayoutGroup == null && (f.LayoutSubrecord == null || f.LayoutSubrecord == f.Subrecord) ? "10min" : null;
+
+    /// <summary>
+    /// A value Mutagen's hand-written code reads from its subrecord by a rule the record XML states, which a value walk
+    /// gives with that rule: <c>chance</c>, a leveled list's ChanceNone, a byte of 255 before form version 510 and a
+    /// float from it on (layoutEncoding formVersion&lt;510:uint8/255;float; LeveledNpcBinaryCreateTranslation.GetChance);
+    /// <c>bool32</c>, a yes/no stored as a uint32 that isn't zero (a game setting's, layoutEncoding uint32!=0);
+    /// <c>dropped</c>, an enum stored whole with bits Mutagen keeps elsewhere (layoutDroppedBits alone: an NPC's Flags
+    /// without its PC level multiplier bit, a colour record's Flags), which whoever reads the value clears. Null for any
+    /// other field.
+    /// </summary>
+    static string? StoredRule(FieldDef f)
+    {
+        if (!f.Custom || f.Kind == "CustomLogic" || f.Subrecord == null || f.LayoutBits != null || f.LayoutPresentWhen != null || f.LayoutGroup != null || f.LayoutSubrecord != null || f.LayoutOffset != null) return null;
+        if (f.Kind == "Float" && f.LayoutEncoding == "formVersion<510:uint8/255;float" && f.LayoutDroppedBits == null) return "chance";
+        if (f.Kind == "Bool" && f.LayoutEncoding == "uint32!=0" && f.LayoutDroppedBits == null) return "bool32";
+        if (f.Kind == "Enum" && f.LayoutEncoding == null && f.LayoutDroppedBits != null && f.Size is 1 or 2 or 4) return "dropped";
+        return null;
+    }
+
+    /// <summary>
+    /// How the record XML says the kind of a hand-read object is picked by a subrecord of the object that holds it, where
+    /// the kind's own fields then stand in the field's subrecord for its generated reader: by the text that stands first
+    /// in that subrecord (selectedBy subrecord:SIG:string with the field's own SIG, <c>Bit</c> -1: a bone modifier's
+    /// Data), or by one bit of an Int32 in another subrecord after it (subrecord:SIG:Int32:bit=N: a colour record's
+    /// Data in CNAM by bit 1 of FNAM). Null for any other field.
+    /// </summary>
+    (string Sub, int Bit)? PickedBySubrecord(FieldDef f)
+    {
+        if (!f.Custom || f.Kind != "Object" || f.Subrecord is not { Length: 4 } own || f.RefObject is not { } ro || f.SelectedBy is not { } by || f.Offset != null || f.LayoutOffset != null) return null;
+        if (TargetsOf(ro).Count < 2) return null;
+        var parts = by.Split(':');
+        if (parts.Length == 3 && parts[0] == "subrecord" && parts[1] == own && parts[2] == "string") return (own, -1);
+        if (parts.Length == 4 && parts[0] == "subrecord" && parts[1].Length == 4 && parts[1] != own && parts[2] == "Int32" && parts[3].StartsWith("bit=", StringComparison.Ordinal)
+            && int.TryParse(parts[3][4..], NumberStyles.None, CultureInfo.InvariantCulture, out int bit) && bit < 32) return (parts[1], bit);
+        return null;
+    }
+
+    /// <summary>A PC level multiplier's LevelMult: a uint16 of thousandths (layoutEncoding uint16/1000; Npc's
+    /// FillBinaryLevelCustom), which a value walk gives with that encoding.</summary>
+    static bool Thousandths(FieldDef f) => f.Custom && f.Kind == "Float" && f.LayoutEncoding == "uint16/1000" && f.LayoutBits == null && f.LayoutDroppedBits == null && f.LayoutPresentWhen == null;
+
+    /// <summary>A field the layout attributes place whose bytes there are its value as stored (no encoding, no bits).</summary>
+    static bool PlacedPlain(FieldDef d) => d.LayoutEncoding == null && d.LayoutBits == null && d.LayoutDroppedBits == null && d.LayoutPresentWhen == null && d.LayoutGroup == null
+        && d.Kind is "FormLink" or "Enum" or "Int8" or "Int16" or "Int32" or "UInt8" or "UInt16" or "UInt32" or "Float" or "Bool";
+
     static string? StoredWhole(FieldDef f)
     {
         if (!f.Custom || f.Subrecord == null || f.LayoutEncoding is not { } enc) return null;
@@ -1513,8 +1865,23 @@ internal sealed partial class ItemLocator
             }
             // A value Mutagen reads by hand, when the schema places the next field: the walk goes on there
             if ((f.Kind == "CustomLogic" || f.Custom) && !Selectable(f) && i + 1 < groups.Count && groups[i + 1].Main.Offset is int && groups[i + 1].Main.OffsetRel) { Unread(PathOf(path, f.Name), "read by Mutagen's hand-written code"); continue; }
+            // A value Mutagen's code makes of a stored number of a known width, the last of its object (a PC level
+            // multiplier: a uint16 over 1000): said unread, its bytes passed over, so what follows the object is placed
+            if (f.Custom && !Selectable(f) && i == groups.Count - 1 && f.LayoutBits == null && f.LayoutEncoding is { } stored && StoredNumber().IsMatch(stored))
+            {
+                int width = StoredSize(f, path);
+                // (a uint16 of thousandths is given with its encoding)
+                if (Thousandths(f) && width == 2 && p + 2 <= content.Length) _values?.Encoded(PathOf(path, f.Name), f, x, p, p + 2, "U16", "/1000");
+                else Unread(PathOf(path, f.Name), "stored in a form Mutagen's code turns into its value");
+                p += width;
+                continue;
+            }
             p = Field(x, content, p, g, f, map, gen, path);
         }
+        // The object's Versioning: which version break its data ended at (it runs to the end of the subrecord)
+        if (_values != null)
+            foreach (var d in DerivedStates(_m, obj))
+                if (d.Sig == null) GiveState(PathOf(path, d.Def.Name), d, content.Length - start);
         return p;
     }
 
@@ -1859,6 +2226,10 @@ internal sealed partial class ItemLocator
         if (depth > SchemaModel.MaxDepth || !stack.Add(obj)) return;
         try
         {
+            // (each data block's DataTypeState, where its breaks have places: LinkObject gives it)
+            if (_staticAll)
+                foreach (var d in DerivedStates(_m, obj))
+                    if (d.Sig != null && (d.Breaks != null || d.After != null)) Mark(reach, PathOf(prefix, d.Def.Name), null);
             foreach (var g in Groups(obj, map))
             {
                 string path = PathOf(prefix, g.Name);
@@ -1912,8 +2283,7 @@ internal sealed partial class ItemLocator
                         var targets = TargetsOf(ro);
                         bool picked = targets.Count == 1 || _m.Objects[ro].SelectedBy == "subrecord:BFCB:string" || g.Kind == GroupKind.MultiObj && Selectable(def);
                         if (_staticAll && g.Kind == GroupKind.ListMulti)
-                            Mark(reach, at, g.Main.ItemMarker != null ? $"its items sit between {g.Main.ItemMarker} and {g.Main.ItemEndMarker ?? "the next"}, which this walk doesn't read"
-                                : picked ? null : $"{ro} has {targets.Count} kinds, and the bytes don't say which");
+                            Mark(reach, at, picked ? null : $"{ro} has {targets.Count} kinds, and the bytes don't say which");
                         foreach (var t in targets)
                         {
                             if (picked) StaticObject(t.Name, def.SigMap ?? g.Map, at + t.Marker, reach, depth + 1, stack);
@@ -1935,6 +2305,11 @@ internal sealed partial class ItemLocator
                                 Mark(reach, path + half.Item2 + "[*]", null);
                         break;
                     default:
+                        if (_staticAll && PickedBySubrecord(g.Main) != null && Groups(obj, map).Count(o => o.Main.Subrecord == g.Main.Subrecord && !NoBytes(o.Main)) == 1)
+                        {
+                            foreach (var t in TargetsOf(g.Main.RefObject!)) StaticStruct(t.Name, g.Main.SigMap ?? map, path + t.Marker, reach, null, depth, stack);
+                            break;
+                        }
                         if (g.Kind == GroupKind.InCustom && Selectable(g.Main) && g.Main.Kind == "Object" && (g.Main.Offset != null && g.Main.Subrecord != null || g.Main.Offset == null && g.Main.Subrecord == null))
                         {
                             if (g.Main.Offset != null) StaticField(g, g.Main, map, prefix, reach, null, depth, stack);
@@ -1985,14 +2360,26 @@ internal sealed partial class ItemLocator
     void StaticField(Group g, FieldDef f, string? map, string prefix, Dictionary<string, string?> reach, string? stop, int depth, HashSet<string> stack)
     {
         string path = PathOf(prefix, f.Name);
-        string? why = stop ?? ((f.Kind == "CustomLogic" || f.Custom) && LaidOutLink(f) == null && !Placed(f) && !Selectable(f) && !(_staticInRun && f.Custom && RunGenerated(f)) && !(_staticAll && StoredWhole(f) != null) ? "read by Mutagen's hand-written code" : null);
+        string? why = stop ?? ((f.Kind == "CustomLogic" || f.Custom) && LaidOutLink(f) == null && !Placed(f) && !Selectable(f) && !(_staticInRun && f.Custom && RunGenerated(f)) && !(_staticAll && (StoredWhole(f) != null || StoredEncoded(f) != null || StoredRule(f) != null || Thousandths(f))) ? "read by Mutagen's hand-written code" : null);
+        // An object whose kind a subrecord of its object picks (a bone modifier's Data, a colour record's): each kind by
+        // its generated reader, from the field's own subrecord (LinkObject)
+        if (_staticAll && stop == null && PickedBySubrecord(f) != null)
+        {
+            foreach (var t in TargetsOf(f.RefObject!)) StaticStruct(t.Name, f.SigMap ?? map, path + t.Marker, reach, null, depth, stack);
+            return;
+        }
         if (f.Custom && Selectable(f) && f.RefObject is { } sro)
         {
             // The kinds a selector picks: placed by the layout attributes, or read from where the field stands
             foreach (var t in TargetsOf(sro))
             {
                 var own = _m.Ancestry(t.Name).SelectMany(o => o.Fields).Where(d => d.Path == d.Name && !NoBytes(d)).ToList();
-                if (own.Count > 0 && own.All(d => d.LayoutOffsetNumber != null)) { if (!_staticAll) foreach (var d in own.Where(IsLinkDef)) Mark(reach, path + t.Marker + "." + d.Name, why); }
+                if (own.Count > 0 && own.All(d => d.LayoutOffsetNumber != null))
+                {
+                    if (!_staticAll) foreach (var d in own.Where(IsLinkDef)) Mark(reach, path + t.Marker + "." + d.Name, why);
+                    // (a value walk gives each field the layout places plainly: SelectedObject)
+                    else foreach (var d in own) Mark(reach, path + t.Marker + "." + d.Name, why ?? (PlacedPlain(d) && (d.Size ?? (IsLinkDef(d) ? 4 : 0)) > 0 ? null : "a field Mutagen's code reads where the layout places it, in a form of its own"));
+                }
                 else StaticStruct(t.Name, f.SigMap ?? map, path + t.Marker, reach, why, depth, stack);
             }
             return;
@@ -2018,7 +2405,7 @@ internal sealed partial class ItemLocator
                 return;
             default:
                 // A value walk gives a laid-out link and a value stored in another form as unread
-                if (_staticAll && why == null && StoredWhole(f) == null && (LaidOutLink(f) != null || Placed(f) && (f.LayoutEncoding != null || f.LayoutBits != null || f.LayoutDroppedBits != null))) why = "read by Mutagen's hand-written code";
+                if (_staticAll && why == null && StoredWhole(f) == null && StoredEncoded(f) == null && (LaidOutLink(f) != null || Placed(f) && (f.LayoutEncoding != null || f.LayoutBits != null || f.LayoutDroppedBits != null))) why = "read by Mutagen's hand-written code";
                 if (Want(f)) Mark(reach, path, why);
                 return;
         }
@@ -2037,6 +2424,9 @@ internal sealed partial class ItemLocator
             string? stop = why;
             if (_staticAll)
             {
+                // (the object's Versioning, where its breaks have places: Decode gives it)
+                foreach (var d in DerivedStates(_m, obj))
+                    if (d.Sig == null && d.Breaks != null) Mark(reach, path + "." + d.Def.Name, why);
                 // As Decode reads it: a value Mutagen reads by hand is passed over when the schema places the field after
                 // it (its offset in the object), and the walk goes on there; any other field it can't step over ends it
                 var gs = Groups(obj, map);

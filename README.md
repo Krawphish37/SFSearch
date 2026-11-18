@@ -246,17 +246,17 @@ Add-ons can be made by anyone and shared.
 **Sharing, and safety:** an add-on is a program. It runs with your rights, like any mod tool or script extender plugin. Share add-ons as source code that people build themselves, and only install `.dll` files from people you trust. SFSearch's own commands only read your Data folder; an add-on is expected to as well.
 
 ## About the Mutagen build
-SFSearch reads plugins with [Mutagen](https://github.com/Mutagen-Modding/Mutagen). It needs fixes that aren't in a published Mutagen version yet: real data that used to be lost, crashes on some plugins, text that kept changing on save. That build (`0.55.0-fixes.26`, with Mutagen.Bethesda.Serialization `1.38.6-fixes.7`) is in `packages/`.
+SFSearch reads plugins with [Mutagen](https://github.com/Mutagen-Modding/Mutagen). It needs fixes that aren't in a published Mutagen version yet: real data that used to be lost, crashes on some plugins, text that kept changing on save. That build (`0.55.0-fixes.27`, with Mutagen.Bethesda.Serialization `1.38.6-fixes.7`) is in `packages/`.
 
-Its full source is public, as GPL-3.0 asks: the `fixes26` branch of [Krawphish37/Mutagen](https://github.com/Krawphish37/Mutagen/branches) and the `fixes/1.38.6-fixes.7` branch of [Krawphish37/Mutagen.Bethesda.Serialization](https://github.com/Krawphish37/Mutagen.Bethesda.Serialization/branches). Each package names the commit it was built from. To get them:
+Its full source is public, as GPL-3.0 asks: the `fixes27` branch of [Krawphish37/Mutagen](https://github.com/Krawphish37/Mutagen/branches) and the `fixes/1.38.6-fixes.7` branch of [Krawphish37/Mutagen.Bethesda.Serialization](https://github.com/Krawphish37/Mutagen.Bethesda.Serialization/branches). Each package names the commit it was built from. To get them:
 ```powershell
-git clone -b fixes26 https://github.com/Krawphish37/Mutagen
+git clone -b fixes27 https://github.com/Krawphish37/Mutagen
 git clone -b fixes/1.38.6-fixes.7 https://github.com/Krawphish37/Mutagen.Bethesda.Serialization
 ```
 (GitHub often times out showing pages of the Mutagen repository, which is very large; cloning always works.) SFSearch 1.0.x used `0.55.0-fixes.5`, from the `starfield-fixes5` branch.
 
 ## Status
-Version `2.2.0` (its release notes list what changed since 2.1.0), with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
+Version `2.3.0` (its release notes list what changed since 2.2.0), with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
 - **455 real past commands** recorded from agent sessions: 452 run (3 name files that no longer exist), and all 452 answer line for line as before the new tools were added. Since the removal each of them is held to the call that answers it now, and each old command's name to its pointer line (`sfsharness mapping`).
 - **The 16 traps of the 1.x agent guide** (wrong answers with no error): each now can't happen, or gives a clear error or warning. All 16 have a tested case, and all pass.
 - **The MCP server's own test** (with the author's calls of every tool): 98 calls of the 12 tools, 102 of 102 checks pass. The 12 tool definitions are 8,796 characters (the 25 older ones, removed in 2.0, were 14,789).

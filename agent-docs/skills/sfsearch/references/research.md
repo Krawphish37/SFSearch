@@ -82,7 +82,8 @@ Arguments: `record`, `plugin`, `view`, `fields`. The record is read live from th
 
 | `view` | Gives |
 |---|---|
-| `card` (default) | The fields that are set, in file order, with readable names and the subrecord beside them. Links as `EditorID (FormID:plugin)`. Unknown fields with their bytes |
+| `card` (default) | The fields that are set, in file order, with readable names and the subrecord beside them. Links as `EditorID (FormID:plugin)`. Unknown fields with their bytes. A sound's event with its Wwise name and path. **An outline:** a list or object of more than 12 lines is closed to one line with its count, how many lines it holds and, for a list of plain values, its first two (`Combination (ObjectTemplates): 21 items   [closed: 442 lines. The fields view of ObjectTemplates opens it; the full view opens every one]`). Open one with `"fields": "ObjectTemplates"` (or one item: `"ObjectTemplates[0]"`) |
+| `full` | The card with every list and object open (a weapon: about 600 lines, in two or three answers) |
 | `fields` | The fields named in `fields`, by Mutagen path (`AttackDamage`, `Keywords[7]`, `Components[*].SpaceshipAIActor`). A field the record leaves out shows its default |
 | `json` | The record as Mutagen's JSON: every value, under the names SQL uses |
 | `raw` | The record as the file has it: the header and every subrecord's bytes. The header's FormID line says how it is stored and what it means ("FE001863: the Small (light) form, Small number 001, own record 0x863"); `check` counts the forms over the whole plugin |
@@ -95,14 +96,14 @@ Arguments: `record`, `plugin`, `view`, `fields`. The record is read live from th
 kgcDoom_Tag_WeaponTypeDoom (0076BE:kgcdoom.esm)
 KYWD Keyword in kgcdoom.esm (its own record), at 0x29D, 63 bytes, its FormID stored as FD0076BE (the Medium form)
 Read from kgcdoom.esm: the only plugin that holds it.
-  Form Key: 0076BE:kgcdoom.esm
-  Version Control: 2110538
+  FormID (FormKey): 0076BE:kgcdoom.esm
+  Version Control Info 1 (VersionControl): 2110538
   Editor ID (EDID): kgcDoom_Tag_WeaponTypeDoom
   Form Version: 582
-  Version2: 2
+  Version Control Info 2 (Version2): 2
   Color (CNAM): #00FFFFFF
   Type (TNAM): None
-  Form Link Target Type (FNAM): 0
+  Form Link Target (FNAM): (set, with every field of it at its default)
 [source] kgcdoom.esm 3.5 MB, key 9561e0c8, strings 2d590079; load order (224 loaded, plugins.txt) 9 KB, key b730711a
 [cost] 32 ms; read 1 KYWD of kgcdoom.esm
 

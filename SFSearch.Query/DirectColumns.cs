@@ -50,12 +50,15 @@ sealed class DirectColumn
     /// lacks it (ColumnSpec.GuardOmittable): the steps to that object (-1: none). The serializer leaves such an object out
     /// when it has nothing in it to write, so that object reads as absent then.</summary>
     readonly int _omittableAt = -1;
+    /// <summary>A column whose field is a plain value in some kinds of the entry and a list of plain values in others
+    /// (VaryingColumn.cs: a script property's Data): a list is given as its JSON text.</summary>
+    readonly bool _varying;
     readonly ConcurrentDictionary<Type, Func<object, object?>?> _getters = new();
 
-    DirectColumn(string[] path, string kind, bool absentIsNull, object? dflt, string? language = null, (int, HashSet<string>)[]? guards = null, bool dynamic = false, int omittableAt = -1)
+    DirectColumn(string[] path, string kind, bool absentIsNull, object? dflt, string? language = null, (int, HashSet<string>)[]? guards = null, bool dynamic = false, int omittableAt = -1, bool varying = false)
     {
-        _path = path; _kind = kind; _absentIsNull = absentIsNull; _default = dflt; _language = language; _omittableAt = omittableAt;
-        _guards = guards ?? Array.Empty<(int, HashSet<string>)>(); _dynamic = dynamic || _guards.Length > 0 || omittableAt >= 0;
+        _path = path; _kind = kind; _absentIsNull = absentIsNull; _default = dflt; _language = language; _omittableAt = omittableAt; _varying = varying;
+        _guards = guards ?? Array.Empty<(int, HashSet<string>)>(); _dynamic = dynamic || varying || _guards.Length > 0 || omittableAt >= 0;
     }
 
     /// <summary>A reader of the entry itself: a flags list's entries are the flags' names.</summary>
@@ -71,7 +74,7 @@ sealed class DirectColumn
     static readonly HashSet<string> Kinds = new(StringComparer.Ordinal)
     {
         "FormLink", "FormKey", "Bool", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Double", "Percent", "Half",
-        "Enum", "Flags", FlagsRaw.Kind, "String", "ByteArray", "Color", "Guid", "AssetLink", "RecordType",
+        "Enum", "Flags", FlagsRaw.Kind, "String", "ByteArray", "Color", "Guid", "AssetLink", "RecordType", "TimeOnly",
         "P2Float", "P3Float", "P2Int16", "P3Int16", "P2Int32", "P3Int32", "P2UInt8", "P3UInt8", "P3UInt16",
     };
 
@@ -84,8 +87,9 @@ sealed class DirectColumn
         if (c.Kind == "ObjectType")
             return c.ObjectPath is { } op ? new DirectColumn(op.Length == 0 ? Array.Empty<string>() : op.Split('.'), "ObjectType", true, null, dynamic: true) : null;
         if (!Kinds.Contains(c.Kind) || c.RelPath is not { } rel || !entry && rel.Length == 0) return null;
-        // A list or an object under the same name in another kind of the entry: the JSON's text of it (ShapeVaries)
-        if (c.ShapeVaries) return null;
+        // A list or an object under the same name in another kind of the entry: the JSON's text of it (ShapeVaries),
+        // read here where every kind holds a plain value or a list of plain values (VaryingColumn.cs)
+        if (c.ShapeVaries && (!entry || !VaryingColumn.Supported(c))) return null;
         if (!entry && c.SchemaPath.Contains('[')) return null;
         bool translated = c.Kind == "String" && c.Expr.Contains("sfs_text", StringComparison.Ordinal);
         if (translated && language == null) return null;
@@ -100,7 +104,7 @@ sealed class DirectColumn
         // A field reached through kinds of object: walked by each object's own class
         bool dynamic = !c.FromBase || c.SchemaPath.Contains('{');
         int omittableAt = c.GuardOmittable && c.NullGuard is { } ng ? ng.Split('.').Length : -1;
-        return new DirectColumn(rel.Length == 0 ? Array.Empty<string>() : rel.Split('.'), c.Kind, !guarded || c.NullGuard != null, dflt, translated ? language : null, guards.ToArray(), dynamic, omittableAt);
+        return new DirectColumn(rel.Length == 0 ? Array.Empty<string>() : rel.Split('.'), c.Kind, !guarded || c.NullGuard != null, dflt, translated ? language : null, guards.ToArray(), dynamic, omittableAt, c.ShapeVaries);
     }
 
     /// <summary>A default as SQL text (<c>0</c>, <c>1.5</c>, <c>'Medium'</c>) as the value SQLite gives for it.</summary>
@@ -280,7 +284,7 @@ sealed class DirectColumn
         return Expression.Lambda<Func<object, object?>>(Expression.Block(vars, body), param).Compile();
     }
 
-    static PropertyInfo? Find(Type t, string name)
+    internal static PropertyInfo? Find(Type t, string name)
     {
         foreach (var type in t.GetInterfaces().Prepend(t))
         {
@@ -297,6 +301,8 @@ sealed class DirectColumn
     {
         // A null value: the view's default where it has one (coalesce), else NULL
         if (v == null) return _kind == "FormLink" ? null : _default;
+        // A list where another kind of the entry holds a plain value: its JSON text (nothing for an empty one)
+        if (_varying && v is not string && v is System.Collections.IEnumerable list) return VaryingColumn.ArrayText(list);
         switch (_kind)
         {
             case "FormLink":
@@ -351,6 +357,8 @@ sealed class DirectColumn
         ulong u => u <= long.MaxValue ? (object)(long)u : (double)u,
         // (a percent as the serializer writes it: its value, a double from 0 to 1)
         Noggog.Percent pc => Real(pc.Value),
+        // A time of day as the serializer writes it (05:00:00.0000000)
+        TimeOnly time => time.ToString("O", CultureInfo.InvariantCulture),
         IConvertible c => c.ToInt64(CultureInfo.InvariantCulture),
         _ => throw new InvalidOperationException($"a column gave a {v.GetType().Name}, which isn't read straight from the record"),
     };
@@ -391,12 +399,24 @@ sealed class DirectColumn
     static Func<Enum, object> FlagLister<TEnum>() where TEnum : struct, Enum, IConvertible =>
         e => Mutagen.Bethesda.Serialization.FlagsEnumText.ToTexts((TEnum)e).ToList();
 
+    /// <summary>The session of the plugin the reading thread's record is of, when that plugin isn't localized: its
+    /// own strings tables give a tagged text in another language (GAPS S190). Set by the record reader for each record.</summary>
+    [ThreadStatic] internal static SFSearch.Records.PluginSession? TextSession;
+
     /// <summary>A translated text in one language, as sfs_text reads the serializer's JSON of it (Languages.Text): a
     /// text of one language (a plugin with no strings files) whatever the language asked, else the language's own
     /// text, NULL when it has none.</summary>
     internal static string? Text(ITranslatedStringGetter t, string language)
     {
-        if (t.NumLanguages <= 1) return t.String;
+        if (t.NumLanguages <= 1)
+        {
+            // A plugin that isn't localized but ships strings tables: the language's table's text for a tagged text,
+            // as the JSON's "Tables" give it (GAPS S190, TagTexts.cs)
+            string? own = t.String;
+            if (TextSession is { } session && own != null && own.StartsWith("<ID=", StringComparison.Ordinal) && !language.Equals("English", StringComparison.OrdinalIgnoreCase)
+                && Enum.TryParse<Mutagen.Bethesda.Strings.Language>(language, true, out var asked) && session.TagTexts?.Translate(own, asked) is { } fromTable) return fromTable;
+            return own;
+        }
         foreach (var entry in t)
             if (entry.Key.ToStringFast().Equals(language, StringComparison.OrdinalIgnoreCase)) return entry.Value;
         return null;
@@ -566,7 +586,7 @@ sealed class DirectList
     }
 
     /// <summary>JSON text without the whitespace between its tokens; a string's text, escapes and all, as written.</summary>
-    static string Minified(ReadOnlySpan<byte> utf8)
+    internal static string Minified(ReadOnlySpan<byte> utf8)
     {
         var sb = new System.Text.StringBuilder(utf8.Length);
         string text = System.Text.Encoding.UTF8.GetString(utf8);

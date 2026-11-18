@@ -1,0 +1,211 @@
+{
+  "about": "The polish cases of three changes of 2026-11-17 (GAPS S190, S191, S192), in the shape of polish.json: the record card as an outline, a Wwise event's name and path beside its GUID, and a tagged text in another language from the plugin's own strings tables. In a file of their own so that other fixes' cases don't collide with them.",
+  "cases": [
+    {
+      "n": 175,
+      "title": "sfs_record: the card is an outline; the fields view opens a closed part and the full view opens them all (GAPS S192)",
+      "before": "The Beowulf's card was 618 lines: its 21 object template combinations took 442 of them, and 66 of its 93 fields came only with a second call. The card now closes a list or object of more than 12 lines to one line.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "04716C:Starfield.esm",
+              "plugin": "Starfield.esm"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "04716C:Starfield.esm",
+              "plugin": "Starfield.esm",
+              "view": "fields",
+              "fields": "ObjectTemplates[0]"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "04716C:Starfield.esm",
+              "plugin": "Starfield.esm",
+              "view": "full",
+              "max_chars": 400000
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "the outline has the record's own fields to the last one in one answer, closes the long parts with their line counts and says how to open them; the fields view opens one; the full view closes nothing",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^  Combination \\(ObjectTemplates\\): 21 items   \\[closed: \\d+ lines\\. The fields view of ObjectTemplates opens it; the full view opens every one\\]$"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^  Keywords \\(KWDA\\): 16 items, the first: [^\\n]+   \\[closed: 16 lines\\."
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^  Base Damage \\(AttackDamage, WDMG\\): 36\\.0$"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^  Record Flags \\(MajorFlags\\): "
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "not_matches": "\\[more\\]"
+              },
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "The card is an outline: 4 long lists or objects are closed"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "ObjectTemplates\\[0\\]"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "Is Editor Only \\(OBTF\\): true"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "not_matches": "\\[closed: "
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?m)^  Combination \\(ObjectTemplates\\): 21 items$"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "(?m)^    \\[20\\]"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 176,
+      "title": "A sound's event by its Wwise name and path: on the card and by wwise_name() and wwise_path() in query2 (GAPS S191)",
+      "before": "The Eon's equip sound was shown as {59A5EC16-836F-4D41-A2D7-FC1B91F934D7} alone; xEdit shows Play_WPN_Pistol_Eon_Equip_Up and the event's path in the Wwise project beside it. The names are in the sound banks' descriptions the game and mods ship (sound\\soundbanks\\*.json).",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_query",
+            "params": {
+              "sql": "SELECT EditorID, wwise_name(Equip_StartEvent) AS Name, wwise_path(Equip_StartEvent) AS Path, wwise_name(NULL) AS None FROM Weapon WHERE EditorID = 'Eon';",
+              "plugins": "Starfield.esm"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "0476C4:Starfield.esm",
+              "plugin": "Starfield.esm",
+              "view": "full",
+              "max_chars": 200000
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "the event's name before the GUID and its path after it, as xEdit shows them; the same name and path in a query; no name for no GUID",
+            "all": [
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "Play_WPN_Pistol_Eon_Equip_Up \\{59A5EC16-836F-4D41-A2D7-FC1B91F934D7\\} \"\\\\Events\\\\Starfield_WPN\\\\WPN_Hand\\\\Pistol\\\\Eon\\\\Play_WPN_Pistol_Eon_Equip_Up\"[^\\n]*836f4d41-ec16-59a5-d734-f9911bfcd7a2 as Mutagen reads it"
+              },
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| Eon \\| Play_WPN_Pistol_Eon_Equip_Up \\| \\\\Events\\\\Starfield_WPN\\\\WPN_Hand\\\\Pistol\\\\Eon\\\\Play_WPN_Pistol_Eon_Equip_Up \\|  \\|"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "n": 177,
+      "title": "A text behind the Creation Kit's tag, asked in another language, is the plugin's own strings table's text; in English the plugin's own (GAPS S190)",
+      "before": "darkstar.esm isn't localized: each text is in the plugin behind a tag (<ID=00008A14>Vile Weapon Crafting), and its archive ships strings tables in nine languages under those IDs. text(Name, 'de') gave the plugin's English text.",
+      "form": {
+        "calls": [
+          {
+            "tool": "sfs_query",
+            "params": {
+              "sql": "SELECT Name, text(Name, 'de') AS German, text(Name, 'ja') AS Japanese, json(Json -> '$.Name') AS J FROM Keyword WHERE FormKey = '000066:darkstar.esm';",
+              "plugins": "darkstar.esm"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "000066:darkstar.esm",
+              "language": "de"
+            }
+          },
+          {
+            "tool": "sfs_record",
+            "params": {
+              "record": "0082B6:darkstar.esm",
+              "view": "fields",
+              "fields": "Name"
+            }
+          }
+        ],
+        "pass_if": [
+          {
+            "name": "the German table's text for German, the plugin's own for English and for a language whose table says the same; Json has Value and Tables; the card says which text it gives; a text changed since the tables were made keeps the plugin's wording in English and says what the table holds",
+            "all": [
+              {
+                "call": 1,
+                "part": "out",
+                "matches": "(?m)^\\| Vile Weapon Crafting \\| Böswillige Waffenherstellung \\| Vile Weapon Crafting \\| \\{\"TargetLanguage\":\"English\",\"Value\":\"<ID=00008A14>Vile Weapon Crafting\",\"Tables\":\\{[^}]*\"German\":\"Böswillige Waffenherstellung\""
+              },
+              {
+                "call": 1,
+                "part": "notes",
+                "matches": "given in German from their plugin's own strings tables"
+              },
+              {
+                "call": 2,
+                "part": "out",
+                "matches": "(?m)^  Name \\(FULL\\): Böswillige Waffenherstellung   \\[4 languages\\]   \\[from the plugin's own German strings table; the plugin itself stores: Vile Weapon Crafting\\]$"
+              },
+              {
+                "call": 2,
+                "part": "notes",
+                "matches": "darkstar\\.esm isn't localized, but ships strings tables of its own"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "Name = Part Disable: Cargo/Fuel"
+              },
+              {
+                "call": 3,
+                "part": "out",
+                "matches": "the plugin's own English strings table says: Ship Part Disabler"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

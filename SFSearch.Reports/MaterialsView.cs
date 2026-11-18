@@ -9,8 +9,11 @@
 //    its parent and the name the format gives it (its BSComponentDB::CTName). Each texture is looked for as a file, as
 //    in the materials report.
 //  - A .mat file (JSON) is shown the same way: its objects, linked by their IDs. What an object doesn't set itself
-//    comes from its parent (an object of the game's database, named by its "res:" ID, or for the material, the parent
-//    material's path) and is shown as inherited.
+//    comes from its parent and is shown as inherited. The parent is named by its "res:" ID or, for a material, by its
+//    path, and is looked for as the materials report looks for it (MaterialFile.cs, GAPS S8): an object of the file,
+//    of a file it leans on (its "Import" list, its objects' parent materials, and theirs), or of a database read.
+//    A component the object writes takes the place of the parent's of the same class and index; a link it sets to
+//    nothing takes the parent's away. Only the FileName of a texture file is a texture (a shader model's isn't).
 //  - Texture slots: a texture set's textures are BSMaterial::MRTextureFile components, one an index. The name of each
 //    index is the game's own: the enum BSMaterial::MRTextureChannel, read from the code that registers it in
 //    Starfield.exe and CreationKit.exe (notes\fix-s33-rest.md). It agrees with the 14 names the .mat files' own
@@ -43,7 +46,9 @@ public sealed class PartTexture
     public required string Path { get; init; }
     public FileOrigin Origin { get; init; }
     public string? Where { get; init; }
-    public bool Missing => Path.Length > 0 && Origin is FileOrigin.None or FileOrigin.NotLoaded;
+    public bool Missing => Path.Length > 0 && !NotDds && Origin is FileOrigin.None or FileOrigin.NotLoaded;
+    /// <summary>In a .mat file: a texture name of its own that isn't a .dds file. Not looked for, as in the materials report.</summary>
+    public bool NotDds { get; init; }
     /// <summary>A texture of the game's own material that the game doesn't ship either: not counted as missing.</summary>
     public bool GameLacks { get; init; }
     /// <summary>In a .mat file: a texture the file doesn't set, from its parent.</summary>
@@ -97,6 +102,7 @@ public sealed class MaterialPart
             if (t.Path.Length > 0) { x["foundIn"] = t.Where; x["origin"] = t.Origin.ToString(); x["missing"] = t.Missing && !t.GameLacks; }
             if (t.GameLacks) x["gameLacks"] = true;
             if (t.Inherited) x["inherited"] = true;
+            if (t.NotDds) x["notTextureFile"] = true;
             return (JsonNode)x;
         }).ToArray());
         o["parts"] = new JsonArray(Parts.Select(p => (JsonNode)p.ToJson()).ToArray());
@@ -127,7 +133,7 @@ public sealed class MaterialPartsAnswer : ReportAnswer
     public string? GameUses { get; set; }
 
     static IEnumerable<PartTexture> TexturesOf(MaterialPart tree) =>
-        tree.All().SelectMany(p => p.Textures).Where(t => t.Path.Length > 0).GroupBy(t => t.Path, StringComparer.OrdinalIgnoreCase).Select(g => g.First());
+        tree.All().SelectMany(p => p.Textures).Where(t => t.Path.Length > 0 && !t.NotDds).GroupBy(t => t.Path, StringComparer.OrdinalIgnoreCase).Select(g => g.First());
 
     protected override void Fill(JsonObject json)
     {
@@ -154,8 +160,9 @@ public sealed class MaterialPartsAnswer : ReportAnswer
 
     static string Where(PartTexture t) =>
         t.Path.Length == 0 ? "no file"
+        : t.NotDds ? $"{t.Path}: not a .dds file, not looked for"
         : t.Origin == FileOrigin.NotLoaded ? $"{t.Path}: only in {t.Where}, which the game doesn't load"
-        : t.Missing ? (t.GameLacks ? $"{t.Path}: not in Data (the game ships this material without it)" : $"{t.Path}: MISSING")
+        : t.Missing ? (t.GameLacks ? $"{t.Path}: not in Data (the game's own materials name it, and the game ships without it)" : $"{t.Path}: MISSING")
         : $"{t.Path} ({t.Where})";
 
     static string Label(MaterialPart p, bool root)
@@ -166,7 +173,7 @@ public sealed class MaterialPartsAnswer : ReportAnswer
         // A material's parent is its parent material: shown for the material and its LOD materials
         if ((root || p.Kind == "LOD material") && (p.Parent != null || p.ParentPath != null))
             label += $", made from {p.Parent ?? System.IO.Path.GetFileNameWithoutExtension(p.ParentPath)} ({p.ParentPath ?? "path not known: " + p.ParentId})";
-        if (p.ParentLost) label += ", made from a part that isn't in any database read";
+        if (p.ParentLost) label += ", made from a part that isn't in any file or in a database the game reads";
         if (p.Inherited) label += " (from its parent)";
         if (p.ShownAbove) label += " (shown above)";
         return label;
@@ -612,10 +619,10 @@ public sealed class MaterialsView
                 {
                     var g = Game();
                     if (gameDb != null && g != null) whole.Add(gameDb);
-                    var b = new Builder(finder, g, extra, Holders(dbs, Game)) { More = n => More(n, finder, dbs), Ck = _s.Schema.Model.Ck };
+                    var b = new Builder(finder, g, extra, Holders(dbs, Game, whole)) { More = n => More(n, finder, dbs), Ck = _s.Schema.Model.Ck };
                     answer.Trees.Add(($"the .mat file ({hit.Where})", b.FromFile(root, path)));
-                    if (b.Lost > 0) answer.Notes.Add($"The .mat file has {Plural(b.Lost, "link")} to a part that is neither in the file nor in a database read (the game's): {(b.Lost == 1 ? "it is" : "they are")} shown as such.");
-                    if (b.ParentFiles.Count > 0) answer.Notes.Add($"Its parent material {string.Join(", ", b.ParentFiles)} is a .mat file, not compiled: what it gives isn't shown (look at it with --material).");
+                    if (b.Lost > 0) answer.Notes.Add($"The .mat file has {Plural(b.Lost, "link")} to a part that is in no .mat file it leans on and in no compiled material database the game reads: {(b.Lost == 1 ? "it is" : "they are")} shown as such, and what {(b.Lost == 1 ? "it" : "they")} would give isn't known.");
+                    if (b.ParentFiles.Count > 0) answer.Notes.Add($"What it doesn't set itself comes in part from {(b.ParentFiles.Count == 1 ? "another .mat file" : "other .mat files")} ({string.Join(", ", b.ParentFiles)}): shown as from its parent.");
                 }
                 else answer.Notes.Add("The .mat file isn't a JSON object: its parts can't be shown.");
             }
@@ -632,7 +639,7 @@ public sealed class MaterialsView
             var g = c.HasForeignParents ? Game() : c;
             if (c.HasForeignParents && gameDb != null && g != null && !whole.Contains(gameDb)) whole.Add(gameDb);
             if (c.Find(path) is not { } node) { answer.Notes.Add($"{db.Shown}: its material list holds the path, but its contents don't: its parts can't be shown."); continue; }
-            var b = new Builder(finder, g, extra, Holders(dbs, Game)) { GameOwn = db.IsGame, More = n => More(n, finder, dbs), Ck = _s.Schema.Model.Ck };
+            var b = new Builder(finder, g, extra, Holders(dbs, Game, whole)) { GameOwn = db.IsGame, More = n => More(n, finder, dbs), Ck = _s.Schema.Model.Ck };
             answer.Trees.Add((db.Shown, b.FromDb(node, "material", 0, depth: 0, inherited: false)));
             if (b.Lost > 0) answer.Notes.Add($"{db.Shown}: {Plural(b.Lost, "link")} of this material {(b.Lost == 1 ? "leads" : "lead")} to a part or a parent that isn't there: {(b.Lost == 1 ? "it is" : "they are")} shown as such.");
         }
@@ -667,17 +674,30 @@ public sealed class MaterialsView
         return answer;
     });
 
-    /// <summary>The databases to look in for an object a .mat file names by its ID: the game's first, then those
-    /// already read whole.</summary>
-    static Func<IEnumerable<MaterialContents>> Holders(List<(MaterialDatabase Db, FileOrigin Origin, bool Counts)> dbs, Func<MaterialContents?> game) => () =>
+    /// <summary>The databases to look in for an object a .mat file names by its ID or its path, as the materials report
+    /// looks (GAPS S8): the game's first, then the others the game reads (in a loaded plugin's " - Main" archive), each
+    /// read whole when the search gets to it and no sooner. <paramref name="whole"/>: the databases read whole for the
+    /// answer, for its cost line.</summary>
+    Func<IEnumerable<MaterialContents>> Holders(List<(MaterialDatabase Db, FileOrigin Origin, bool Counts)> dbs, Func<MaterialContents?> game, List<MaterialDatabase>? whole = null)
     {
-        var list = new List<MaterialContents>();
-        if (game() is { } g) list.Add(g);
-        foreach (var (db, _, _) in dbs) if (db.Contents is { } c && !list.Contains(c)) list.Add(c);
-        return list;
-    };
+        IEnumerable<MaterialContents> Each()
+        {
+            var seen = new HashSet<MaterialContents>();
+            if (game() is { } g) { seen.Add(g); yield return g; }
+            foreach (var (db, origin, counts) in dbs)
+            {
+                if (db.Error != null || db.IsGame || !counts || origin == FileOrigin.NotLoaded) continue;
+                if (_s.Archives.Contents(db) is not { } c || !seen.Add(c)) continue;
+                if (whole != null && !whole.Contains(db)) whole.Add(db);
+                yield return c;
+            }
+        }
+        return Each;
+    }
 
     /// <summary>Builds a material's tree of parts, from its database or its .mat file.</summary>
+    static readonly ConditionalWeakTable<MaterialContents, HashSet<string>> GameTextures = new();
+
     sealed class Builder(FileFinder finder, MaterialContents? game, Dictionary<uint, string> extra, Func<IEnumerable<MaterialContents>> holders)
     {
         /// <summary>The Creation Kit's names, from the schema (to-do F30).</summary>
@@ -693,14 +713,19 @@ public sealed class MaterialsView
         string? PathFor(MaterialContents.Node n) => PathOf(n, game, extra) ?? More?.Invoke(n);
         public List<string> ParentFiles { get; } = new();
 
-        PartTexture Texture(string cls, int index, string name, bool inherited)
+        /// <summary>True when the game's own compiled materials name this texture (asked for one that is nowhere).</summary>
+        bool GameNames(string path) => game != null && GameTextures.GetValue(game, g => g.TextureNames().Select(MaterialsReport.Norm).ToHashSet(StringComparer.OrdinalIgnoreCase)).Contains(path);
+
+        /// <param name="ownOfFile">A texture a .mat file's own object names: one that isn't a .dds file isn't looked for.</param>
+        PartTexture Texture(string cls, int index, string name, bool inherited, bool ownOfFile = false)
         {
             string path = name.Length == 0 ? "" : MaterialsReport.Norm(name);
-            var hit = path.Length == 0 ? default : finder.Find(path);
+            bool notDds = ownOfFile && path.Length > 0 && !path.EndsWith(".dds", StringComparison.Ordinal);
+            var hit = path.Length == 0 || notDds ? default : finder.Find(path);
             return new PartTexture
             {
                 Slot = SlotOf(cls, index), CkName = SlotCkName(cls, index, Ck), Class = cls, Index = index, Path = path, Origin = hit.Origin, Where = hit.Where,
-                GameLacks = GameOwn && path.Length > 0 && hit.Origin == FileOrigin.None, Inherited = inherited,
+                GameLacks = path.Length > 0 && hit.Origin == FileOrigin.None && (GameOwn || GameNames(path)) && !notDds, Inherited = inherited, NotDds = notDds,
             };
         }
 
@@ -767,97 +792,219 @@ public sealed class MaterialsView
             return null;
         }
 
-        Dictionary<string, JsonObject> _byId = new(StringComparer.OrdinalIgnoreCase);
-
-        public MaterialPart FromFile(JsonObject root, string path)
+        // ------------------------------------------------------------ A .mat file's objects
+        /// <summary>A material file read for the view: its objects by their IDs, its material (the object without an
+        /// ID), and the materials it leans on (its "Import" list and its objects' parents named by a path).</summary>
+        sealed class JFile
         {
+            public required string Path { get; init; }
+            public Dictionary<string, JsonObject> ById { get; } = new(StringComparer.OrdinalIgnoreCase);
+            public JsonObject? Top { get; set; }
+            public List<string> Leans { get; } = new();
+            public List<JFile>? Scope { get; set; }
+        }
+
+        /// <summary>One link or texture of a file's object: a texture's name as written, or the part linked to (an
+        /// object of a file, or of a database); <c>LostId</c> when the part is nowhere ("" inside a database).</summary>
+        readonly record struct JEntry(string Class, int Index, string? Texture, JsonObject? Obj, MaterialContents.Node? Node, string? LostId);
+
+        static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+        readonly Dictionary<string, JFile?> _files = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<JsonObject, JFile> _fileOf = new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<JsonObject, (List<JEntry> Entries, HashSet<(string, int, bool)> Set, string? Name)> _own = new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<JsonObject, List<JEntry>> _effective = new(ReferenceEqualityComparer.Instance);
+        JFile? _asked;
+
+        JFile Register(JsonObject root, string path)
+        {
+            var file = new JFile { Path = path };
             var objects = (root["Objects"] as JsonArray)?.OfType<JsonObject>().ToList() ?? new List<JsonObject>();
-            foreach (var o in objects) if (Text(o["ID"]) is { } id) _byId.TryAdd(id, o);
-            var top = objects.FirstOrDefault(o => o["ID"] == null) ?? objects.FirstOrDefault();
-            if (top == null) return new MaterialPart { Kind = "material", Name = System.IO.Path.GetFileNameWithoutExtension(path), From = "the .mat file" };
-            return FromJson(top, "material", 0, 0, root: true);
+            foreach (var o in objects)
+            {
+                _fileOf[o] = file;
+                if (Text(o["ID"]) is { Length: > 0 } id) file.ById.TryAdd(id, o);
+                if (Text(o["Parent"]) is { Length: > 0 } parent && !parent.StartsWith("res:", StringComparison.OrdinalIgnoreCase)) file.Leans.Add(MaterialsReport.RecordMaterial(parent));
+            }
+            if (root["Import"] is JsonArray imports)
+                foreach (var i in imports)
+                    if (Text(i) is { Length: > 0 } import) file.Leans.Add(MaterialsReport.RecordMaterial(import));
+            file.Top = objects.FirstOrDefault(o => Text(o["ID"]) is not { Length: > 0 }) ?? objects.FirstOrDefault();
+            return _files[path] = file;
         }
 
-        /// <summary>Every "FileName" in a component's data, wherever it sits.</summary>
-        static IEnumerable<string> FileNames(JsonNode? x)
+        /// <summary>A material file by its Data-relative path, from where the game takes it; null when it is no file,
+        /// or not readable as one.</summary>
+        JFile? Load(string path)
         {
-            switch (x)
-            {
-                case JsonObject o:
-                    foreach (var (k, v) in o)
-                    {
-                        if (k.Equals("FileName", StringComparison.OrdinalIgnoreCase) && Text(v) is { } s) yield return s;
-                        else foreach (var s2 in FileNames(v)) yield return s2;
-                    }
-                    break;
-                case JsonArray a:
-                    foreach (var i in a) foreach (var s in FileNames(i)) yield return s;
-                    break;
-            }
+            if (_files.TryGetValue(path, out var have)) return have;
+            _files[path] = null;
+            var hit = finder.Find(path);
+            if (hit.Origin == FileOrigin.None) return null;
+            try { return JsonNode.Parse(finder.Read(hit), documentOptions: JsonOptions) is JsonObject root ? Register(root, path) : null; }
+            catch (Exception e) when (e is JsonException or IOException or InvalidDataException or UnauthorizedAccessException) { return null; }
         }
 
-        MaterialPart FromJson(JsonObject o, string kind, int index, int depth, bool root)
+        /// <summary>The files a file leans on, and theirs.</summary>
+        List<JFile> Scope(JFile file)
         {
-            var part = new MaterialPart { Kind = kind, Index = index, Id = Text(o["ID"]), From = "the .mat file" };
-            string? parentText = Text(o["Parent"]);
-            MaterialContents.Node? parent = null;
-            if (TryRes(parentText, out _))
-            {
-                parent = FindRes(parentText);
-                part.ParentId = parentText;
-                if (parent is { } p) { part.Parent = MaterialContents.NameOf(p, game); if (p.HasMaterialId) part.ParentPath = PathFor(p); }
-                else if (_byId.ContainsKey(parentText!)) part.Parent = "an object of this file";
-                else { part.ParentLost = true; Lost++; }
-            }
-            else if (parentText is { Length: > 0 })
-            {
-                string pp = MaterialsReport.RecordMaterial(parentText);
-                part.ParentPath = pp;
-                parent = FindMaterial(pp);
-                if (parent is { } p) part.Parent = MaterialContents.NameOf(p, game);
-                else if (finder.Find(pp).Origin != FileOrigin.None) { if (!ParentFiles.Contains(pp)) ParentFiles.Add(pp); }
-                else { part.ParentLost = true; Lost++; }
-            }
-            if (!_seen.Add(o) || depth > 12 || ++_nodes > 2000) { part.ShownAbove = true; return part; }
+            if (file.Scope != null) return file.Scope;
+            var list = file.Scope = new List<JFile>();
+            var seen = new HashSet<JFile> { file };
+            var todo = new Queue<JFile>();
+            todo.Enqueue(file);
+            while (todo.Count > 0 && seen.Count < 64)
+                foreach (var path in todo.Dequeue().Leans.Distinct(StringComparer.OrdinalIgnoreCase))
+                    if (Load(path) is { } other && seen.Add(other)) { list.Add(other); todo.Enqueue(other); }
+            return list;
+        }
 
-            // Its own components: a name, links by ID, textures
+        /// <summary>An object named by its ID from a file: in the file, in a file it leans on (a part, or the material
+        /// itself, whose ID is its path's), in a database read.</summary>
+        (JsonObject? Obj, MaterialContents.Node? Node) ById(JFile from, string id)
+        {
+            if (from.ById.TryGetValue(id, out var own)) return (own, null);
+            var scope = Scope(from);
+            foreach (var f in scope) if (f.ById.TryGetValue(id, out var o)) return (o, null);
+            if (TryRes(id, out var r) && r.Ext == 0x0074616D)
+                foreach (var f in scope.Prepend(from))
+                {
+                    var (file, _, dir) = MaterialDatabase.ResourceId(f.Path);
+                    if (file == r.File && dir == r.Dir && f.Top != null) return (f.Top, null);
+                }
+            return (null, FindRes(id));
+        }
+
+        /// <summary>A material named by its path: a file first (as the materials report looks for one), then a
+        /// database, with data of its own or not (the root materials the parts are made from hold none).</summary>
+        (JsonObject? Obj, MaterialContents.Node? Node) ByPath(string path)
+        {
+            if (Load(path)?.Top is { } top) return (top, null);
+            if (FindMaterial(path) is { } n) return (null, n);
+            var (file, ext, dir) = MaterialDatabase.ResourceId(path);
+            foreach (var c in holders()) if (c.Find(dir, file, ext) is { } any) return (null, any);
+            return (null, null);
+        }
+
+        /// <summary>An object's parent; <c>Lost</c> when it names one that is nowhere.</summary>
+        (JsonObject? Obj, MaterialContents.Node? Node, bool Lost) ParentOf(JsonObject o)
+        {
+            if (Text(o["Parent"]) is not { Length: > 0 } text) return (null, null, false);
+            var (po, pn) = text.StartsWith("res:", StringComparison.OrdinalIgnoreCase) ? ById(_fileOf[o], text) : ByPath(MaterialsReport.RecordMaterial(text));
+            if (ReferenceEquals(po, o)) po = null;
+            return (po, pn, po == null && pn == null);
+        }
+
+        /// <summary>What an object's own components set: its name, its links (a component's own "ID") and its
+        /// textures (the FileName of a texture file, the component itself or a value inside it), and the places
+        /// (class, index, link or texture) they take.</summary>
+        (List<JEntry> Entries, HashSet<(string, int, bool)> Set, string? Name) Own(JsonObject o)
+        {
+            if (_own.TryGetValue(o, out var have)) return have;
+            var file = _fileOf[o];
+            var entries = new List<JEntry>();
             var set = new HashSet<(string, int, bool)>();
-            var kids = new List<(int, int, Func<MaterialPart>)>();
+            string? name = null;
             foreach (var comp in (o["Components"] as JsonArray)?.OfType<JsonObject>() ?? Enumerable.Empty<JsonObject>())
             {
                 string type = Text(comp["Type"]) ?? "";
                 int at = comp["Index"] is JsonValue iv && iv.TryGetValue<int>(out int ii) ? ii : 0;
                 var data = comp["Data"] as JsonObject;
-                if (type == "BSComponentDB::CTName") { part.Name = Text(data?["Name"]); continue; }
-                if (Text(data?["ID"]) is { } link && link.StartsWith("res:", StringComparison.OrdinalIgnoreCase))
+                if (type == "BSComponentDB::CTName") { name = Text(data?["Name"]); continue; }
+                if (Text(data?["ID"]) is { } link)
                 {
+                    // A link set to nothing ("") or to the material itself ("<this>") takes the parent's away
                     set.Add((type, at, false));
-                    var (k, rank) = KindOf(type);
-                    if (_byId.TryGetValue(link, out var inFile)) kids.Add((rank, at, () => FromJson(inFile, k, at, depth + 1, false)));
-                    else if (FindRes(link) is { } n) kids.Add((rank, at, () => FromDb(n, k, at, depth + 1, false)));
-                    else kids.Add((rank, at, () => { Lost++; return new MaterialPart { Kind = k, Index = at, Lost = true, Id = link }; }));
-                    continue;
+                    if (link.StartsWith("res:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var (lo, ln) = ById(file, link);
+                        entries.Add(new JEntry(type, at, null, lo, ln, lo == null && ln == null ? link : null));
+                    }
                 }
-                foreach (var name in FileNames(data))
-                {
-                    set.Add((type, at, true));
-                    part.Textures.Add(Texture(type, at, name, false));
-                }
+                MaterialFile.Textures(data, type, texture => { set.Add((type, at, true)); entries.Add(new JEntry(type, at, texture, null, null, null)); });
             }
-            // What it doesn't set comes from its parent
-            if (parent is { } from)
+            return _own[o] = (entries, set, name);
+        }
+
+        /// <summary>What an object's parent gives it: the parent's links and textures, with what the parent inherits,
+        /// but for the places the object's own components take.</summary>
+        List<JEntry> Inherited(JsonObject o, int depth)
+        {
+            var set = Own(o).Set;
+            var (po, pn, _) = ParentOf(o);
+            IEnumerable<JEntry> from = po != null ? Effective(po, depth + 1)
+                : pn is { } node ? MaterialContents.EntriesOf(node, game, _walk).Select(e => new JEntry(e.Class, e.Index, e.Texture, null, e.Link, e.Texture == null && e.Link == null ? "" : null))
+                : Enumerable.Empty<JEntry>();
+            return from.Where(e => !set.Contains((e.Class, e.Index, e.Texture != null))).ToList();
+        }
+
+        /// <summary>An object's links and textures, its own and what it inherits.</summary>
+        List<JEntry> Effective(JsonObject o, int depth)
+        {
+            if (_effective.TryGetValue(o, out var have)) return have;
+            var list = new List<JEntry>();
+            _effective[o] = list; // a parent that leads back to the object gives it nothing more
+            list.AddRange(Own(o).Entries);
+            if (depth < 64) list.AddRange(Inherited(o, depth));
+            return list;
+        }
+
+        /// <summary>An object's name: its own, or the nearest one it inherits.</summary>
+        string? NameOfJson(JsonObject o, int depth = 0)
+        {
+            if (Own(o).Name is { } name) return name;
+            if (depth > 64) return null;
+            var (po, pn, _) = ParentOf(o);
+            return po != null ? NameOfJson(po, depth + 1) : pn is { } node ? MaterialContents.NameOf(node, game) : null;
+        }
+
+        public MaterialPart FromFile(JsonObject root, string path)
+        {
+            _asked = Register(root, path);
+            if (_asked.Top == null) return new MaterialPart { Kind = "material", Name = System.IO.Path.GetFileNameWithoutExtension(path), From = "the .mat file" };
+            return FromJson(_asked.Top, "material", 0, 0, root: true, inherited: false);
+        }
+
+        MaterialPart FromJson(JsonObject o, string kind, int index, int depth, bool root, bool inherited)
+        {
+            var file = _fileOf[o];
+            var part = new MaterialPart { Kind = kind, Index = index, Id = Text(o["ID"]), From = file == _asked ? "the .mat file" : file.Path, Inherited = inherited };
+            var (po, pn, parentLost) = ParentOf(o);
+            if (Text(o["Parent"]) is { Length: > 0 } parentText)
             {
-                part.Name ??= MaterialContents.NameOf(from, game);
-                foreach (var e in MaterialContents.EntriesOf(from, game, _walk))
+                bool byId = parentText.StartsWith("res:", StringComparison.OrdinalIgnoreCase);
+                if (byId) part.ParentId = parentText; else part.ParentPath = MaterialsReport.RecordMaterial(parentText);
+                if (pn is { } p)
                 {
-                    if (set.Contains((e.Class, e.Index, e.Texture != null))) continue;
-                    if (e.Texture != null) { part.Textures.Add(Texture(e.Class, e.Index, e.Texture, true)); continue; }
-                    var (k, rank) = KindOf(e.Class);
-                    int at = e.Index;
-                    if (e.Link is { } l) kids.Add((rank, at, () => FromDb(l, k, at, depth + 1, true)));
-                    else kids.Add((rank, at, () => { Lost++; return new MaterialPart { Kind = k, Index = at, Lost = true, Inherited = true }; }));
+                    part.Parent = MaterialContents.NameOf(p, game);
+                    if (byId && p.HasMaterialId) part.ParentPath = PathFor(p);
                 }
+                else if (po != null)
+                {
+                    var pfile = _fileOf[po];
+                    part.Parent = NameOfJson(po) ?? (pfile == file ? "an object of this file" : "an object of " + pfile.Path);
+                    if (byId && ReferenceEquals(pfile.Top, po)) part.ParentPath = pfile.Path;
+                    if (pfile != _asked && !ParentFiles.Contains(pfile.Path)) ParentFiles.Add(pfile.Path);
+                }
+                else if (parentLost) { part.ParentLost = true; Lost++; }
             }
+            if (!_seen.Add(o) || depth > 12 || ++_nodes > 2000) { part.ShownAbove = true; return part; }
+
+            // Its own components, then what it doesn't set itself, from its parent. Everything under a part that
+            // comes from the parent is the parent's
+            part.Name = Own(o).Name;
+            var kids = new List<(int, int, Func<MaterialPart>)>();
+            void Take(JEntry e, bool from)
+            {
+                if (e.Texture != null) { part.Textures.Add(Texture(e.Class, e.Index, e.Texture, from, ownOfFile: !from)); return; }
+                var (k, rank) = KindOf(e.Class);
+                int at = e.Index;
+                if (e.Obj is { } lo) kids.Add((rank, at, () => FromJson(lo, k, at, depth + 1, false, from)));
+                else if (e.Node is { } ln) kids.Add((rank, at, () => FromDb(ln, k, at, depth + 1, from)));
+                else kids.Add((rank, at, () => { Lost++; return new MaterialPart { Kind = k, Index = at, Lost = true, Inherited = from, Id = e.LostId is { Length: > 0 } id ? id : null }; }));
+            }
+            foreach (var e in Own(o).Entries) Take(e, inherited);
+            foreach (var e in Inherited(o, 0)) Take(e, true);
+            part.Name ??= NameOfJson(o);
             var textures = part.Textures.OrderBy(t => t.Class, StringComparer.Ordinal).ThenBy(t => t.Index).ToList();
             part.Textures.Clear(); part.Textures.AddRange(textures);
             Build(part, kids);

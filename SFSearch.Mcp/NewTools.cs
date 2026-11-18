@@ -88,7 +88,7 @@ public sealed class NewTools
         Bridge.Tool("sfs_find", P(("query", query), ("type", type), ("in", @in), ("text", text), ("from", from), ("world", world), ("plain", plain), ("language", language), ("limit", limit)), cursor, format, null, false, progress, ct);
 
     [McpServerTool(Name = "sfs_record", ReadOnly = true), Description(
-        "One record, read live. view: card (default: the set fields, links labelled), fields, json, raw (the file's bytes), versions (every plugin that holds it), evidence, verify. " +
+        "One record, read live. view: card (default: the set fields, links labelled; long lists and objects closed to a line), full (the card with all of them open), fields, json, raw (the file's bytes), versions (every plugin that holds it), evidence, verify. " +
         "Says which plugin's version was read.")]
     public static Task<CallToolResult> sfs_record(
         [Description("FormKey, EditorID, or FormID with plugin; a plugin's name is its header (TES4)")] string record,

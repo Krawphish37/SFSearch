@@ -79,6 +79,8 @@ public sealed partial class RecordEngine : IDisposable
     {
         Index = index; Schema = schema; ScratchFolder = scratchFolder;
         Sessions = new PluginSessions(index, dataFolder, language);
+        // The Data folder whose sound banks name the Wwise events a card and a query show (GAPS S191)
+        if ((dataFolder ?? index.Plugins.Select(p => Path.GetDirectoryName(p.Path)).FirstOrDefault(d => d != null)) is { } data) WwiseEvents.DefaultFolder = data;
     }
 
     public void Dispose() => Sessions.Dispose();
@@ -301,6 +303,9 @@ public sealed partial class RecordEngine : IDisposable
     public Card Card(LoadedRecord rec, JsonObject? json = null, bool withDefaults = false)
     {
         json ??= Json(rec);
+        // A plugin that isn't localized but ships strings tables: each tagged text with what its tables hold for it
+        // (GAPS S190, TagTexts.cs), for the card and the fields view
+        if (!rec.Session.Localized) TagTexts.AddTables(json, () => rec.Session.TagTexts);
         var info = rec.Info;
         var builder = new CardBuilder(Schema, Label, info.Signature, Sessions.Language.ToString(), () => Raw(rec.Ref),
             key => key != "Null" && HeaderIndex.TryParseFormKey(key, out var plugin, out var id) ? rec.Session.FormIds.Raw(plugin, id) : key == "Null" ? 0u : null);
@@ -334,11 +339,15 @@ public sealed partial class RecordEngine : IDisposable
         foreach (var v in values) census.Scan(v, language);
         var notes = new List<string>();
         string plugin = rec.Info.Plugin;
+        // A plugin that isn't localized but ships strings tables of its own (GAPS S190, TagTexts.cs)
+        bool ownTables = rec.Session.TagTextsMade != null;
+        if (census.FromTables > 0)
+            notes.Add($"{plugin} isn't localized, but ships strings tables of its own: {(census.FromTables == 1 ? "1 text here is" : $"{census.FromTables:N0} texts here are")} given in {language} from them, found by the ID in the Creation Kit's <ID=…> tag before the text. The plugin itself stores another text, which an English view gives; whether the game shows the table's text instead wasn't looked into.");
         if (census.OneLanguage > 0)
         {
             bool one = census.OneLanguage == 1;
             string stored = string.Join(" and ", census.Stored);
-            string note = $"{plugin} isn't localized (it has no strings files): {(one ? "the text here is" : $"the {census.OneLanguage:N0} texts here are")} stored in the plugin in {stored} only, so {(one ? "it has" : "they have")} no {language} text of {(one ? "its" : "their")} own. The game shows {(one ? "that text" : "those texts")} in every language, and {(one ? "it is" : "they are")} given as stored.";
+            string note = $"{plugin} isn't localized ({(ownTables ? "its own strings tables say nothing else for " + (one ? "this text" : "these texts") : "it has no strings files")}): {(one ? "the text here is" : $"the {census.OneLanguage:N0} texts here are")} stored in the plugin in {stored} only, so {(one ? "it has" : "they have")} no {language} text of {(one ? "its" : "their")} own. The game shows {(one ? "that text" : "those texts")} in every language, and {(one ? "it is" : "they are")} given as stored.";
             var localized = LocalizedHolders(rec);
             if (localized.Count > 0)
                 note += localized.Count == 1

@@ -99,7 +99,9 @@ public static class HandLayouts
         {
             if (!fields.TryGetValue(def.Name, out var at)) continue;
             if (h.Sig != null ? def.Object == h.Object : model.Ancestry(h.Object!).Any(o => o.Name == def.Object)) return at;
-            if (h.Sig == null && at.Optional && model.Objects.TryGetValue(def.Object, out var rec) && rec.Sig != null) return at;
+            // (an optional header field a record type declares, or the abstract record its kinds are made from: the
+            // placed traps' MajorFlags, declared on APlacedTrap)
+            if (h.Sig == null && at.Optional && model.Objects.TryGetValue(def.Object, out var rec) && (rec.Sig != null || rec.ObjType == "Record" && rec.Abstract)) return at;
         }
         return null;
     }

@@ -55,6 +55,9 @@ sealed partial class RawList
     /// <summary>Grid: its width and height, and how a cell is written.</summary>
     int _width, _height;
     string _cellKind = "";
+    /// <summary>Grid of objects (_cellKind "Object"): the cell's class, and its plain fields with their place in a cell.</summary>
+    Type? _cellClass;
+    (System.Reflection.PropertyInfo Property, string Kind, int At)[]? _cellFields;
     /// <summary>Flags and Grid: the one column (Value) is named; else a row is its place alone.</summary>
     bool _value;
     /// <summary>Components: each kind's reader of its list (null: not laid out exactly; a kind not here has no such list).</summary>
@@ -81,16 +84,26 @@ sealed partial class RawList
     public static RawList? For(ViewSpec v, IReadOnlyList<string> columns, RecordSchema schema, ViewSpec typed)
     {
         if (!v.IsList || v.IsUnion || v.Types.Count != 1) return null;
-        // A type that shares its signature with others: which of them a record is, only Mutagen's read says (RawColumn.For)
-        if (schema.SignatureOf(v.Types[0]) is not { } ownSig || schema.TypesOf(ownSig).Count != 1) return null;
-        // A column whose shape differs by kind (ColumnSpec.ShapeVaries) is read as the JSON gives it
-        if (columns.Any(n => v.ByName.TryGetValue(n, out var sc) && sc.ShapeVaries)) return null;
+        // (a type that shares its signature with others is read from the records that are its own: ReadPlan.OnlyType)
+        if (schema.SignatureOf(v.Types[0]) == null) return null;
+        // A column whose shape differs by kind (ColumnSpec.ShapeVaries) is read as the JSON gives it, but one that is a
+        // plain value or a list of plain values in every kind (a script property's Data), which the value walk reads
+        bool varying = false;
+        foreach (string n in columns)
+            if (v.ByName.TryGetValue(n, out var sc) && sc.ShapeVaries) { if (!VaryingColumn.Supported(sc)) return null; varying = true; }
         return Cache.GetOrAdd((schema, v.Name, string.Join(",", columns)), _ =>
         {
             // The lists the schema lays out exactly, else those the record's value walk reaches (RawWalkLists.cs), a list
             // in a list in a list too
             // A bulky subrecord's lists by Mutagen's layout compiled (RawPlannedLists.cs) come first: their entries are many
-            try { return MakePlanned(v, columns, schema) ?? (v.Lists.Count is 1 or 2 ? Make(v, columns, schema, typed) : null) ?? MakeWalk(v, columns, schema); }
+            try
+            {
+                return varying ? MakeWalk(v, columns, schema) : MakePlanned(v, columns, schema) ?? (v.Lists.Count is 1 or 2 ? Make(v, columns, schema, typed) : null) ?? MakeWalk(v, columns, schema)
+                    // Last, a list inside a component that none of these reads (a block height adjustment's grid of
+                    // surface blocks): a record with no component of a kind that has the list has no entry, which its
+                    // BFCB texts tell; one with such a component goes to Mutagen
+                    ?? (v.Lists.Count == 2 ? MakeComponents(v, columns, schema, v.Types[0], unreadKinds: true) : null);
+            }
             catch (Exception e) when (e is FormatException or OverflowException or InvalidOperationException) { return null; }
         });
     }
@@ -277,18 +290,59 @@ sealed partial class RawList
     }
 
     /// <summary>
+    /// A grid whose cells are objects of plain fields, alone in its subrecord (a block height adjustment's surface
+    /// blocks: 16 x 16 cells of two floats in DAT2). Each row is written as the JSON has it: the serializer writes a cell
+    /// through the cell class's own generated writer, so a cell is made of its class from the bytes and written by that
+    /// writer, as DirectList writes Mutagen's (GridRows). Null when the cell isn't laid out so.
+    /// </summary>
+    static RawList? MakeObjectGrid(RecordSchema schema, List<FieldRow> krows, FieldRow l, FieldRow entry, System.Reflection.Assembly asm, ViewSpec v, IReadOnlyList<string> columns)
+    {
+        var ld = l.Def;
+        if (ld.Custom || ld.Marker != null || ld.EndMarker != null || ld.Source != null || l.Subrecord is not { Length: 4 } sub || (l.Offset ?? 0) != 0) return null;
+        if (ld.Size is not int total || ld.Note == null || AlwaysGrid.Match(ld.Note) is not { Success: true } g) return null;
+        int w = int.Parse(g.Groups[1].Value, CultureInfo.InvariantCulture), h = int.Parse(g.Groups[2].Value, CultureInfo.InvariantCulture);
+        if (w <= 0 || h <= 0 || total % (w * h) != 0) return null;
+        int cell = total / (w * h);
+        // Nothing else of the kind in the grid's subrecord
+        if (krows.Any(r => r.Subrecord == sub && r != l && r.PlainPath != l.PlainPath && !r.PlainPath.StartsWith(l.PlainPath + "[", StringComparison.Ordinal))) return null;
+        if (entry.Def.Kind != "Object" || entry.Def.RefObject is not { } ro || schema.IsPolymorphic(ro) || schema.Model.HandReadOf(ro) != null) return null;
+        var cls = asm.GetType("Mutagen.Bethesda.Starfield." + ro);
+        if (cls == null || cls.GetConstructor(Type.EmptyTypes) == null || !typeof(Loqui.ILoquiObject).IsAssignableFrom(cls)) return null;
+        var fields = new List<(System.Reflection.PropertyInfo, string, int)>();
+        int at = 0;
+        foreach (var (f, _) in schema.Model.AllFields(ro))
+        {
+            if (f.Path != f.Name) return null; // a field inside a field: not a cell of plain fields
+            if (f.Source != null || f.Kind is "Break" or "Marker") continue;
+            var want = f.Kind switch { "Float" => typeof(float), "Int32" => typeof(int), "UInt32" => typeof(uint), "Int16" => typeof(short), "UInt16" => typeof(ushort), "Int8" => typeof(sbyte), "UInt8" => typeof(byte), _ => null };
+            if (want == null || f.Custom || f.Subrecord != null || f.Size is not int size || size != System.Runtime.InteropServices.Marshal.SizeOf(want) || (f.Offset ?? at) != at) return null;
+            if (f.IntegerType != null || f.Multiplier != null || f.Divisor != null) return null;
+            var p = cls.GetProperty(f.Name);
+            if (p == null || p.PropertyType != want || !p.CanWrite) return null;
+            fields.Add((p, f.Kind, at));
+            at += size;
+        }
+        if (fields.Count == 0 || at != cell) return null;
+        if (columns.Count > 1 || columns.Count == 1 && !(v.ByName.TryGetValue(columns[0], out var vc) && vc.Kind == "Array2DRow")) return null;
+        return new RawList(Shape.Grid) { _sub = Sig(sub), _start = 0, _width = w, _height = h, _entrySize = cell, _cellKind = "Object", _cellClass = cls, _cellFields = fields.ToArray(), _value = columns.Count == 1 };
+    }
+
+    /// <summary>
     /// A list inside each component (Cell_Components_Keywords): the record's components one after another (each from its
     /// BFCB to its BFCE, as Mutagen's AComponent reader takes them), each one's kind by its BFCB text (ComponentKinds),
     /// and the kind's own list read from the component's subrecords as a record's list is read from the record's. A kind
     /// without the list gives no row (as json_each gives none); a kind whose list isn't laid out exactly, or a component
     /// Mutagen reads no kind of, sends the record to Mutagen.
     /// </summary>
-    static RawList? MakeComponents(ViewSpec v, IReadOnlyList<string> columns, RecordSchema schema, string type)
+    /// <param name="unreadKinds">Made also when no kind's list is laid out (and for a grid): then every component of a
+    /// kind that has the list sends its record to Mutagen, and a record without one has no entry.</param>
+    static RawList? MakeComponents(ViewSpec v, IReadOnlyList<string> columns, RecordSchema schema, string type, bool unreadKinds = false)
     {
         var model = schema.Model;
         var outer = v.Lists[0];
         var inner = v.Lists[1];
-        if (outer.Path != "Components" || outer.Kind != "List" || inner.Kind is not ("List" or "Array") || inner.Path.Contains('[') || inner.Path.Contains('{')) return null;
+        if (outer.Path != "Components" || outer.Kind != "List" || inner.Kind is not ("List" or "Array" or "Array2D") || inner.Path.Contains('[') || inner.Path.Contains('{')) return null;
+        if (inner.Kind == "Array2D" && !unreadKinds) return null;
         var rows = RowsOf(schema, type);
         var comps = rows.Where(r => r.PlainPath == "Components" && r.Def.Kind == "List").ToList();
         if (comps.Count != 1 || comps[0].Parent != null || comps[0].Def.Subrecord != null) return null;
@@ -312,7 +366,13 @@ sealed partial class RawList
             var l = list[0];
             var entries = krows.Where(r => r.PlainPath == l.PlainPath + "[*]").ToList();
             RawList? made = null;
-            if (list.Count == 1 && l.Def.Kind == inner.Kind && entries.Count == 1 && !l.InList && l.Def.Marker == null && l.Def.EndMarker == null && !l.Def.Custom && l.Def.Source == null
+            if (inner.Kind == "Array2D")
+            {
+                // A grid in a component (a block height adjustment's 16 x 16 surface blocks): of objects of plain fields
+                if (list.Count == 1 && l.Def.Kind == "Array2D" && entries.Count == 1 && !l.InList && ParentChainPlain(schema, l))
+                    made = MakeObjectGrid(schema, krows, l, entries[0], asm, v, columns);
+            }
+            else if (list.Count == 1 && l.Def.Kind == inner.Kind && entries.Count == 1 && !l.InList && l.Def.Marker == null && l.Def.EndMarker == null && !l.Def.Custom && l.Def.Source == null
                 && ParentChainPlain(schema, l) && (l.Subrecord ?? entries[0].Subrecord) is { Length: 4 } sub)
             {
                 var cls = asm.GetType("Mutagen.Bethesda.Starfield." + kind);
@@ -320,7 +380,7 @@ sealed partial class RawList
             }
             kinds[kind] = made;
         }
-        if (kinds.Count == 0 || kinds.Values.All(x => x == null)) return null;
+        if (kinds.Count == 0 || !unreadKinds && kinds.Values.All(x => x == null)) return null;
         return new RawList(Shape.Components) { _kinds = kinds, _model = model };
     }
 
@@ -354,6 +414,10 @@ sealed partial class RawList
         foreach (string kind in model.Variants(Selectors.Component))
         {
             if (model.Objects[kind].Abstract) continue;
+            // The kind a BFCB text that names none the schema has picks (UnknownComponent, its selector "*"): Mutagen's
+            // hand-written code reads it whole (its TypeName, its Data). A column this can't give for it leaves the kind
+            // without a plan, so a record that holds such a component goes to Mutagen; the other kinds are read
+            bool other = model.Objects[kind].SelectorValue == "*", skip = false;
             // A kind with no class of that name: its components go to Mutagen
             var cls = asm.GetType("Mutagen.Bethesda.Starfield." + kind);
             if (cls == null) continue;
@@ -371,25 +435,26 @@ sealed partial class RawList
                 bool guarded = !c.Nullable && c.DefaultSql != null;
                 if (guarded && !c.FromBase && !c.VariantGuards.Any(g => g.Variants.Contains(kind))) continue;
                 object? absent = guarded && c.Kind != "FormLink" && DirectColumn.TryLiteral(c.DefaultSql!, out var lit) ? lit : null;
-                if (guarded && c.Kind != "FormLink" && absent == null) return null;
+                if (guarded && c.Kind != "FormLink" && absent == null) { if (other) { skip = true; break; } return null; }
                 if (!KindHas(asm, kind, c.RelPath!))
                 {
                     // A field below an object the kind has: not a constant this can give
-                    if (c.RelPath!.Contains('.') && KindHas(asm, kind, c.RelPath[..c.RelPath.IndexOf('.')])) return null;
+                    if (c.RelPath!.Contains('.') && KindHas(asm, kind, c.RelPath[..c.RelPath.IndexOf('.')])) { if (other) { skip = true; break; } return null; }
                     constant[i] = absent;
                     continue;
                 }
                 var found = krows.Where(r => r.PlainPath == c.RelPath).ToList();
-                if (found.Count != 1) return null;
+                if (found.Count != 1) { if (other) { skip = true; break; } return null; }
                 var one = new ColumnSpec
                 {
                     Name = c.Name, Expr = c.Expr, Kind = c.Kind, SchemaPath = c.RelPath!, IsLink = c.IsLink,
                     DefaultSql = c.DefaultSql, RelPath = c.RelPath, Nullable = c.Nullable, NullGuard = c.NullGuard, FromBase = true, Row = found[0],
                 };
-                if (RawColumn.ForObject(kind, one, schema) is not { } rc) return null;
+                if (RawColumn.ForObject(kind, one, schema) is not { } rc) { if (other) { skip = true; break; } return null; }
                 at[i] = readers.Count;
                 readers.Add(rc);
             }
+            if (skip) continue;
             plans[kind] = new KindColumns { Reader = readers.Count == 0 ? null : new RawRecordColumns(readers.ToArray()), At = at, Constant = constant };
         }
         return new RawList(Shape.ComponentFields) { _kindColumns = plans, _model = model };
@@ -549,10 +614,15 @@ sealed partial class RawList
     // ---------------------------------------------------------------------------------------------- Reading
     /// <summary>The record's rows (the list place, then the columns) from its header and plain data; false when the
     /// bytes don't follow the layout exactly (the record is then read through Mutagen).</summary>
-    public bool Read(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, List<object?[]> rows)
+    public bool Read(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, List<object?[]> rows) => Read(head, data, plugin, rows, out _);
+
+    /// <summary><see cref="Read(ReadOnlySpan{byte}, ReadOnlySpan{byte}, RawPlugin, List{object?[]})"/>, saying why when it is
+    /// the value walk that leaves the record to Mutagen.</summary>
+    internal bool Read(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, List<object?[]> rows, out WalkLeft left)
     {
+        left = default;
         if (_shape is Shape.Components or Shape.ComponentFields) return ReadComponents(data, plugin, rows);
-        if (_shape == Shape.Walk) return ReadWalk(head, data, plugin, rows);
+        if (_shape == Shape.Walk) return ReadWalk(head, data, plugin, rows, out left);
         if (_shape == Shape.Planned) return ReadPlanned(head, data, plugin, rows);
         if (_shape == Shape.Flags)
         {
@@ -658,6 +728,24 @@ sealed partial class RawList
                             var b = c.Slice(_start + (y * _width + x) * _entrySize, _entrySize);
                             switch (_cellKind)
                             {
+                                case "Object":
+                                {
+                                    // The cell made of its class from its bytes, written by the class's own writer
+                                    object made = Activator.CreateInstance(_cellClass!)!;
+                                    foreach (var (property, kind, at) in _cellFields!)
+                                        property.SetValue(made, kind switch
+                                        {
+                                            "Float" => BinaryPrimitives.ReadSingleLittleEndian(b[at..]),
+                                            "Int32" => BinaryPrimitives.ReadInt32LittleEndian(b[at..]),
+                                            "UInt32" => BinaryPrimitives.ReadUInt32LittleEndian(b[at..]),
+                                            "Int16" => BinaryPrimitives.ReadInt16LittleEndian(b[at..]),
+                                            "UInt16" => BinaryPrimitives.ReadUInt16LittleEndian(b[at..]),
+                                            "Int8" => (object)(sbyte)b[at],
+                                            _ => b[at],
+                                        });
+                                    jw.WriteRawValue(DirectList.Minified(SFSearch.Records.RecordSerializer.ToUtf8((Loqui.ILoquiObject)made)));
+                                    break;
+                                }
                                 case "UInt8": jw.WriteValue(b[0]); break;
                                 case "Int8": jw.WriteValue((sbyte)b[0]); break;
                                 case "UInt16": jw.WriteValue(BinaryPrimitives.ReadUInt16LittleEndian(b)); break;
@@ -692,6 +780,9 @@ sealed partial class RawList
         int p = 0; uint big = 0; bool hasBig = false;
         int bodyStart = -1, bfcbAt = -1, bfcbLen = 0;
         long component = 0;
+        // The components stand in one run. Mutagen's reader of the record reads a run where it meets a BFCB and sets the
+        // list to it, so a second run after other subrecords would take the first one's place: not a record this reads
+        bool runOver = false;
         var inner = new List<object?[]>();
         while (p + 6 <= data.Length)
         {
@@ -705,9 +796,10 @@ sealed partial class RawList
             if (sig == BFCB)
             {
                 // A component inside a component: not a layout this reads
-                if (bodyStart >= 0) return false;
+                if (bodyStart >= 0 || runOver) return false;
                 bfcbAt = p; bfcbLen = (int)len; bodyStart = p + (int)len;
             }
+            else if (bodyStart < 0 && component > 0 && sig != BFCE) runOver = true;
             else if (sig == BFCE)
             {
                 if (bodyStart < 0) return false;

@@ -10,7 +10,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SFSearch.Records</RootNamespace>
     <Version>0.1.0</Version>
-    <MutagenVersion>0.55.0-fixes.26</MutagenVersion>
+    <MutagenVersion>0.55.0-fixes.27</MutagenVersion>
     <SerializationVersion>1.38.6-fixes.7</SerializationVersion>
     <!-- Only for the serializers the source generator writes into this library (files this project can't edit):
          async methods with no await (CS1998), Mutagen members marked obsolete (CS0618), and nullable marks in

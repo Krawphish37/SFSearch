@@ -12,8 +12,8 @@ static class ReadCensusTests
     public static string Run(Ctx c)
     {
         const string T = "\t";
-        var typedLines = new List<string> { string.Join(T, "Type", "Column", "Kind", "How", "RelPath", "Subrecord", "Offset", "Size", "FieldKind", "Custom", "InList", "Marker", "Derived", "LayoutOffset", "LayoutEncoding", "LayoutBits", "LayoutPresentWhen", "FilledBy", "Default", "Nullable", "Translated", "TextForm", "UnderAKind", "Parents", "Object", "Note") };
-        var listLines = new List<string> { string.Join(T, "Type", "View", "Column", "Kind", "How", "RelPath", "Subrecord", "FieldKind", "Custom", "Object") };
+        var typedLines = new List<string> { string.Join(T, "Type", "Column", "Kind", "How", "Walk", "RelPath", "Subrecord", "Offset", "Size", "FieldKind", "Custom", "InList", "Marker", "Derived", "LayoutOffset", "LayoutEncoding", "LayoutBits", "LayoutPresentWhen", "FilledBy", "Default", "Nullable", "Translated", "TextForm", "UnderAKind", "Parents", "Object", "Note") };
+        var listLines = new List<string> { string.Join(T, "Type", "View", "Column", "Kind", "How", "Walk", "RelPath", "Subrecord", "FieldKind", "Custom", "Object") };
         int bytes = 0, mutagen = 0, json = 0, listBytes = 0, listMutagen = 0, listJson = 0, types = 0, shared = 0;
         foreach (string root in c.Engine.Views.RootNames.OrderBy(r => r, StringComparer.Ordinal))
         {
@@ -33,7 +33,10 @@ static class ReadCensusTests
                 for (var up = row?.Parent; up != null; up = up.Parent)
                     parents += (up.Def.Custom ? "C" : "-") + (up.InList ? "L" : "") + (up.Def.Marker != null ? "M" : "") + (up.Def.Nullable ? "?" : "") + ":" + up.Def.Name
                         + (up.Def.RefObject is { } ro && c.Schema.Model.HandReadOf(ro) != null ? "(hand-read)" : "") + " ";
-                typedLines.Add(string.Join(T, root, col.Name, col.Kind, how, col.RelPath, row?.Subrecord, row?.Offset, d?.Size, d?.Kind, d?.Custom, row?.InList, d?.Marker,
+                // Why the record's value walk doesn't read the column (RawList.TypedWalk.For)
+                string? walk = null;
+                RawList.TypedWalk.For(v.Types[0], col, c.Schema, out walk);
+                typedLines.Add(string.Join(T, root, col.Name, col.Kind, how, walk, col.RelPath, row?.Subrecord, row?.Offset, d?.Size, d?.Kind, d?.Custom, row?.InList, d?.Marker,
                     d?.Source == null ? "" : "derived", d?.LayoutOffset, d?.LayoutEncoding, d?.LayoutBits, d?.LayoutPresentWhen, d?.FilledBy, d?.Default, d?.Nullable, d?.Translated,
                     d?.TextForm, !col.FromBase || col.VariantGuards.Count > 0, parents.Trim(), d?.Object, d?.Note?.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ')));
             }
@@ -44,13 +47,16 @@ static class ReadCensusTests
                     if (how == WorldReadTests.How.Bytes) { listBytes++; continue; }
                     if (how == WorldReadTests.How.Json) listJson++; else listMutagen++;
                     var row = col.Row ?? col.FirstRow; var d = row?.Def;
-                    listLines.Add(string.Join(T, root, lv.Name, col.Name, col.Kind, how, col.RelPath, row?.Subrecord, d?.Kind, d?.Custom, d?.Object));
+                    // What the value walk says of the column's field (LinkByteWalker.ValueReach)
+                    string at = string.Join(".", lv.Lists.Select(l => l.Path + "[*]")) + (col.RelPath is { Length: > 0 } rp ? "." + rp : "");
+                    string walk = lv.Types.Count != 1 ? "" : string.Join("; ", SFSearch.Records.LinkByteWalker.ValueReach(c.Schema, lv.Types[0]).Where(kv => SFSearch.Records.LinkByteWalker.Unmarked(kv.Key) == at).Select(kv => kv.Value ?? "reached").Distinct());
+                    listLines.Add(string.Join(T, root, lv.Name, col.Name, col.Kind, how, walk, col.RelPath, row?.Subrecord, d?.Kind, d?.Custom, d?.Object));
                 }
         }
         c.Save("read-census-typed.tsv", typedLines);
         c.Save("read-census-lists.tsv", listLines);
         Check(bytes > 0 && listBytes > 0, "no column of any type is read from the bytes");
-        return $"{types} types ({shared} share a signature and are read whole): typed columns {bytes:N0} from the bytes, {mutagen:N0} straight from Mutagen's object, {json:N0} through the JSON; "
+        return $"{types} types ({shared} share a signature: their own records are told by their bytes): typed columns {bytes:N0} from the bytes, {mutagen:N0} straight from Mutagen's object, {json:N0} through the JSON; "
             + $"list columns {listBytes:N0} from the bytes, {listMutagen:N0} straight from Mutagen's object, {listJson:N0} through the JSON";
     }
 }

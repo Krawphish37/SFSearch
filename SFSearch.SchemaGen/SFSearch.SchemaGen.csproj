@@ -14,7 +14,7 @@
          since fixes.14, C182) are read from the restored package, and Core's (MajorRecord, MasterReference, since
          fixes.18, C49) from the Core package beside it. The build fails when the package's nuspec doesn't name the
          compiled assembly's version and commit, or when an XML file differs from its package's .nupkg. -->
-    <MutagenVersion>0.55.0-fixes.26</MutagenVersion>
+    <MutagenVersion>0.55.0-fixes.27</MutagenVersion>
     <!-- NuGetPackageRoot ends in a slash only when NUGET_PACKAGES (or the default) does: add one when it doesn't -->
     <SchemaPackageDir>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))mutagen.bethesda.starfield\$(MutagenVersion)</SchemaPackageDir>
     <!-- Core's package, which carries MajorRecord.xml and MasterReference.xml since fixes.18 (C49): the version the

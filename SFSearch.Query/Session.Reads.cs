@@ -78,9 +78,9 @@ public sealed partial class QueryEngine
                         // A type too big to read whole, asked only for named columns: only those are read. In a set of
                         // plugins (the load order, the versions, a long list) each plugin's records in turn, each row with
                         // its plugin, its place in the load order and whether it wins, from the header index (GAPS S89)
-                        // (not a type that shares its signature with others, GMST's and OMOD's: a table of named columns
-                        // holds every record of the signature, and which type a record is only the whole read keeps)
-                        bool projectable = !listUsed && typed.Types.Count == 1 && !typed.IsUnion && _e._schema.TypesOf(sig).Count == 1 && !typedCols.Contains("Json")
+                        // (a type that shares its signature with others, GMST's and OMOD's, too: the read takes only the
+                        // records that are the type's, by their bytes or by Mutagen's read: ReadPlan.OnlyType)
+                        bool projectable = !listUsed && typed.Types.Count == 1 && !typed.IsUnion && !typedCols.Contains("Json")
                             && !probed.Special.Contains("Links") && !probed.Special.Contains("Records") && needed.All(typed.ByName.ContainsKey)
                             && (Heavy(full) || FromBytes(typed, needed));
                         if (!projectable) { jobs.Add(new ReadJob { File = file, Route = Route.Full, Sig = sig, Loads = loads, Estimate = full }); continue; }

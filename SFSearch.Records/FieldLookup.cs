@@ -46,7 +46,8 @@ public sealed class FieldValue
             return sb.ToString().TrimEnd('\n');
         }
         sb.Append(Text ?? "(not set)");
-        if (Note != null) sb.Append("   [").Append(Note).Append(']');
+        // (the card's own note on the field too: which strings table a translated text is from, GAPS S190)
+        if ((Note ?? Field?.Note) is { } note) sb.Append("   [").Append(note).Append(']');
         return sb.ToString();
     }
 
@@ -56,7 +57,7 @@ public sealed class FieldValue
         if (Kind != null) o["kind"] = Kind;
         if (Signature != null) o["signature"] = Signature;
         if (Readable != null) o["readable"] = Readable;
-        if (Note != null) o["note"] = Note;
+        if ((Note ?? Field?.Note) is { } note) o["note"] = note;
         return o;
     }
 }

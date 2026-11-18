@@ -578,9 +578,10 @@ public sealed class SchemaTests(SchemaFixture fx) : IClassFixture<SchemaFixture>
         // fixes.18 (C47) added the hand-read lists SFSearch had copied; fixes.20 (C57) the record header and TES4's (two
         // Headers and a TES4 Record) and NPC_'s race overrides with a SoundReference define
         // fixes.24 (C84, C86): AnyRecord NVNM, XTRV, XCZR/XCZC/XCZA and XNSE, Record SFTR, Define Reflection
-        Assert.Equal(new Dictionary<string, long> { ["AnyRecord"] = 6, ["Define"] = 13, ["Header"] = 2, ["Record"] = 32 }, kinds);
+        // fixes.27 (dev): Define PackageFlagsOverride (a package branch's PFO2)
+        Assert.Equal(new Dictionary<string, long> { ["AnyRecord"] = 6, ["Define"] = 14, ["Header"] = 2, ["Record"] = 32 }, kinds);
         var m = SchemaDb.Load(fx.Db).Model;
-        Assert.Equal(53, m.HandLayouts.Count);
+        Assert.Equal(54, m.HandLayouts.Count);
         var perk = m.HandLayouts.Single(h => h.Kind == "Record" && h.Sig == "PERK");
         Assert.Equal("Perk", perk.Object);
         Assert.Equal(2, perk.Element.Descendants("Segments").Count());

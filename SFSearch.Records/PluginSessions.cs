@@ -116,6 +116,13 @@ public sealed class PluginSession : IDisposable
     /// for a translated text read from the record's bytes, the same tables and texts as Mutagen's (RawColumns.cs, GAPS
     /// S152). Null when the plugin isn't localized.</summary>
     public IStringsFolderLookup? StringsLookup => _strings;
+    /// <summary>The strings tables of a plugin that isn't localized and ships them all the same, asked by the ID in
+    /// the Creation Kit's tag before each of its texts (GAPS S190, TagTexts.cs). Null when it has none, or is
+    /// localized. Made at the first ask: it looks through Data's archives.</summary>
+    public TagTexts? TagTexts => _tagTexts?.Value;
+    /// <summary>The same, when it was made already.</summary>
+    public TagTexts? TagTextsMade => _tagTexts is { IsValueCreated: true } t ? t.Value : null;
+    readonly Lazy<TagTexts?>? _tagTexts;
 
     /// <summary>Mutagen's reader of one record at a time (C176): the same masters, strings and encodings as the
     /// overlay. Made at the first direct read; it holds a handle on the file, shared as the overlay's is.</summary>
@@ -174,6 +181,8 @@ public sealed class PluginSession : IDisposable
             LazyThreadSafetyMode.ExecutionAndPublication);
         if (Localized)
             _strings = StringsFolderLookupOverlay.TypicalFactory(GameRelease.Starfield, ModKey, System.IO.Path.GetDirectoryName(Path)!, read.StringsParam);
+        else
+            _tagTexts = new Lazy<TagTexts?>(() => SFSearch.Records.TagTexts.For(ModKey, System.IO.Path.GetDirectoryName(Path)!, read.StringsParam!), LazyThreadSafetyMode.ExecutionAndPublication);
         OpenSeconds = clock.Elapsed.TotalSeconds;
     }
 

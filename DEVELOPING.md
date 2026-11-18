@@ -112,6 +112,17 @@ SFSearch.Records: a record read through Mutagen → JSON (Mutagen.Bethesda.Seria
 - **No speed measurement unless speed is the fix.** Then measure before and after, once each, on the same PC.
 - A test that can't run (a missing input, a removed file) is made runnable or retired with its reason, never left failing.
 
+**Which tests go with which change** (2026-11-17; each run once, for all the fixes that share it):
+
+| What changed | Run |
+|---|---|
+| A byte reader of a typed column or a list view (`RawColumns.cs`, `RawLists.cs`, `RawWalk*.cs`), the value walk (`LinkWalk*.cs`, `EvidenceItems.cs`) | `sfsrecord-tests --only evidence-items,link-positions,value-positions`, then `sfsquery-tests --only typed-all,lists-all,read-census` (5 minutes each; `world-reads`, 8 minutes, when a world type's reader changed). `read-census` writes which columns are still read through Mutagen, and why |
+| What a text column gives, a language, a strings table (`Functions.cs`, `DirectColumns.cs`, `TagTexts.cs`) | `sfsquery-tests --only text-languages,text-bytes,tag-texts` |
+| The card, or what a record's JSON holds (`Card.cs`, `RecordEngine.Card`, a new key in the JSON) | `sfsrecord-tests --only cards-mods,cards-starfield,languages,languages-every-view,card-defaults,card-outline`. `cards-mods` reads every record of three mods: it finds a card change no single record shows |
+| Mutagen's record XML or `HandReadLayouts.xml` (a new Mutagen package) | `dotnet test SFSearch.SchemaGen.Tests -c Release`, then the byte readers' row above |
+| The materials report or view | `sfsreport-tests --only materials-cdb,materials-files,materials-shaders` |
+| The cost line or a note of a query | `sfsquery-tests --only cost-notice,list-reads,scopes` |
+
 - **Use a test home,** never your own SFSearch folder: set `SFSEARCH_HOME` to an empty folder outside the repo, and `SFSEARCH_DATA` to the Data folder (it is only read) or to a folder of plugin copies. A different home is a different service. (`SFSEARCH_WARMUP` did nothing but the older commands' warm-up, and is gone with it.)
 - **Build SFSearch before a test run, never during one:** `sfs.cmd` rebuilds SFSearch when a source file is newer than the program. After rebuilding, `sfs.cmd Service restart` puts a running service on the new build.
 - **The harness:** `tests\SFSearch.Harness` (`dotnet build -c Release`, then `sfsharness all --work <folder outside the repo>`). It starts SFSearch on test homes under the work folder, only reads the game's Data folder, and prints one table that ends with "Everything passes." It takes about 16 minutes and reads Starfield.esm many times: run one such job at a time on a PC with plenty of free memory.
@@ -144,7 +155,7 @@ Every build of SFSearch carries the Creation Kit's display names, tooltips, rang
 **When the Creation Kit updates:** dump its reflection data again, run `schemagen ck-import <the dump .json> SFSearch.SchemaGen\inputs`, delete the older `ck-names-*.tsv`, point `SchemaCkNames` in `SFSearch.SchemaGen.csproj` at the new file, build, and run `dotnet test SFSearch.SchemaGen.Tests -c Release`. The SchemaGen README has the steps. The dump itself never goes into the repo; `ck-import` is the only thing that reads it.
 
 ## The Mutagen build
-SFSearch needs fixes that aren't in a published Mutagen yet. `packages\` holds `0.55.0-fixes.26` (Core, Kernel, Starfield) and Mutagen.Bethesda.Serialization `1.38.6-fixes.7` (with its Newtonsoft and SourceGenerator packages), used through `nuget.config`. Their source is public: branch `fixes26` of github.com/Krawphish37/Mutagen and branch `fixes/1.38.6-fixes.7` of github.com/Krawphish37/Mutagen.Bethesda.Serialization; each package's nuspec names the commit it was built from. 1.0.x used `0.55.0-fixes.5` from the branch `starfield-fixes5`.
+SFSearch needs fixes that aren't in a published Mutagen yet. `packages\` holds `0.55.0-fixes.27` (Core, Kernel, Starfield) and Mutagen.Bethesda.Serialization `1.38.6-fixes.7` (with its Newtonsoft and SourceGenerator packages), used through `nuget.config`. Their source is public: branch `fixes27` of github.com/Krawphish37/Mutagen and branch `fixes/1.38.6-fixes.7` of github.com/Krawphish37/Mutagen.Bethesda.Serialization; each package's nuspec names the commit it was built from. 1.0.x used `0.55.0-fixes.5` from the branch `starfield-fixes5`.
 
 **To move to a new Mutagen build:**
 1. Pack it and put the `.nupkg` files in `packages\`; remove the old ones.

@@ -89,6 +89,8 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("materials-today", MaterialsTests.Today),
     ("materials-cdb", MaterialDatabaseTests.Databases),
     ("materials-mesh", MaterialsMeshTests.Names),
+    ("materials-files", MaterialFileTests.Files),
+    ("materials-shaders", MeshShaderTests.Shaders),
     ("scripts-today", ScriptsTests.Today),
     ("scripts-kept", ScriptsTests.Kept),
     ("scripts-code", ScriptsTests.Code),

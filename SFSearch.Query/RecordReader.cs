@@ -349,6 +349,18 @@ sealed class ReadPlan
     /// <see cref="ReadRow.Skip"/>.</summary>
     public RowFilter? Filter;
 
+    /// <summary>With <see cref="Full"/> off, for a record type that shares its signature with others (a game setting's,
+    /// an object modification's): the type whose records give rows; a record of another type of the signature gives
+    /// none. Null for a type with a signature of its own.</summary>
+    public string? OnlyType;
+    /// <summary>With <see cref="OnlyType"/>: which type a record is, from its own bytes (SFSearch.Records.RecordClasses);
+    /// null from it, or with none, Mutagen's read of the record says.</summary>
+    public Func<RawRecord, string?>? ClassOf;
+    /// <summary>Counted while reading: the records of a read from the records' own bytes (<see cref="Raw"/>,
+    /// <see cref="RawList"/>) that were read through Mutagen instead, because their bytes alone don't say the answer.
+    /// The read's cost line says so.</summary>
+    public long ViaMutagen;
+
     /// <summary>True when the records are opened through Mutagen (not the header index alone).</summary>
     public bool Reads => Full || ProjectSql != null || Direct != null || List != null || ListSql != null;
 }
@@ -453,7 +465,7 @@ sealed class RecordReader : IDisposable
         var options = new PipelineOptions
         {
             Threads = _threads, Cancel = cancel,
-            Data = raw ? PipelineData.Plain : PipelineData.None,
+            Data = raw || plan.OnlyType != null && plan.ClassOf != null ? PipelineData.Plain : PipelineData.None,
             CostPerByte = plan.Reads && !raw ? PipelineOptions.MutagenCostPerByte : 1,
             // A record's JSON is many times its bytes, and every finished piece holds its rows until they are
             // inserted: small pieces and few ahead (a surface tree is 57 KB stored and 3 MB of JSONB)
@@ -465,6 +477,27 @@ sealed class RecordReader : IDisposable
         };
         var rows = RecordPipeline.Read<ReadRow>(new[] { new ReadSet { Plugin = plugin, Entries = entries } }, (in PipelineRecord r, List<ReadRow> output) =>
         {
+            // A signature several record types share: only the plan's type's records give rows. Which type a record is,
+            // its bytes say (RecordClasses); where they don't, Mutagen's read does (Process)
+            bool mine = true;
+            if (plan.OnlyType != null)
+            {
+                string? cls = plan.ClassOf != null && r.Problem == PipelineProblem.None ? plan.ClassOf(RawRecord.FromInflated(r.Head, r.Data)) : null;
+                if (cls != null && cls != plan.OnlyType) return;
+                mine = cls != null;
+            }
+            if (!mine) { if (raw) Interlocked.Increment(ref plan.ViaMutagen); if (Process(r.Ref, plan) is { } read) output.Add(read); return; }
+            // (a row from the header index alone, of a record the bytes say is the type's)
+            if (plan.OnlyType != null && !plan.Reads && !raw)
+            {
+                var e = r.Header;
+                var row = new ReadRow { FormKey = index.FormKeyOf(r.Ref), EditorId = seg.EditorId(r.EntryIndex), IsOverride = e.Owner < seg.SelfOwner, Pos = e.Offset };
+                if (plan.Winners) row.IsWinner = index.IsWinner(r.Ref);
+                if (e.IsUnresolved) row.Skip = "its FormID can't be resolved: a master of the plugin is missing";
+                else row.Type = plan.OnlyType;
+                output.Add(row);
+                return;
+            }
             if (raw && r.Problem == PipelineProblem.None && plan.RawList != null)
             {
                 var listRows = new List<object?[]>();
@@ -474,7 +507,7 @@ sealed class RecordReader : IDisposable
                     var row = new ReadRow { FormKey = index.FormKeyOf(r.Ref), EditorId = seg.EditorId(r.EntryIndex), IsOverride = e.Owner < seg.SelfOwner, Pos = e.Offset };
                     if (plan.Winners) row.IsWinner = index.IsWinner(r.Ref);
                     if (e.IsUnresolved) row.Skip = "its FormID can't be resolved: a master of the plugin is missing";
-                    else { row.Type = types[e.Signature] ??= _engine.TypeFor(seg.SignatureOf(e)); row.ListRows = listRows; }
+                    else { row.Type = plan.OnlyType ?? (types[e.Signature] ??= _engine.TypeFor(seg.SignatureOf(e))); row.ListRows = listRows; }
                     output.Add(row);
                     return;
                 }
@@ -491,11 +524,12 @@ sealed class RecordReader : IDisposable
                     var row = new ReadRow { FormKey = index.FormKeyOf(r.Ref), EditorId = seg.EditorId(r.EntryIndex), IsOverride = e.Owner < seg.SelfOwner, Pos = e.Offset };
                     if (plan.Winners) row.IsWinner = index.IsWinner(r.Ref);
                     if (e.IsUnresolved) row.Skip = "its FormID can't be resolved: a master of the plugin is missing";
-                    else { row.Type = types[e.Signature] ??= _engine.TypeFor(seg.SignatureOf(e)); row.Values = values; }
+                    else { row.Type = plan.OnlyType ?? (types[e.Signature] ??= _engine.TypeFor(seg.SignatureOf(e))); row.Values = values; }
                     output.Add(row);
                     return;
                 }
             }
+            if (raw) Interlocked.Increment(ref plan.ViaMutagen);
             if (Process(r.Ref, plan) is { } made) output.Add(made);
         }, options);
         if (plan.Filter != null) rows = rows.ToList().OrderBy(x => x.Pos);
@@ -544,7 +578,8 @@ sealed class RecordReader : IDisposable
         var info = index.Describe(r);
         var row = new ReadRow { FormKey = info.FormKey, EditorId = info.EditorId, IsOverride = info.IsOverride, Pos = info.Offset };
         if (plan.Winners) row.IsWinner = index.IsWinner(r);
-        if (!plan.Reads) return row;
+        // (a type that shares its signature: the record is opened even for a row of the header index alone, to know its type)
+        if (!plan.Reads && plan.OnlyType == null) return row;
         if (info.Unresolved) { row.Skip = "its FormID can't be resolved: a master of the plugin is missing"; return row; }
         LoadedRecord? rec = null;
         bool gated = _directGate != null && _engine.IsDirect(info);
@@ -553,7 +588,10 @@ sealed class RecordReader : IDisposable
         catch (RecordException e) { row.Skip = e.Message; }
         catch (Exception e) when (e is not OperationCanceledException) { row.Skip = Failure(e); }
         finally { if (gated) _directGate!.Release(); }
-        if (rec != null) Finish(rec, row, plan, _maker.Value!);
+        // A record of another type of the signature isn't a row of this read
+        if (rec != null && plan.OnlyType != null && rec.Type != plan.OnlyType) return null;
+        if (rec != null && plan.Reads) Finish(rec, row, plan, _maker.Value!);
+        else if (rec != null) row.Type = rec.Type;
         if (row.Skip == null && plan.Filter != null && row.Values != null && !plan.Filter.Accept(row.Values[plan.Filter.Column])) return null;
         return row;
     }
@@ -565,6 +603,7 @@ sealed class RecordReader : IDisposable
         try
         {
             row.Type = rec.Type;
+            DirectColumn.TextSession = rec.Session.Localized ? null : rec.Session;
             if (!plan.Full && plan.List != null)
             {
                 row.ListRows = plan.List.Read(rec.Record);
@@ -583,6 +622,9 @@ sealed class RecordReader : IDisposable
             ReadOnlySpan<byte> utf8 = _engine.Schema.HoldsRecords(rec.Type) && !(!plan.Full && plan.Unsplit)
                 ? Encoding.UTF8.GetBytes(_engine.Json(rec).ToJsonString())
                 : RecordSerializer.ToUtf8(rec.Record);
+            // A plugin that isn't localized but ships strings tables: each tagged text says what its tables hold for it
+            // (GAPS S190, TagTexts.cs)
+            if (!rec.Session.Localized && utf8.IndexOf("<ID="u8) >= 0 && rec.Session.TagTexts?.WithTables(utf8) is { } withTables) utf8 = withTables;
             row.JsonBytes = utf8.Length;
             if (!plan.Full && plan.ListSql != null) row.ListRows = maker.ProjectRows(utf8, plan.ListSql, plan.ListValues);
             else if (plan.Full)
@@ -602,6 +644,7 @@ sealed class RecordReader : IDisposable
         }
         catch (RecordException e) { row.Skip = e.Message; }
         catch (Exception e) when (e is not OperationCanceledException) { row.Skip = Failure(e); }
+        finally { DirectColumn.TextSession = null; }
     }
 
     /// <summary>Mutagen couldn't read or write a record: it is left out of the table, and the answer says so.</summary>

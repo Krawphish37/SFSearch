@@ -15,7 +15,7 @@ dotnet test SFSearch.SchemaGen.Tests -c Release
 
 The build compiles `schemagen` and then runs it. `schema.db` lands beside the program (`bin\Release\net10.0\schema.db`, about 5 MB, 3 seconds). The build also rewrites `reports\unmatched-pairs.tsv`.
 
-It needs Mutagen 0.55.0-fixes.26 (`MutagenVersion` in the project file), restored like the other projects' packages (the repo's `nuget.config` and `packages\`). Mutagen's record definitions are read from that restored package (they ship in it since fixes.14, C182): the repo keeps no copy.
+It needs Mutagen 0.55.0-fixes.27 (`MutagenVersion` in the project file), restored like the other projects' packages (the repo's `nuget.config` and `packages\`). Mutagen's record definitions are read from that restored package (they ship in it since fixes.14, C182): the repo keeps no copy.
 
 ## What goes in
 | Input | Where | Gives |

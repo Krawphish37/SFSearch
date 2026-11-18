@@ -46,6 +46,9 @@ sealed partial class RawList
     ColumnSpec[] _specs = Array.Empty<ColumnSpec>();
     /// <summary>Each column's plain path from the record (the list's place, then its RelPath): what an unread part blocks.</summary>
     string[] _colPlain = Array.Empty<string>();
+    /// <summary>The fields of the columns whose value may be a list (VaryingColumn.cs): a part the walk didn't read at
+    /// or under one of them (an item of the list) leaves the record to Mutagen too.</summary>
+    string[] _colVarying = Array.Empty<string>();
     RecordSchema? _schema;
     readonly ConcurrentDictionary<(int Column, string Kind), WalkColumn?> _plans = new();
     /// <summary>The subrecords one of which a record must hold to hold an entry (null: not known, every record is walked).</summary>
@@ -94,7 +97,14 @@ sealed partial class RawList
             }
             if (c.RelPath is not { } rel || !WalkKinds.Contains(c.Kind)) return null;
             plain[i] = rel.Length == 0 ? listPlain : listPlain + "." + rel;
-            if (!known.Contains(plain[i])) return null;
+            if (!known.Contains(plain[i]))
+            {
+                // A field only the kind has that a BFCB text naming no component picks (UnknownComponent's TypeName, its
+                // selector "*"): Mutagen's hand-written code reads that kind whole, and the walk says its fields unread
+                // where it meets one, so its record goes to Mutagen; in a record the walk reads, the field isn't there
+                if (!(c.Row?.Def is { } only && schema.Model.Objects.TryGetValue(only.Object, out var owner) && owner.SelectorValue == "*"
+                    && schema.Model.Ancestry(only.Object).Any(a => a.Name == SFSearch.SchemaGen.Selectors.Component))) return null;
+            }
         }
         // The subrecords an entry of the list is read from (its list's, its own, its fields', their counters): a record
         // that holds none of them has no entry, and isn't walked
@@ -113,7 +123,7 @@ sealed partial class RawList
         {
             _fields = LinkByteWalker.FieldsOf(schema, type), _listPlain = listPlain, _first = v.Lists[0].Path + "[",
             _levelPaths = v.Lists.Select(l => l.Path).ToArray(), _levels = v.Lists.Count,
-            _specs = specs, _colPlain = plain, _schema = schema, _entrySigs = sigs.Count == 0 ? null : sigs.ToArray(),
+            _specs = specs, _colPlain = plain, _colVarying = plain.Where((_, i) => specs[i].ShapeVaries).ToArray(), _schema = schema, _entrySigs = sigs.Count == 0 ? null : sigs.ToArray(),
             _keep = specs.Where(c => c.Kind != "ObjectType" && c.RelPath is { Length: > 0 }).Select(c => "]." + c.RelPath).Distinct().ToArray(),
             _guardObjects = specs.Any(c => c.GuardOmittable && c.NullGuard != null)
                 ? specs.Where(c => c.GuardOmittable && c.NullGuard != null).Select(c => listPlain + "." + c.NullGuard).ToHashSet(StringComparer.Ordinal) : null,
@@ -126,7 +136,7 @@ sealed partial class RawList
     {
         "FormLink", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "Bool", "Float", "Double", "Half",
         "P2Float", "P3Float", "P2Int16", "P3Int16", "P2Int32", "ByteArray", "Color", "Guid", "Enum", "Flags", FlagsRaw.Kind, "String", "AssetLink",
-        "RecordType", "Percent",
+        "RecordType", "Percent", "UInt64", "TimeOnly",
     };
 
     [ThreadStatic] static LinkByteWalker? t_walker;
@@ -197,6 +207,13 @@ sealed partial class RawList
             if (Keep != null && !Kept(path)) return;
             Values[Strip(path)] = (field, subrecord, at, end, layoutKind);
         }
+        /// <summary>A value stored with an encoding this reader knows (LaidReader): kept with the layout's kind and the
+        /// encoding ("U8:speed"); any other is unread.</summary>
+        public void Encoded(string path, FieldDef field, int subrecord, int at, int end, string layoutKind, string encoding)
+        {
+            if (encoding is not ("speed" or "10min" or "/255" or "/1000" or "length")) { ((IRecordValueSink)this).Unread(path, "a value Mutagen's hand-written code works out from the bytes"); return; }
+            LaidOut(path, field, subrecord, at, end, layoutKind + ":" + encoding);
+        }
         bool Kept(string path)
         {
             // A plain entry's own value (a list of links) ends in its index: always kept, it is how its entry is found
@@ -209,9 +226,9 @@ sealed partial class RawList
         void IRecordValueSink.Unread(string path, string why) { Unread.Add(Strip(path)); UnreadWhy.Add(why); }
     }
 
-    /// <summary>For the tests (lists-all, typed-all): told each time a record goes to Mutagen from the value walk, with the
-    /// record type and the list (or "(typed)") and why. Null outside a test.</summary>
-    internal static Action<string, string>? LeftWhy;
+    /// <summary>Why the value walk left a record to Mutagen: the part it didn't read (its path, and the walk's reason),
+    /// or the column it had no reader or no value for (and the kind of the entry). Empty when the walk didn't leave it.</summary>
+    internal readonly record struct WalkLeft(string? Unread, string? Why, string? Column, string? Kind, bool NoReader);
 
     /// <summary>A walk's path with its kinds of object left out.</summary>
     static string Strip(string path)
@@ -232,8 +249,9 @@ sealed partial class RawList
     static bool Under(string path, string over) => over.Length == 0 || path == over || path.StartsWith(over + ".", StringComparison.Ordinal) || path.StartsWith(over + "[", StringComparison.Ordinal);
 
     /// <summary>The rows of one record by the value walk; false when the record goes to Mutagen.</summary>
-    bool ReadWalk(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, List<object?[]> rows)
+    bool ReadWalk(ReadOnlySpan<byte> head, ReadOnlySpan<byte> data, RawPlugin plugin, List<object?[]> rows, out WalkLeft left)
     {
+        left = default;
         // A record with none of the subrecords an entry is read from has no entry
         if (_entrySigs != null && !HoldsAny(data, _entrySigs)) return true;
         var raw = RawRecord.FromInflated(head, data);
@@ -247,8 +265,9 @@ sealed partial class RawList
             string g = Indexes.Replace(found.Unread[ui], "[*]");
             bool blocks = Under(_listPlain, g);
             foreach (string cp in _colPlain) if (Under(cp, g)) blocks = true;
+            foreach (string cp in _colVarying) if (Under(g, cp)) blocks = true;
             if (!blocks) continue;
-            LeftWhy?.Invoke(_fields!.Type + " " + _listPlain, $"unread {g}: {found.UnreadWhy[ui]}");
+            left = new WalkLeft(g, found.UnreadWhy[ui], null, null, false);
             return false;
         }
         // The entries, by their indexes
@@ -276,7 +295,7 @@ sealed partial class RawList
                 var plan = _plans.GetOrAdd((i, kind), key => WalkColumn.Make(_specs[key.Column], key.Kind, _schema!));
                 if (plan == null || !plan.Read(path, found, raw, plugin, out row[_levels + i]))
                 {
-                    LeftWhy?.Invoke(_fields!.Type + " " + _listPlain, (plan == null ? "no reader for column " : "no value for column ") + _specs[i].Name + (kind.Length > 0 ? " of a " + kind : ""));
+                    left = new WalkLeft(null, null, _specs[i].Name, kind, plan == null);
                     return false;
                 }
             }
@@ -352,6 +371,9 @@ sealed partial class RawList
         /// <summary>The steps to the object the view's guard needs, which the record always has (ColumnSpec.GuardOmittable);
         /// -1 for none.</summary>
         int _omittableAt = -1;
+        /// <summary>In this kind of entry the column's field is a list of plain values (VaryingColumn.cs: a script
+        /// property's Data on ScriptIntListProperty): the schema's row of its items; null for a plain value.</summary>
+        FieldDef? _arrayItem;
 
         public static WalkColumn? Make(ColumnSpec c, string kind, RecordSchema schema)
         {
@@ -387,6 +409,12 @@ sealed partial class RawList
                 var r = rows.Where(x => x.PlainPath == at).Select(x => x.Def).Distinct().ToList();
                 w._defs[i] = r.Count == 1 ? r[0] : null;
                 if (i == w._segs.Length - 1) w._leafType = t;
+                // A list in this kind where another kind holds a plain value: read as its JSON text, item by item
+                if (i == w._segs.Length - 1 && c.ShapeVaries && w._defs[i]?.Kind is "List" or "Array")
+                {
+                    w._arrayItem = rows.Where(x => x.PlainPath == at + "[*]").Select(x => x.Def).Distinct().SingleOrDefault();
+                    if (w._arrayItem == null) return null;
+                }
             }
             return w;
         }
@@ -440,6 +468,20 @@ sealed partial class RawList
                 if (state == 2) return false;
             }
             string path = _segs.Length == 0 ? entry : At(entry, _c.RelPath!);
+            // A list of plain values: each item the walk placed, in order, as the list's JSON text (none: left out)
+            if (_arrayItem != null)
+            {
+                var items = new List<object>();
+                for (int k = 0; found.Values.TryGetValue(path + "[" + k.ToString(CultureInfo.InvariantCulture) + "]", out var iv); k++)
+                {
+                    if (iv.Sub < 0) return false;
+                    var itemContent = raw.Content(raw.Subrecords[iv.Sub]);
+                    if (iv.End > itemContent.Length || iv.At > iv.End || !VaryingColumn.TryItem(_arrayItem, iv.Laid, itemContent[iv.At..iv.End], out object item)) return false;
+                    items.Add(item);
+                }
+                value = VaryingColumn.ArrayText(items);
+                return true;
+            }
             if (found.Values.TryGetValue(path, out var v))
             {
                 if (v.Laid == "Const") return StatedValue(v.Field, found.States[path], plugin, out value);
@@ -547,6 +589,43 @@ sealed partial class RawList
         {
             var c = _c;
             var nonTranslated = Mutagen.Bethesda.Plugins.Meta.GameConstants.Starfield.Encodings.NonTranslated;
+            if (laid.Contains(':'))
+            {
+                // A cloud layer's X or Y speed (the layout's encoding="speed"): one byte, read as Mutagen's
+                // WeatherBinaryCreateTranslation.ConvertToSpeed reads it, in its own arithmetic
+                // A time of day (a climate's sunrise and sunset, the record XML's uint8*10min): one byte of tens of
+                // minutes, as Mutagen's ClimateBinaryCreateTranslation.GetTime reads it; past 144 (a day) its reader
+                // leaves the field as it was, which the bytes don't say
+                if (laid == "U8:10min")
+                    return f.Kind != "TimeOnly" || c.Kind != "TimeOnly" ? null
+                        : (b, _) => b.Length != 1 || b[0] > 144 ? (false, null) : (true, DirectColumn.Plain(new TimeOnly().AddMinutes(b[0] * 10)));
+                // The number of the bytes itself (the layout's encoding="length": a cell's and a placed object's
+                // NumTraversalFluffBytes, what is left of XTV2 after its last entry, as Mutagen's Parse counts it)
+                if (laid == "Bytes:length")
+                {
+                    if (f.Kind != "UInt32" || c.Kind != "UInt32" || RawColumn.Entry(c, f, 0, 4, null, kind: "UInt32") is not { } count) return null;
+                    return (b, p) =>
+                    {
+                        Span<byte> four = stackalloc byte[4];
+                        BinaryPrimitives.WriteUInt32LittleEndian(four, (uint)b.Length);
+                        return count.Read(four, true, p, out var n) == RawColumn.Outcome.Value ? (true, n) : (false, null);
+                    };
+                }
+                if (f.Kind != "Float" || c.Kind != "Float") return null;
+                // A leveled list's chance of none before form version 510: a byte of 255 (Mutagen's GetChance: chance / 255f)
+                if (laid == "U8:/255") return (b, _) => b.Length != 1 ? (false, null) : (true, DirectColumn.Real(b[0] / 255f));
+                // A PC level multiplier: a uint16 of thousandths (Mutagen's FillBinaryLevelCustom: the number as a float, over 1000)
+                if (laid == "U16:/1000")
+                    return (b, _) =>
+                    {
+                        if (b.Length != 2) return (false, null);
+                        float v = BinaryPrimitives.ReadUInt16LittleEndian(b);
+                        v /= 1000;
+                        return (true, DirectColumn.Real(v));
+                    };
+                if (laid != "U8:speed") return null;
+                return (b, _) => b.Length != 1 ? (false, null) : (true, DirectColumn.Real((b[0] - 127) / 127f / 10f));
+            }
             if (laid is "ZString" or "LString" or "WString" or "I32String")
             {
                 if (f.Kind != "String" || c.Kind is not ("String" or "Bool" or "Int8" or "Int16" or "Int32" or "UInt8" or "UInt16" or "UInt32" or "Float" or "Enum")) return null;
@@ -637,7 +716,10 @@ sealed partial class RawList
             // A yes/no that is its subrecord's presence (Mutagen's boolAsMarker): there, true
             if (f.Kind == "Bool" && f.Size == 0) return c.Kind == "Bool" ? (b, _) => b.Length == 0 ? (true, 1L) : (false, null) : null;
             if (ReadKind(f) is not { } kind) return null;
-            if (f.Custom && f.LayoutOffset == null || f.Source != null) return null;
+            // (a value Mutagen's hand-written code reads isn't read here, but one the record XML places, or an enum it
+            // keeps without some bits, which the walk gives whole: an NPC's Flags, a colour record's)
+            bool dropped = f.Kind == "Enum" && f.LayoutDroppedBits != null && f.LayoutEncoding == null && f.LayoutBits == null && f.LayoutPresentWhen == null;
+            if (f.Custom && f.LayoutOffset == null && !dropped || f.Source != null) return null;
             if (f.LayoutMask is var (mask, shift))
             {
                 // A field of bits of one byte (the record XML's layoutBits: a condition's CompareOperator, Flags, UseAliases,

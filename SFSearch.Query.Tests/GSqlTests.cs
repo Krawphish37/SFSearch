@@ -131,17 +131,25 @@ static class GSqlTests
         var fromBytes = new long[cols.Count]; var toMutagen = new long[cols.Count];
         long records = 0, values = 0; var bad = new List<string>(); long badCount = 0;
         var clock = Stopwatch.StartNew();
+        // A type that shares its signature with others (GMST, OMOD): only its own records are held, and what the bytes
+        // say each record of the signature is (RecordClasses) is held against the class Mutagen made
+        var shared = SharedSignature.Of(c, type);
         foreach (string problem in RecordPipeline.Read<string>(new[] { new ReadSet { Plugin = p, Entries = entries } }, (in PipelineRecord r, List<string> output) =>
         {
-            Interlocked.Increment(ref records);
-            if (r.Problem != PipelineProblem.None) { output.Add($"{c.Index.Describe(r.Ref).Label}: its bytes can't be read ({r.Problem})"); return; }
+            if (r.Problem != PipelineProblem.None) { Interlocked.Increment(ref records); output.Add($"{c.Index.Describe(r.Ref).Label}: its bytes can't be read ({r.Problem})"); return; }
             object rec;
-            try { rec = c.Records.Load(r.Ref).Record; }
-            catch (Exception e) { output.Add($"{c.Index.Describe(r.Ref).Label}: Mutagen couldn't read it ({e.Message})"); return; }
+            try
+            {
+                var loaded = c.Records.Load(r.Ref);
+                rec = loaded.Record;
+                if (shared != null && !shared.Mine(c, r, loaded.Type, type, output)) return;
+            }
+            catch (Exception e) { Interlocked.Increment(ref records); output.Add($"{c.Index.Describe(r.Ref).Label}: Mutagen couldn't read it ({e.Message})"); return; }
+            Interlocked.Increment(ref records);
             var one = new object?[1];
             for (int k = 0; k < cols.Count; k++)
             {
-                if (!readers[k].Read(r.Head, r.Data, rawPlugin, one)) { Interlocked.Increment(ref toMutagen[k]); continue; }
+                if (!readers[k].Read(r.Head, r.Data, rawPlugin, one, out var why)) { LeftReasons.Note(type + "." + cols[k].Spec.Name, why); Interlocked.Increment(ref toMutagen[k]); continue; }
                 Interlocked.Increment(ref fromBytes[k]); Interlocked.Increment(ref values);
                 object? m;
                 try { m = cols[k].Direct!.Read(rec); }

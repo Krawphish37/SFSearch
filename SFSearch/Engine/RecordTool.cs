@@ -22,10 +22,10 @@ namespace SFSearch.Engine
     public static class RecordTool
     {
         public const int DefaultChars = 24_000, LeastChars = 1_000, MostChars = 8_000_000;
-        static readonly string[] Views = { "card", "fields", "json", "raw", "versions", "evidence", "verify" };
+        static readonly string[] Views = { "card", "full", "fields", "json", "raw", "versions", "evidence", "verify" };
 
         public const string Help = """
-            record <record> [--plugin <plugin>] [--view card|fields|json|raw|versions|evidence|verify] [--fields <name,...>]
+            record <record> [--plugin <plugin>] [--view card|full|fields|json|raw|versions|evidence|verify] [--fields <name,...>]
                    [--max-chars N] [--cursor C] [--language <language>] [--allow-heavy | --allow-heavy=save-index]
               One record, read live from the plugin file through Mutagen. No database is read or built.
 
@@ -36,7 +36,10 @@ namespace SFSearch.Engine
                           json, raw and evidence views take it (evidence: Flags, Stats.NumRecords, MasterReferences[0].Master).
               --plugin    which plugin's version to read: a name in Data, or the path of a plugin file elsewhere.
                           Left out: the version the game uses (the last loaded plugin that holds the record). The answer says which.
-              --view      card      (default) the fields that are set, with readable names; links as EditorID (FormID:plugin)
+              --view      card      (default) the fields that are set, with readable names; links as EditorID (FormID:plugin).
+                                    An outline: a list or object of more than 12 lines is closed to one line with its count
+                                    and how many lines it holds (--fields <its name> opens it)
+                          full      the card with every list and object open
                           fields    the fields named with --fields: their values, with the default for a field the record leaves out
                                     (a name is a Mutagen path: AttackDamage, Keywords[0], Components[*].SpaceshipAIActor)
                           json      the record as Mutagen's JSON: every value, field names as SQL and paths use them
@@ -163,6 +166,9 @@ namespace SFSearch.Engine
         {
             string view = (ask.View ?? (ask.Fields != null ? "fields" : "card")).Trim().ToLowerInvariant();
             if (!Views.Contains(view)) { answer.Fail($"record has no view '{ask.View}'", $"its views are: {string.Join(", ", Views)}", 2); return; }
+            // The full view is the card with nothing closed (GAPS S192)
+            bool full = view == "full";
+            if (full) view = "card";
             var fields = (ask.Fields ?? "").Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
             if (view is "fields" or "evidence" && fields.Count == 0)
             {
@@ -293,14 +299,21 @@ namespace SFSearch.Engine
                                     foreach (var n in card.Notes) answer.Note(n);
                                     foreach (var n in engine.TextNotes(rec, new JsonNode?[] { json })) answer.Note(n);
                                     card.Notes.Clear();
-                                    // Every item of every list: the answer is cut by size, with a cursor, not by a count of items
-                                    lines.AddRange(Split(card.ToText(int.MaxValue, 64)).Skip(2));
+                                    // The outline (GAPS S192): the record's own fields, and each list or object under them open
+                                    // when it is short, closed to a line when it is long. The full view opens them all: every
+                                    // item of every list, the answer cut by size, with a cursor, not by a count of items
+                                    var closed = new List<string>();
+                                    lines.AddRange(Split(card.ToText(int.MaxValue, 64, full ? int.MaxValue : Card.OutlineLines, closed)).Skip(2));
+                                    if (closed.Count > 0)
+                                        answer.Note($"The card is an outline: {(closed.Count == 1 ? "1 long list or object is" : $"{closed.Count:N0} long lists or objects are")} closed, each to a line that says how many lines it holds. The fields view opens one ({(answer.AsTool ? $"fields: \"{closed[0]}\"" : $"--fields {closed[0]}")}); the full view gives the whole card ({(answer.AsTool ? "view: \"full\"" : "--view full")}).");
                                     if (rec.Children > 0) answer.Note($"{rec.Children:N0} record(s) sit inside this one. Each is shown as \"→ EditorID (FormID:plugin)\" and is a record of its own: ask for it by its FormKey.");
                                     break;
                                 }
                             case "json":
                                 {
                                     var json = engine.Json(rec);
+                                    // (a plugin that isn't localized but ships strings tables: what they hold, GAPS S190)
+                                    if (!rec.Session.Localized) SFSearch.Records.TagTexts.AddTables(json, () => rec.Session.TagTexts);
                                     lines.AddRange(Split(json.ToJsonString(Pretty)));
                                     foreach (var n in engine.TextNotes(rec, new JsonNode?[] { json })) answer.Note(n);
                                     if (rec.Children > 0) answer.Note($"{rec.Children:N0} record(s) sit inside this one. Each is a {{\"$Child\": \"FormID:plugin\"}} marker here and a record of its own: ask for it by its FormKey.");

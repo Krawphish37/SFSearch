@@ -230,11 +230,14 @@ static class MaterialDatabaseTests
         var aaCompiled = aa50.Rows.Where(m => m.Compiled).ToList();
         Check(aaCompiled.Count >= 40 && aaCompiled.All(m => m.TexturesRead && m.Textures.Count > 0 && !m.MissingTextures.Any()) && aa50.CompiledTextures >= 200,
             $"aa50_longwatch.esm: {aaCompiled.Count(m => m.TexturesRead)} of {aaCompiled.Count} compiled materials have their textures read, {aa50.CompiledTextures} textures, {aaCompiled.Sum(m => m.MissingTextures.Count())} missing");
-        Check(aa50.MissingTextures == 3 && aa50.GameLacks >= 1 && aa50.Rows.SelectMany(m => m.Textures).Where(t => t.GameLacks).All(t => t.Path == @"textures\weapons\ar99\ar99_reflex_curvature.dds"),
-            $"aa50_longwatch.esm: {aa50.MissingTextures} missing textures (3 expected, those of its .mat files), {aa50.GameLacks} the game's materials lack");
+        // The game's own aa99_reflex material names a curvature map the game doesn't ship; the plugin's three skins of
+        // it (.mat files) name the same texture. All four are the game's gap, none is counted as missing (GAPS S8)
+        Check(aa50.MissingTextures == 0 && aa50.GameLacks == 4 && aa50.Rows.SelectMany(m => m.Textures).Where(t => t.GameLacks).All(t => t.Path == @"textures\weapons\ar99\ar99_reflex_curvature.dds")
+            && aa50.Rows.Count(m => !m.NoFile && m.Textures.Any(t => t.GameLacks)) == 3,
+            $"aa50_longwatch.esm: {aa50.MissingTextures} missing textures (0 expected), {aa50.GameLacks} textures the game's own materials name and the game doesn't ship (4 expected: its own aa99_reflex and the plugin's three skins of it)");
         string text = aa50.ToText(new ReportTextOptions());
-        Check(text.Contains("by compiled materials)", StringComparison.Ordinal) && System.Text.RegularExpressions.Regex.IsMatch(text, @"the file names of \d+ archives")
-            && System.Text.RegularExpressions.Regex.IsMatch(text, @"the whole of \d+ compiled material databases?, for the textures of \d+ compiled materials \("),
+        Check(text.Contains(" by compiled materials", StringComparison.Ordinal) && System.Text.RegularExpressions.Regex.IsMatch(text, @"the file names of \d+ archives")
+            && System.Text.RegularExpressions.Regex.IsMatch(text, @"the whole of \d+ compiled material databases?, for the textures of \d+ compiled materials( and what \d+ material files? inherits?)? \("),
             "aa50_longwatch.esm: the text doesn't count the compiled materials' textures, or its cost doesn't say the archives' names and the whole databases read");
         parts.Add($"aa50_longwatch.esm: its {aaCompiled.Count} compiled materials name {N(aa50.CompiledTextures)} textures, none missing (ar99_reflex_curvature.dds, which one of the game's materials names, is in no archive: listed as the game's gap, not missing)");
 

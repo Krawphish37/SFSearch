@@ -661,6 +661,8 @@ internal sealed partial class ItemLocator
                 else if (!ro.Struct) g.Kind = GroupKind.ListMulti;
                 else g.Kind = GroupKind.Other;
                 foreach (var s in ObjSigs(ro.Name, itemMap)) g.Sigs.Add(s);
+                // Items between markers of their own (the XML's itemMarkerType and itemEndMarkerType)
+                if (g.Kind == GroupKind.ListMulti && f.ItemMarker != null) { g.Sigs.Add(f.ItemMarker); if (f.ItemEndMarker != null) g.Sigs.Add(f.ItemEndMarker); }
             }
             else g.Kind = GroupKind.Other;
             if (g.Own != null) g.Sigs.Add(g.Own);
@@ -745,6 +747,7 @@ internal sealed partial class ItemLocator
                 {
                     if (g.Sigs.Count == 0) continue;
                     if (g.Marker != null) set.Add(g.Marker);
+                    else if (g.Kind == GroupKind.ListMulti && g.Main.ItemMarker != null) set.Add(g.Main.ItemMarker);
                     else if (g.Kind is GroupKind.ListMulti or GroupKind.MultiObj && g.Ref != null) set.UnionWith(g.Counter != null ? new[] { g.Counter } : Triggers(g.Ref, g.Map));
                     else set.UnionWith(g.Sigs);
                     // An object with an end marker starts with its first subrecord; any other with its first one that is always there
@@ -839,16 +842,21 @@ internal sealed partial class ItemLocator
     }
 
     /// <summary>The signatures several of an object's fields each take whole (no data block: no field of them at an
-    /// offset): a scene action's StartPhase and a timer action's MaxSeconds (SNAM), a surface tree's GNAM and GNAM2.</summary>
+    /// offset): a scene action's StartPhase and a timer action's MaxSeconds (SNAM), a surface tree's GNAM and GNAM2; and
+    /// those several objects of one subrecord each take (a pack-in's ObjectPaletteDefaults and ObjectPlacementDefaults2,
+    /// both OPDS), or an object and a plain field (a planet's OrbitedData and SurfaceTree, both FNAM). Mutagen's
+    /// generated reader gives each such subrecord to the first of the fields after the last one it filled, and past
+    /// them all to the next by how many it has had (Choose).</summary>
     HashSet<string> RepeatedSigs(List<Group> groups)
     {
         if (_t.Repeated.TryGetValue(groups, out var have)) return have;
         var set = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var own in groups.Where(g => g.Kind is GroupKind.Single && g.Own != null).GroupBy(g => g.Own!))
+        foreach (var own in groups.Where(g => g.Kind is GroupKind.Single or GroupKind.StructObj && g.Own != null).GroupBy(g => g.Own!))
         {
             var list = own.ToList();
             var all = groups.Where(g => g.Own == own.Key).ToList();
-            if (list.Count >= 2 && all.All(g => g.Kind is GroupKind.Single && (g.Main.Offset is null or 0) && !g.Main.OffsetRel && g.Main.Kind != "CustomLogic" && !g.Main.Custom))
+            if (list.Count >= 2 && all.All(g => g.Main.Kind != "CustomLogic" && !g.Main.Custom
+                    && g.Kind is GroupKind.StructObj or GroupKind.Single && (g.Main.Offset is null or 0) && !g.Main.OffsetRel))
                 set.Add(own.Key);
         }
         return _t.Repeated[groups] = set;
@@ -861,6 +869,8 @@ internal sealed partial class ItemLocator
         GroupKind.Single or GroupKind.Marker or GroupKind.StructObj => s == g.Own,
         GroupKind.ListArray => s == g.Own || s == g.Counter,
         GroupKind.ListSub => s == g.ItemSig || s == g.Counter,
+        // (a list whose items sit between markers starts at an item's marker, as Mutagen's generated reader switches on it)
+        GroupKind.ListMulti when g.Main.ItemMarker != null => s == g.Main.ItemMarker,
         GroupKind.ListMulti => s == g.Counter || (g.Ref != null && Triggers(g.Ref, g.Item?.SigMap ?? g.Map).Contains(s)),
         // An object of several subrecords starts only on a subrecord that can start it (its triggering types, as Mutagen's
         // generated reader switches on them): a CTDA after a response with no animation is the record's, not the animation's
@@ -934,6 +944,20 @@ internal sealed partial class ItemLocator
                 if (Sig(p) == g.Counter) { n = CounterValue(p); p++; }
                 var list = items.TryGetValue(gi, out var l) ? l : items[gi] = new();
                 string? itemMap = g.Item?.SigMap ?? g.Map;
+                // Items between markers (Mutagen's ListBinaryTranslation.Parse with itemStartMarker and itemEndMarker):
+                // while the next subrecord is the start marker it is stepped over, an item is read as far as it goes,
+                // and the end marker is stepped over when it follows. An item is what lies between (a sound echo
+                // marker's Markers, ECHO to ECHE; a perk's Ranks, PRRK to PRRF)
+                if (g.Main.ItemMarker is { } startMarker)
+                {
+                    while (p < to && Sig(p) == startMarker)
+                    {
+                        int s = p + 1, e = Math.Max(ParseItem(g.Ref!, itemMap, s, to), s);
+                        list.Add((s, e)); p = e;
+                        if (g.Main.ItemEndMarker is { } endMarker && p < to && Sig(p) == endMarker) p++;
+                    }
+                    return Math.Max(p, i + 1);
+                }
                 var triggers = Triggers(g.Ref!, itemMap);
                 while (p < to && (n != null ? list.Count < n : triggers.Contains(Sig(p))))
                 {

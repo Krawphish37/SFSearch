@@ -34,14 +34,13 @@ static class TypedAllTests
         bool heavy = c.Records.AllowHeavy;
         c.Records.AllowHeavy = true;
         // Why the value walk sends a record to Mutagen, by list (lists-all-why.txt)
-        var why = new System.Collections.Concurrent.ConcurrentDictionary<(string List, string Why), int>();
-        RawList.LeftWhy = (list, w) => why.AddOrUpdate((list, w), 1, (_, n) => n + 1);
+        LeftReasons.Start();
         try
         {
             foreach (string root in c.Engine.Views.RootNames.OrderBy(r => r, StringComparer.Ordinal))
             {
                 var view = c.Engine.Views.Catalog(root).Typed;
-                if (view.IsUnion || view.Types.Count != 1 || c.Schema.SignatureOf(view.Types[0]) is not { } sig || c.Schema.TypesOf(sig).Count != 1) continue;
+                if (view.IsUnion || view.Types.Count != 1 || c.Schema.SignatureOf(view.Types[0]) is not { } sig) continue;
                 int Count(string plugin) => c.Index.Plugin(plugin)?.Segment?.Signatures.Where(s => s.Signature == sig).Select(s => s.Count).FirstOrDefault() ?? 0;
                 var plugins = new List<string>();
                 if (Count(SF) > 0 && (c.Heavy || Count(SF) <= QuickRecords)) plugins.Add(SF);
@@ -61,11 +60,100 @@ static class TypedAllTests
                 }
             }
         }
-        finally { c.Records.AllowHeavy = heavy; RawList.LeftWhy = null; }
+        finally { c.Records.AllowHeavy = heavy; }
         c.Save("lists-all-left.txt", left);
-        c.Save("lists-all-why.txt", why.OrderBy(k => k.Key.List, StringComparer.Ordinal).ThenByDescending(k => k.Value).Select(k => $"{k.Key.List}\t{k.Value}\t{k.Key.Why}"));
+        c.Save("lists-all-why.txt", LeftReasons.Stop());
         return $"{views:N0} list views of {types} types read from the bytes, {records:N0} records, {rows:N0} rows, {values:N0} values equal to Mutagen's"
             + $"; records left to Mutagen for a list view in {left.Count} types: {Cut(string.Join(" | ", left), 6000)}";
+    }
+
+    /// <summary>
+    /// The list columns whose value is a plain value in some kinds of the entry and a list of plain values in others
+    /// (VaryingColumn.cs: a script property's Data), which the JSON gives as the value or as the list's JSON text: for
+    /// every record type that has one, each record read through Mutagen once, the column straight from the object
+    /// (DirectList) and from the record's own bytes (RawList) against the same record's JSON through the view's own
+    /// expression, value for value and in SQLite's kind (WorldReadTests.DirectAgainstJson). Over the same plugins as
+    /// <see cref="Run"/>. The columns of varying shape that aren't read this way are named.
+    /// </summary>
+    public static string Varying(Ctx c)
+    {
+        int types = 0, columns = 0;
+        var notRead = new SortedSet<string>(StringComparer.Ordinal);
+        var said = new List<string>();
+        foreach (string root in c.Engine.Views.RootNames.OrderBy(r => r, StringComparer.Ordinal))
+        {
+            var cat = c.Engine.Views.Catalog(root);
+            var view = cat.Typed;
+            if (view.IsUnion || view.Types.Count != 1 || c.Schema.SignatureOf(view.Types[0]) is not { } sig) continue;
+            var varying = cat.Lists.Values.SelectMany(v => v.Columns.Where(col => col.ShapeVaries).Select(col => (v, col))).ToList();
+            foreach (var (v, col) in varying.Where(x => !VaryingColumn.Supported(x.col))) notRead.Add(v.Name[(root.Length + 1)..] + "." + col.Name);
+            int held = varying.Count(x => VaryingColumn.Supported(x.col));
+            // (a type that shares its signature holds other types' records too, which this comparison doesn't tell apart)
+            if (held == 0 || c.Schema.TypesOf(sig).Count != 1) continue;
+            foreach (var (v, col) in varying.Where(x => VaryingColumn.Supported(x.col)))
+            {
+                Check(DirectList.For(v, new[] { col.Name }, "English") != null, $"{v.Name}.{col.Name}: no direct reader");
+                Check(RawList.For(v, new[] { col.Name }, c.Schema, view) != null, $"{v.Name}.{col.Name}: not read from the bytes");
+            }
+            int Count(string plugin) => c.Index.Plugin(plugin)?.Segment?.Signatures.Where(s => s.Signature == sig).Select(s => s.Count).FirstOrDefault() ?? 0;
+            var plugins = new List<string>();
+            if (Count(SF) > 0 && (c.Heavy || Count(SF) <= QuickRecords)) plugins.Add(SF);
+            if (plugins.Count == 0) plugins.AddRange(Smaller.Where(p => Count(p) > 0));
+            if (plugins.Count == 0) continue;
+            types++; columns += held;
+            foreach (string plugin in plugins)
+                said.Add(WorldReadTests.DirectAgainstJson(c, plugin, new[] { view.Types[0] }, bytesOnly: false, only: col => col.ShapeVaries && VaryingColumn.Supported(col)));
+        }
+        Check(columns > 0, "no column of varying shape is read straight from the records");
+        c.Save("varying-columns.txt", said);
+        string made = VaryingMade(c);
+        return $"{columns:N0} columns of varying shape in {types} types, read straight from the object and from the bytes, equal to each record's JSON; {made}"
+            + $"; of varying shape and read through the JSON: {(notRead.Count == 0 ? "none" : Cut(string.Join(", ", notRead), 1500))}";
+    }
+
+    /// <summary>
+    /// What the plugins in Data don't hold: an activator made here with one script whose properties are of every kind
+    /// with a Data, at the values the files lack (a list with nothing in it, a text with nothing in it, texts with
+    /// quotes, backslashes, control characters and letters outside ASCII, a list of yes/no, floats that are -0, NaN, an
+    /// infinity and 1E+20). Its Data column straight from the object (DirectList) against its JSON through the view's
+    /// own expression, as the serializer writes it and SQLite reads it.
+    /// </summary>
+    static string VaryingMade(Ctx c)
+    {
+        var cat = c.Engine.Views.Catalog("Activator");
+        var v = cat.Lists["Activator_VirtualMachineAdapter_Scripts_Properties"];
+        var cols = new[] { "Data" };
+        var direct = DirectList.For(v, cols, "English") ?? throw new TestFailed($"{v.Name}.Data: no direct reader");
+        string sql = ViewBuilder.ListProjectSql(v, cols, "English");
+        var entry = new Mutagen.Bethesda.Starfield.ScriptEntry { Name = "Made" };
+        void Add(Mutagen.Bethesda.Starfield.ScriptProperty p) { p.Name = "p" + entry.Properties.Count.ToString(System.Globalization.CultureInfo.InvariantCulture); entry.Properties.Add(p); }
+        foreach (bool b in new[] { false, true }) Add(new Mutagen.Bethesda.Starfield.ScriptBoolProperty { Data = b });
+        foreach (int i in new[] { 0, -5, int.MaxValue, int.MinValue }) Add(new Mutagen.Bethesda.Starfield.ScriptIntProperty { Data = i });
+        foreach (float f in new[] { 0f, -0f, 1f, 0.1f, 1E+20f, float.NaN, float.PositiveInfinity, float.Epsilon }) Add(new Mutagen.Bethesda.Starfield.ScriptFloatProperty { Data = f });
+        foreach (string t in new[] { "", "plain", "a \"quote\"", "back\\slash", "tab\tline\nreturn\r", "\u00FCn\u00EF \u2028 \u0085", "[1,2]", " " }) Add(new Mutagen.Bethesda.Starfield.ScriptStringProperty { Data = t });
+        var bools = new Mutagen.Bethesda.Starfield.ScriptBoolListProperty(); bools.Data.Add(true); bools.Data.Add(false); Add(bools);
+        Add(new Mutagen.Bethesda.Starfield.ScriptBoolListProperty());
+        var ints = new Mutagen.Bethesda.Starfield.ScriptIntListProperty(); foreach (int i in new[] { 0, -1, int.MaxValue }) ints.Data.Add(i); Add(ints);
+        Add(new Mutagen.Bethesda.Starfield.ScriptIntListProperty());
+        var floats = new Mutagen.Bethesda.Starfield.ScriptFloatListProperty(); foreach (float f in new[] { 0f, -0f, 1.5f, 1E+20f, float.NaN, float.NegativeInfinity }) floats.Data.Add(f); Add(floats);
+        Add(new Mutagen.Bethesda.Starfield.ScriptFloatListProperty());
+        var texts = new Mutagen.Bethesda.Starfield.ScriptStringListProperty(); foreach (string t in new[] { "", "a \"b\"", "back\\slash", "\u00E9\t\u2028", "plain" }) texts.Data.Add(t); Add(texts);
+        Add(new Mutagen.Bethesda.Starfield.ScriptStringListProperty());
+        var record = new Mutagen.Bethesda.Starfield.Activator(Mutagen.Bethesda.Plugins.FormKey.Factory("000800:Made.esm"), Mutagen.Bethesda.Starfield.StarfieldRelease.Starfield);
+        var adapter = new Mutagen.Bethesda.Starfield.VirtualMachineAdapter();
+        adapter.Scripts.Add(entry);
+        record.VirtualMachineAdapter = adapter;
+        byte[] utf8 = SFSearch.Records.RecordSerializer.ToUtf8(record).ToArray();
+        using var maker = new JsonbMaker(con => Functions.RegisterPure(con, "English"));
+        var want = maker.ProjectRows(utf8, sql, v.Lists.Count + cols.Length + 1);
+        var got = direct.Read(record);
+        Check(got.Count == entry.Properties.Count && want.Count == got.Count, $"the made activator: {entry.Properties.Count} properties, {got.Count} rows straight from the object, {want.Count} from its JSON");
+        var differ = new List<string>();
+        for (int k = 0; k < got.Count; k++)
+            if (!WorldReadTests.Same(got[k][v.Lists.Count], want[k][v.Lists.Count]))
+                differ.Add($"property {k} ({entry.Properties[k].GetType().Name}): straight from the object {WorldReadTests.Show(got[k][v.Lists.Count])}, the JSON {WorldReadTests.Show(want[k][v.Lists.Count])}");
+        Check(differ.Count == 0, $"the made activator's Data differs from its JSON: {string.Join(" | ", differ)}");
+        return $"a made activator's {got.Count} properties of every kind and edge value equal to its JSON";
     }
 
     public static string Run(Ctx c)
@@ -76,16 +164,14 @@ static class TypedAllTests
         bool heavy = c.Records.AllowHeavy;
         c.Records.AllowHeavy = true;
         // Why the value walk sends a record to Mutagen for a typed column (typed-all-why.txt)
-        var why = new System.Collections.Concurrent.ConcurrentDictionary<(string List, string Why), int>();
-        RawList.LeftWhy = (list, w) => why.AddOrUpdate((list, w), 1, (_, n) => n + 1);
+        LeftReasons.Start();
         try
         {
             foreach (string root in c.Engine.Views.RootNames.OrderBy(r => r, StringComparer.Ordinal))
             {
                 var view = c.Engine.Views.Catalog(root).Typed;
                 if (view.IsUnion || view.Types.Count != 1 || c.Schema.SignatureOf(view.Types[0]) is not { } sig) continue;
-                // A type that shares its signature isn't read from the bytes (SharedSignatures holds it)
-                if (c.Schema.TypesOf(sig).Count != 1) { Check(view.Columns.All(col => RawColumn.For(view, col, c.Schema) == null), $"{root}: a column of a type that shares its signature is read from the bytes"); continue; }
+                // (a type that shares its signature is held on its own records: SharedSignature, in RawAgainstMutagen)
                 int Count(string plugin) => c.Index.Plugin(plugin)?.Segment?.Signatures.Where(s => s.Signature == sig).Select(s => s.Count).FirstOrDefault() ?? 0;
                 var plugins = new List<string>();
                 if (Count(SF) > 0 && (c.Heavy || Count(SF) <= QuickRecords)) plugins.Add(SF);
@@ -107,9 +193,9 @@ static class TypedAllTests
                 }
             }
         }
-        finally { c.Records.AllowHeavy = heavy; RawList.LeftWhy = null; }
+        finally { c.Records.AllowHeavy = heavy; }
         c.Save("typed-all-left.txt", left);
-        c.Save("typed-all-why.txt", why.OrderBy(k => k.Key.List, StringComparer.Ordinal).ThenByDescending(k => k.Value).Select(k => $"{k.Key.List}\t{k.Value}\t{k.Key.Why}"));
+        c.Save("typed-all-why.txt", LeftReasons.Stop());
         c.Save("typed-all-differences.txt", bad);
         Check(bad.Count == 0, $"{bad.Count} type(s) differ: " + Cut(string.Join(" || ", bad.Select(b => Cut(b, 700))), 9000));
         return $"{columns:N0} columns of {types} types read from the bytes, {records:N0} records, {values:N0} values equal to Mutagen's"

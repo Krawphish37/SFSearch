@@ -188,7 +188,7 @@ public sealed partial class QueryEngine
         bool PlanListReads(IGrouping<string, KeyValuePair<ViewSpec, HashSet<string>>> group, ViewSpec typed, ScratchFile file, string sig,
             List<(IndexedPlugin Plugin, SigLoad Load)> loads, Estimate full, Probed probed, List<ReadJob> jobs)
         {
-            if (typed.Types.Count != 1 || typed.IsUnion || _e._schema.TypesOf(sig).Count != 1 || probed.Special.Count > 0) return false;
+            if (typed.Types.Count != 1 || typed.IsUnion || probed.Special.Count > 0) return false;
             var typedUse = group.Where(kv => !kv.Key.IsList).ToList();
             if (typedUse.Count > 0 && !_joinedRoots.Contains(group.Key)) return false;
             if (!(Heavy(full) || full.Seconds >= KeyedSeconds || loads.Sum(l => l.Load.Count) > _e._options.HeavyRecords || ListsFromBytes(group, typed))) return false;
@@ -373,8 +373,11 @@ public sealed partial class QueryEngine
             int levels = v.Lists.Count;
             // The same columns from the records' own bytes where the list is laid out exactly (RawLists.cs)
             var rawList = job.List != null ? RawList.For(v, job.Columns, _e._schema, _e.Views.Catalog(v.Root).Typed) : null;
+            // A type that shares its signature with others: only its own records give rows (ReadPlan.OnlyType)
+            string? sharedSig = _e._schema.SignatureOf(v.Types[0]) is { } vs && _e._schema.TypesOf(vs).Count > 1 ? vs : null;
             var plan = new ReadPlan
             {
+                OnlyType = sharedSig != null ? v.Types[0] : null, ClassOf = sharedSig != null ? SFSearch.Records.RecordClasses.For(_e._schema, sharedSig) : null,
                 Full = false, List = job.List, RawList = rawList, ListSql = job.ListSql, ListValues = levels + job.Columns.Count, Winners = file.IsSet, TextLanguage = _language,
                 Unsplit = job.ListSql != null && !_e._schema.FieldHoldsRecords(v.Types[0], v.Lists[0].Path.Split('.')[0]),
             };
@@ -408,7 +411,7 @@ public sealed partial class QueryEngine
             _readLabels.Add(label); _usedLabels.Add(label);
             var named = job.Columns.Select(c => c == ViewBuilder.EntryColumn ? "each entry" : c).ToList();
             _answer.Cost.Read.Add($"{v.Name} ({rows:N0} rows of {records:N0} records that hold its subrecords, {(named.Count == 0 ? "no column but the places" : (named.Count == 1 ? "" : "columns ") + string.Join(", ", named))}, "
-                + $"{(rawList != null ? "from the records' own bytes" : job.List != null ? "straight from the records" : "out of each record's JSON, one record at a time")}) from {Where(job)} in {Took(clock.Elapsed.TotalSeconds)}");
+                + $"{(rawList != null ? "from the records' own bytes" + ViaMutagen(plan) : job.List != null ? "straight from the records" : "out of each record's JSON, one record at a time")}) from {Where(job)} in {Took(clock.Elapsed.TotalSeconds)}");
             if (skipped > 0) Note($"{v.Name}: {skipped:N0} record(s) couldn't be read and aren't counted. The first: {firstSkip}");
         }
 

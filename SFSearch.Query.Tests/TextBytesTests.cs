@@ -30,7 +30,7 @@ static class TextBytesTests
         var asked = TextLanguages.Shipped.Select(s => s.Name).Append("Russian").ToArray();
         var said = new List<string>();
         var clock = Stopwatch.StartNew();
-        long values = 0, nonNull = 0, byLanguage = 0;
+        long values = 0, nonNull = 0, byLanguage = 0, fromTables = 0;
         foreach (var target in new[] { Language.English, Language.German })
         {
             var engine = target == Language.English ? c.Records : new RecordEngine(c.Index, c.Schema, Path.Combine(c.Work, "verify-" + target), c.Data, target);
@@ -69,6 +69,9 @@ static class TextBytesTests
                             try { rec = engine.Load(r.Ref).Record; }
                             catch (Exception e) { output.Add($"{c.Index.Describe(r.Ref).Label}: Mutagen couldn't read it ({e.Message})"); return; }
                             string label = c.Index.Describe(r.Ref).Label;
+                            // As the record reader sets it for each record: a plugin that isn't localized gives a tagged
+                            // text from its own strings tables (GAPS S190)
+                            DirectColumn.TextSession = session.Localized ? null : session;
                             for (int i = 0; i < cols.Count; i++)
                                 for (int k = 0; k < asked.Length; k++)
                                 {
@@ -78,7 +81,7 @@ static class TextBytesTests
                                     Interlocked.Increment(ref typeValues);
                                     if (want != null) Interlocked.Increment(ref nonNull);
                                     if (!Equals(one[0], want)) output.Add($"{label} {type}.{cols[i].Name} in {asked[k]} (read in {target}): from the bytes {Show(one[0])}, Mutagen {Show(want)}");
-                                    else if (k > 0 && !Equals(want, direct[i][0].Read(rec))) Interlocked.Increment(ref byLanguage);
+                                    else if (k > 0 && !Equals(want, direct[i][0].Read(rec))) { Interlocked.Increment(ref byLanguage); if (!localized) Interlocked.Increment(ref fromTables); }
                                 }
                         }, new PipelineOptions { Data = PipelineData.Plain, CostPerByte = PipelineOptions.MutagenCostPerByte, PieceRecords = 256 }))
                         {
@@ -94,7 +97,9 @@ static class TextBytesTests
             finally { if (!ReferenceEquals(engine, c.Records)) engine.Dispose(); }
         }
         Check(nonNull > 0 && byLanguage > 0, $"the records held have texts ({nonNull:N0}) that differ by language ({byLanguage:N0})");
-        return $"{rule}; S152: {values:N0} translated values from the bytes equal to Mutagen's, {nonNull:N0} of them a text, {byLanguage:N0} differing from the first language's ({string.Join("; ", said)}) in {clock.Elapsed.TotalSeconds:F0} s";
+        // S190: a plugin that isn't localized but ships strings tables (darkstar.esm) gives its tables' texts both ways
+        Check(fromTables > 0, "no text of a plugin that isn't localized differed by language: darkstar.esm's own strings tables weren't asked");
+        return $"{rule}; S152: {values:N0} translated values from the bytes equal to Mutagen's, {nonNull:N0} of them a text, {byLanguage:N0} differing from the first language's, {fromTables:N0} of those from the own strings tables of a plugin that isn't localized ({string.Join("; ", said)}) in {clock.Elapsed.TotalSeconds:F0} s";
     }
 
     /// <summary>

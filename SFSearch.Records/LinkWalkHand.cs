@@ -181,6 +181,10 @@ internal sealed partial class ItemLocator
             if (kind == null) { Unread(named, $"{ro} has {TargetsOf(ro).Count} kinds, and the layout didn't pick one"); continue; }
             _values!.Object(named, KindName(kind, kindGen));
             var names = hand.Named![q];
+            // An object the layout also cuts a run for (Object reader="generated": a region's weather block, whose RDAT the
+            // layout lays out and whose RDWT list Mutagen's generated reader reads): what the layout doesn't name is the
+            // generated reader's, given by the run's own walk, and not there when the run holds no subrecord
+            if (_cuts != null && _cuts.Contains(General(q))) continue;
             foreach (var f in Groups(kind, null))
                 if (!names.Contains(f.Name) && f.Main.Kind != "CustomLogic" && !NoBytes(f.Main))
                     Unread(PathOf(named, f.Name), "Mutagen's hand-read layout doesn't name it");
@@ -199,7 +203,9 @@ internal sealed partial class ItemLocator
                 _values!.Stated(named, def, ((bitsOf[v.Offset] & v.Mask) != 0) != v.Invert ? "True" : "False");
                 continue;
             }
-            if (v.Kind is "Const" or "Bit" or "View" || v.Encoding is not (null or "bool")) { Unread(named, "a value Mutagen's hand-written code works out from the bytes"); continue; }
+            if (v.Kind is "Const" or "Bit" or "View") { Unread(named, "a value Mutagen's hand-written code works out from the bytes"); continue; }
+            // A number the layout stores with an encoding (a cloud layer's speed): the sink reads it if it knows the encoding
+            if (v.Encoding is not (null or "bool")) { _values!.Encoded(named, def, v.Sub, v.Offset, v.Offset + v.Size, v.Kind, v.Encoding); continue; }
             int length = v.Kind switch { "WString" => 2, "I32String" => 4, _ => 0 };
             _values!.LaidOut(named, def, v.Sub, v.Offset - length, v.Offset + v.Size, v.Kind);
         }

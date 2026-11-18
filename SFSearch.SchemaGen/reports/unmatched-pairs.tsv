@@ -1,4 +1,4 @@
-# xEdit pairs that match no field of Mutagen 0.55.0-fixes.26 (f3bb0aa7f2): 1 of 8380.
+# xEdit pairs that match no field of Mutagen 0.55.0-fixes.27 (5f943d83d1): 1 of 8380.
 # Written by schemagen at every build. A pair listed here needs a rerun of the pairing on current names.
 # After them: the 23 pairs whose Mutagen side is Mutagen's own bookkeeping, not data in the file (reason "not data: …", not counted above);
 # then two lists of matched pairs worth a look: matched by subrecord only, and matched by name where xEdit's subrecord differs from the schema's.

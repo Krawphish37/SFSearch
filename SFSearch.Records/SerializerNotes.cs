@@ -22,7 +22,9 @@ public static class SerializerNotes
 
     /// <summary>A translated text as the JSON writes it (TranslatedStringNames.IsTranslatedStringObject): an object with
     /// "TargetLanguage", "Value" or "Values", and its string ID when it has one.</summary>
-    public static bool IsText(JsonObject o) => TranslatedStringNames.IsTranslatedStringObject(o.Select(p => p.Key));
+    /// <remarks>And, beside them, "Tables": what the strings tables of a plugin that isn't localized hold for the text
+    /// (TagTexts.cs, GAPS S190), which SFSearch adds.</remarks>
+    public static bool IsText(JsonObject o) => TranslatedStringNames.IsTranslatedStringObject(o.Select(p => p.Key).Where(k => k != "Tables"));
 
     /// <summary>Two translated texts that hold the same texts, whatever string IDs they carry (a plugin's own strings
     /// against its master's, as before the serializer wrote IDs).</summary>

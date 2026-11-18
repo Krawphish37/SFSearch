@@ -17,6 +17,8 @@ public static class Compare
     public sealed record Verdict(Kind Kind, string Why, List<string> OnlyA, List<string> OnlyB);
 
     static readonly Regex Timing = new(@"\bin [0-9.,]+ ?(ms|s|min)\b", RegexOptions.Compiled);
+    // A time given on its own in brackets at the end of a count: "... read for their stock (0.2 s)."
+    static readonly Regex BracketTiming = new(@"\(([0-9.,]+) ?(ms|s|min)\)", RegexOptions.Compiled);
     static readonly Regex SavedFile = new(@"[A-Za-z]:\\[^\n|]*\\Service\\results\\\d{8}_\d{6}_j[0-9a-f]+-\d+\.md", RegexOptions.Compiled);
     static readonly Regex JobNumber = new(@"\bj[0-9a-f]+-\d+\b", RegexOptions.Compiled);
     static readonly Regex Digits = new(@"\d[\d,]*", RegexOptions.Compiled);
@@ -33,6 +35,7 @@ public static class Compare
             if (line.Length == 0) continue;
             if (Progress.Any(p => line.StartsWith(p, StringComparison.Ordinal))) continue;
             line = Timing.Replace(line, "in T");
+            line = BracketTiming.Replace(line, "(T)");
             line = SavedFile.Replace(line, "<saved file>");
             line = TempStdin.Replace(line, "<piped sql>");
             // SFSearch's own counter of what it has read so far: the name stays, the number goes

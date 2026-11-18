@@ -64,6 +64,8 @@ sealed class TextNotes
     public readonly Dictionary<string, HashSet<string>> OneLanguage = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Languages text() was asked for on a plain text, which is in one language already.</summary>
     public readonly HashSet<string> Plain = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Languages a text was given in from its plugin's own strings tables, by the ID in its tag (GAPS S190).</summary>
+    public readonly HashSet<string> FromTables = new(StringComparer.OrdinalIgnoreCase);
     public readonly object Lock = new();
 }
 
@@ -115,6 +117,15 @@ static class Languages
             }
             if (root.TryGetProperty("Value", out var one))
             {
+                // A plugin that isn't localized but ships strings tables: the language's table's text, where it holds
+                // another one than the plugin's own, which is given for English (GAPS S190, TagTexts.cs)
+                if (!language.Equals("English", StringComparison.OrdinalIgnoreCase) && root.TryGetProperty("Tables", out var tables) && tables.ValueKind == JsonValueKind.Object)
+                    foreach (var table in tables.EnumerateObject())
+                        if (table.Name.Equals(language, StringComparison.OrdinalIgnoreCase) && table.Value.ValueKind == JsonValueKind.String)
+                        {
+                            if (notes != null) lock (notes.Lock) notes.FromTables.Add(language);
+                            return table.Value.GetString();
+                        }
                 if (notes != null && root.TryGetProperty("TargetLanguage", out var target) && target.GetString() is { } t && !t.Equals(language, StringComparison.OrdinalIgnoreCase))
                     lock (notes.Lock)
                     {
@@ -145,7 +156,11 @@ static class Languages
                     ? $"Some texts have no {lang} text and read as NULL: they hold {(have.Count == 0 ? "no language" : string.Join(", ", have))}."
                     : $"Starfield ships no {lang} text, so every text asked in {lang} reads as NULL. Its languages: {TextLanguages.ShippedText}.";
             foreach (var (lang, stored) in notes.OneLanguage.OrderBy(k => k.Key, StringComparer.Ordinal))
-                yield return $"Some texts are stored in their plugin in {string.Join(" and ", stored.OrderBy(x => x, StringComparer.Ordinal))} only (that plugin isn't localized: it has no strings files), so they have no {lang} text of their own. The game shows that text in every language, and it is given as it is. (name() reads the version the game uses, which may be such a plugin's.)";
+                yield return notes.FromTables.Contains(lang)
+                    ? $"Other texts of plugins that aren't localized are given as their plugin stores them (in {string.Join(" and ", stored.OrderBy(x => x, StringComparer.Ordinal))}): no strings table of the plugin's own says anything else for them in {lang}."
+                    : $"Some texts are stored in their plugin in {string.Join(" and ", stored.OrderBy(x => x, StringComparer.Ordinal))} only (that plugin isn't localized: it keeps its texts in itself), so they have no {lang} text of their own. The game shows that text in every language, and it is given as it is. (name() reads the version the game uses, which may be such a plugin's.)";
+            foreach (var lang in notes.FromTables.OrderBy(k => k, StringComparer.Ordinal))
+                yield return $"Some texts are given in {lang} from their plugin's own strings tables, found by the ID in the Creation Kit's <ID=…> tag before the text. Such a plugin isn't localized: it stores its own text, which is what an English query gives, and whether the game shows the table's text instead wasn't looked into. A record's Json has both (\"Value\" and \"Tables\").";
             foreach (var lang in notes.Plain.OrderBy(k => k, StringComparer.Ordinal))
                 yield return $"text(…, '{lang}') got a plain text, which is in one language already ({queryLanguage}), and gave NULL for it. Give text() the translated value from Json, e.g. text(Json -> '$.Name', '{lang}'), or ask the whole query in {lang} (language {lang}): every text column is then {lang}.";
         }
@@ -183,6 +198,10 @@ sealed class Functions
         c.CreateFunction("sfs_flagbits", (string? json, string? enumName) => FlagsRaw.FromNames(json, enumName), isDeterministic: true);
         // A GUID column's value in the form Wwise and xEdit show (a sound reference's events): wwise(StartEvent)
         c.CreateFunction("wwise", (string? guid) => SFSearch.Records.Card.WwiseGuid(guid), isDeterministic: true);
+        // The event's name and its path in the Wwise project, from the sound banks' descriptions in the Data folder
+        // (GAPS S191): wwise_name(Equip_StartEvent). NULL for a GUID no description names
+        c.CreateFunction("wwise_name", (string? guid) => WwiseEvent(guid)?.Name, isDeterministic: true);
+        c.CreateFunction("wwise_path", (string? guid) => WwiseEvent(guid)?.Path, isDeterministic: true);
     }
 
     public void Register(SqliteConnection c)
@@ -202,6 +221,14 @@ sealed class Functions
         c.CreateFunction("type", (string? fk) => Signature(fk) is { } s ? Label?.Invoke(s) ?? s : null, isDeterministic: true);
         c.CreateFunction("formkey", (string? text) => FormKeyOf(text), isDeterministic: true);
         c.CreateFunction("display", (string? name) => Display(name), isDeterministic: true);
+    }
+
+    /// <summary>The Wwise event a GUID column's value names (the text Mutagen gives, or Wwise's own form in braces).</summary>
+    static SFSearch.Records.WwiseEvents.Event? WwiseEvent(string? guid)
+    {
+        if (guid == null || SFSearch.Records.WwiseEvents.Default is not { } events) return null;
+        string? wwise = guid.StartsWith('{') ? guid : SFSearch.Records.Card.WwiseGuid(guid);
+        return events.TryGet(wwise, out var found) ? found : null;
     }
 
     /// <summary>

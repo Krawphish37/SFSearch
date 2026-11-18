@@ -89,19 +89,51 @@ static class Tests
         var winners = MutagenOrder.WinningWeapons(c);
         var loaded = MutagenOrder.Loaded(c);
         var seen = new HashSet<FormKey>();
-        int jsonDiffers = 0, pluginDiffers = 0; string first = "";
+        int jsonDiffers = 0, pluginDiffers = 0, withTables = 0; string first = "";
         foreach (var r in a.Rows)
         {
             var key = FormKey.Factory((string)r[0]!);
             Check(seen.Add(key), $"the winners scope gives {key} twice");
             if (!winners.TryGetValue(key, out var w)) throw new TestFailed($"the winners scope has {key} ({r[1]}), which Mutagen's winning overrides don't");
-            if (Compact(RecordSerializer.ToJson(w)) != Compact((string)r[2]!)) { jsonDiffers++; if (first.Length == 0) first = $"{w.EditorID} ({key}) of {r[1]}"; }
+            // The query's Json is Mutagen's JSON of the record. A plugin that isn't localized but ships strings tables
+            // (darkstar.esm) has, in each tagged text, what its tables hold for it besides ("Tables", GAPS S190): with
+            // those taken out, the rest is Mutagen's JSON, value for value
+            string json = (string)r[2]!;
+            bool same;
+            if (json.Contains("\"Tables\":", StringComparison.Ordinal))
+            {
+                var node = JsonNode.Parse(json)!;
+                int taken = TakeTables(node);
+                Check(taken > 0, $"{w.EditorID} ({key}): \"Tables\" in its Json is no translated text's");
+                withTables++;
+                same = JsonNode.DeepEquals(JsonNode.Parse(RecordSerializer.ToJson(w)), node);
+            }
+            else same = Compact(RecordSerializer.ToJson(w)) == Compact(json);
+            if (!same) { jsonDiffers++; if (first.Length == 0) first = $"{w.EditorID} ({key}) of {r[1]}"; }
             string holder = loaded.Last(m => m.Weapons.RecordCache.ContainsKey(key)).ModKey.FileName.String;
             if (!holder.Equals((string)r[1]!, StringComparison.OrdinalIgnoreCase)) { pluginDiffers++; if (first.Length == 0) first = $"{key}: SQL says {r[1]}, Mutagen {holder}"; }
         }
         Check(seen.Count == winners.Count, $"the winners scope has {seen.Count:N0} weapons, Mutagen's winning overrides {winners.Count:N0}; missing: {string.Join(", ", winners.Keys.Where(k => !seen.Contains(k)).Take(3))}");
         Check(jsonDiffers == 0 && pluginDiffers == 0, $"{jsonDiffers} winners differ from Mutagen's record, {pluginDiffers} name another plugin. First: {first}");
-        return $"{seen.Count:N0} winning weapons from {a.Rows.Select(r => (string)r[1]!).Distinct(StringComparer.OrdinalIgnoreCase).Count()} of {loaded.Count} loaded plugins: the same FormKeys as Mutagen's WinningOverrides, each read from the plugin that wins it, each record's JSON equal to Mutagen's";
+        return $"{seen.Count:N0} winning weapons from {a.Rows.Select(r => (string)r[1]!).Distinct(StringComparer.OrdinalIgnoreCase).Count()} of {loaded.Count} loaded plugins: the same FormKeys as Mutagen's WinningOverrides, each read from the plugin that wins it, each record's JSON equal to Mutagen's ({withTables:N0} of them with a plugin's own strings tables' texts added to their tagged texts, GAPS S190: equal without those)";
+    }
+
+    /// <summary>Takes "Tables" out of every translated text of one language ({"TargetLanguage", "Value", "Tables"});
+    /// gives how many it took.</summary>
+    static int TakeTables(JsonNode? node)
+    {
+        int taken = 0;
+        switch (node)
+        {
+            case JsonObject o:
+                if (o.ContainsKey("TargetLanguage") && o.ContainsKey("Value") && o.Remove("Tables")) taken++;
+                foreach (var (_, child) in o.ToList()) taken += TakeTables(child);
+                break;
+            case JsonArray a:
+                foreach (var child in a) taken += TakeTables(child);
+                break;
+        }
+        return taken;
     }
 
     // ------------------------------------------------------------------ Links

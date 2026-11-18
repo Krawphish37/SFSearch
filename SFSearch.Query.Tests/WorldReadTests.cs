@@ -129,7 +129,8 @@ static class WorldReadTests
     /// view's own expressions (what the engine reads otherwise: JsonbMaker.Project and ProjectRows), value for value
     /// and in SQLite's kind, and a list view's rows in the same number and order.
     /// </summary>
-    static string DirectAgainstJson(Ctx c, string plugin, IEnumerable<string> types, bool bytesOnly)
+    /// <param name="only">The list columns to hold (and no typed column); null: every column read straight from the object.</param>
+    internal static string DirectAgainstJson(Ctx c, string plugin, IEnumerable<string> types, bool bytesOnly, Func<ColumnSpec, bool>? only = null)
     {
         var p = c.Index.Plugin(plugin) ?? throw new TestFailed($"{plugin} isn't in the Data folder");
         c.Records.Sessions.Get(plugin);
@@ -143,7 +144,7 @@ static class WorldReadTests
             if (entries.Length == 0) continue;
             var cat = c.Engine.Views.Catalog(type);
             var typed = cat.Typed;
-            var tCols = typed.Columns.Where(col => DirectColumn.For(col, Language) != null && (!bytesOnly || RawColumn.For(typed, col, c.Schema) != null)).Select(col => col.Name).ToList();
+            var tCols = typed.Columns.Where(col => only == null && DirectColumn.For(col, Language) != null && (!bytesOnly || RawColumn.For(typed, col, c.Schema) != null)).Select(col => col.Name).ToList();
             var tDirect = tCols.Select(n => DirectColumn.For(typed.ByName[n], Language)!).ToArray();
             string tSql = JsonbMaker.ProjectSql(ViewBuilder.ProjectionExprs(typed, tCols, Language));
             // The columns read from the bytes, each alone (one read through Mutagen doesn't hide the others)
@@ -154,7 +155,7 @@ static class WorldReadTests
             var lists = new List<(ViewSpec View, List<string> Cols, DirectList Direct, string Sql, RawList?[] Raw, RawList? Places)>();
             foreach (var v in cat.Lists.Values)
             {
-                var cols = v.Columns.Select(col => col.Name).Where(n => DirectList.For(v, new[] { n }, Language) != null).ToList();
+                var cols = v.Columns.Where(col => only == null || only(col)).Select(col => col.Name).Where(n => DirectList.For(v, new[] { n }, Language) != null).ToList();
                 if (cols.Count == 0) continue;
                 // The JSON's entries of a flags list are its Value: the same column through json_each. Each column the
                 // bytes give, alone, and the list's places alone (a count(*))
@@ -399,17 +400,25 @@ static class WorldReadTests
         long records = 0, listRows = 0, values = 0, badCount = 0;
         var bad = new List<string>();
         var clock = Stopwatch.StartNew();
+        // A type that shares its signature with others (GMST, OMOD): only its own records are held, and what the bytes
+        // say each record of the signature is (RecordClasses) is held against the class Mutagen made
+        var shared = SharedSignature.Of(c, type);
         foreach (string problem in RecordPipeline.Read<string>(new[] { new ReadSet { Plugin = p, Entries = entries } }, (in PipelineRecord r, List<string> output) =>
         {
-            Interlocked.Increment(ref records);
-            if (r.Problem != PipelineProblem.None) { output.Add($"{c.Index.Describe(r.Ref).Label}: its bytes can't be read ({r.Problem})"); return; }
+            if (r.Problem != PipelineProblem.None) { Interlocked.Increment(ref records); output.Add($"{c.Index.Describe(r.Ref).Label}: its bytes can't be read ({r.Problem})"); return; }
             object rec;
-            try { rec = c.Records.Load(r.Ref).Record; }
-            catch (Exception e) { output.Add($"{c.Index.Describe(r.Ref).Label}: Mutagen couldn't read it ({e.Message})"); return; }
+            try
+            {
+                var loaded = c.Records.Load(r.Ref);
+                rec = loaded.Record;
+                if (shared != null && !shared.Mine(c, r, loaded.Type, type, output)) return;
+            }
+            catch (Exception e) { Interlocked.Increment(ref records); output.Add($"{c.Index.Describe(r.Ref).Label}: Mutagen couldn't read it ({e.Message})"); return; }
+            Interlocked.Increment(ref records);
             for (int k = 0; k < lists.Count; k++)
             {
                 var got = new List<object?[]>();
-                if (!lists[k].Raw.Read(r.Head, r.Data, rawPlugin, got)) { Interlocked.Increment(ref left[k]); continue; }
+                if (!lists[k].Raw.Read(r.Head, r.Data, rawPlugin, got, out var why)) { LeftReasons.Note(lists[k].View.Name, why); Interlocked.Increment(ref left[k]); continue; }
                 var want = lists[k].Direct.Read(rec);
                 string label = c.Index.Describe(r.Ref).Label;
                 if (got.Count != want.Count) { output.Add($"{label}, {lists[k].View.Name}: {got.Count} rows from the bytes, {want.Count} from Mutagen"); continue; }
@@ -430,7 +439,7 @@ static class WorldReadTests
             + $"{(leftSaid.Count == 0 ? "none left to Mutagen" : "records left to Mutagen: " + string.Join(", ", leftSaid))}, in {clock.Elapsed.TotalSeconds:F1} s";
     }
 
-    static bool Same(object? a, object? b) => (a, b) switch
+    internal static bool Same(object? a, object? b) => (a, b) switch
     {
         (null, null) => true,
         (long x, long y) => x == y,
@@ -439,5 +448,5 @@ static class WorldReadTests
         _ => false,
     };
 
-    static string Show(object? v) => v == null ? "NULL" : $"{Cut(v.ToString() ?? "", 160)} ({v.GetType().Name})";
+    internal static string Show(object? v) => v == null ? "NULL" : $"{Cut(v.ToString() ?? "", 160)} ({v.GetType().Name})";
 }

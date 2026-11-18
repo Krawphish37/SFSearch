@@ -107,6 +107,7 @@ Every answer below is real, cut with "…" where long. The examples are written 
 | kgcDoom_WEAP_SuperShotgun | Super Shotgun | Super-Shotgun |
 ```
 - **Names come without the Creation Kit's tag.** A plugin saved without string files stores `<ID=0000793F>AA-99 Mk.II`; the text columns of the typed views, `Records.Name` and `name(fk)` give `AA-99 Mk.II`. `Json` keeps the text as stored; `display(text)` takes the tag off.
+- **Such a plugin may still ship strings tables** (darkstar.esm: nine languages in its archive, each text under the ID of its tag). Asked in another language than English (`text(Name, 'de')`, or `language: "de"`), a tagged text is that language's table's text, with a note; in English, and where the tables don't hold the ID, it is the plugin's own. `Json` has both: `"Value"` (the plugin's) and `"Tables"` (each language whose table says something else; English is among them when the plugin's text was changed after the tables were made). `sfs_record`'s card and fields say the same. `name(fk)` and `sfs_find`'s text search read the plugin's own text only.
 
 ## The functions
 | Function | Gives |
@@ -119,6 +120,8 @@ Every answer below is real, cut with "…" where long. The examples are written 
 | `formkey(text)` | The FormKey a text stands for: itself when it is a FormKey, else the FormKey of the record with that EditorID |
 | `text(value, 'de')` | A translated value in another language |
 | `display(text)` | A text without the Creation Kit's tag |
+| `wwise(guid)` | A sound's event GUID in the form Wwise and xEdit show (`{59A5EC16-836F-4D41-A2D7-FC1B91F934D7}`); a GUID column itself gives the text Mutagen reads |
+| `wwise_name(guid)`, `wwise_path(guid)` | The event's name (`Play_WPN_Pistol_Eon_Equip_Up`) and its path in the Wwise project (`\Events\Starfield_WPN\WPN_Hand\Pistol\Eon\…`), from the sound banks' descriptions in Data (the game's, and each mod's that ships one). NULL when none names the GUID. `sfs_record`'s card shows both beside the GUID |
 
 They answer for any record in Data, in or out of the scope.
 ```text
@@ -239,7 +242,7 @@ Not run. Cell in Starfield.esm is 30,717 records (473.4 MB): about 27 s and abou
 ```
 Such an answer gives three answers: `allow_heavy: true` runs it; leaving it out runs nothing; and where the world link index would make that kind of question fast (`Links WHERE ToKey` over world data), `allow_heavy: "save_index"` runs it and then saves the index, with its size and build time. Otherwise the line says no index would help, as here.
 
-A type too big to read whole is read for the columns the query names only; a column the records' own bytes give (a cell's Location, a placed object's Base) is read from them in about a second, and `col = 'literal'` on it keeps only the matching rows, with no `allow_heavy` needed: `SELECT count(*) FROM PlacedObject WHERE Base = '00003B:Starfield.esm'` 0.55 s on Starfield.esm, 1.2 s over the whole load order (winners or versions). A query that needs nothing of the records (`SELECT count(*) FROM PlacedObject`) is answered from the header index.
+A type too big to read whole is read for the columns the query names only; a column the records' own bytes give (a cell's Location, a placed object's Base) is read from them in about a second, and `col = 'literal'` on it keeps only the matching rows, with no `allow_heavy` needed: `SELECT count(*) FROM PlacedObject WHERE Base = '00003B:Starfield.esm'` 0.55 s on Starfield.esm, 1.2 s over the whole load order (winners or versions). A query that needs nothing of the records (`SELECT count(*) FROM PlacedObject`) is answered from the header index. Where the bytes of some records don't say the answer alone, those records are read through Mutagen, and the `[cost]` line counts them (`from the records' own bytes; 12 records through Mutagen, where the bytes alone don't say`): the answer is the same, the read slower.
 
 A query is held to the memory one command may use (`workerMaxMB`, 1.5 GB on an 8 GB PC; settings that allow all memory let it use all of it). Big sorts and groups go to temporary files instead of memory, so they finish on any PC. A statement that would still pass the limit, or whose temporary files would fill the drive, stops with what to do:
 ```text

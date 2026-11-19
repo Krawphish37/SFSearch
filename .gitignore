@@ -13,6 +13,7 @@ SFSearch/Service/usage.txt
 SFSearch/tools/
 scratch/
 SFSearch/kept/
+SFSearch/indexes/
 SFSearch/state/
 *.db
 *.db-wal

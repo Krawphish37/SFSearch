@@ -70,6 +70,7 @@ var tests = new (string Name, Func<Ctx, string> Run)[]
     ("read-census", ReadCensusTests.Run),
     ("text-bytes", TextBytesTests.Run),
     ("tag-texts", TagTextTests.Run),
+    ("json-default-note", JsonDefaultNoteTests.Run),
     ("wwise-names", WwiseTests.Run),
     ("forms-sizes", GSqlTests.FormsSizes),
     ("forms-flags", FlagsTests.Run),

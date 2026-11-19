@@ -98,6 +98,7 @@ Every answer below is real, cut with "…" where long. The examples are written 
 |---|---|---|
 | 406 | 393 | 0 |
 ```
+- **The answer says when that happens:** when a JSON path the SQL reads ends in such a field, a `[notes]` line names it with its default (`CompareOperator (default EqualTo)`). A NULL there is the default, not "nothing there": write `coalesce(Json ->> '$.HasScope', 0)`, or read the column (`HasScope`) or the `Conditions` table, which give the default.
 - **Text columns give one language, found by its name:** English, or the `language` asked for (`German`, `de`, …). `text(value, 'de')` gives another language for one value.
 ```text
 > query2 kgcdoom.esm "SELECT EditorID, Name, text(Json -> '$.Name', 'de') AS German FROM Weapon ORDER BY 1;"

@@ -236,8 +236,9 @@ namespace SFSearch.AddOns
         public static List<ConditionInfo> Conditions(JsonNode? conditions)
         {
             if (conditions is not JsonArray { Count: > 0 }) return new List<ConditionInfo>();
-            using var session = Reports();
-            return new ConditionReader(session, fk => fk).Read(conditions);
+            // Beside the schema alone: a session per call cost about 25 ms, and an add-on asks once per record
+            // (one that read the conditions of 1,800 recipes twice waited 100 s for them).
+            return new ConditionReader(EngineRecords.Schema, fk => fk).Read(conditions);
         }
 
         /// <summary>

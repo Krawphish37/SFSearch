@@ -71,10 +71,13 @@ public sealed class ConditionInfo
 
 public sealed class ConditionReader
 {
-    readonly ReportSession _s;
+    readonly RecordSchema _schema;
     readonly Func<string, string> _label;
 
-    public ConditionReader(ReportSession session, Func<string, string> label) { _s = session; _label = label; }
+    public ConditionReader(ReportSession session, Func<string, string> label) : this(session.Schema, label) { }
+
+    /// <summary>A reader beside the schema alone: reading conditions out of a record's JSON takes nothing else of a session.</summary>
+    public ConditionReader(RecordSchema schema, Func<string, string> label) { _schema = schema; _label = label; }
 
     static readonly HashSet<string> NotParameters = new(StringComparer.Ordinal)
     {
@@ -97,8 +100,8 @@ public sealed class ConditionReader
         var data = c["Data"] as JsonObject ?? new JsonObject();
         string dataType = ReportSession.Str(data[RecordSplit.TypeKey]) ?? "ConditionData";
         string function = dataType.EndsWith("ConditionData", StringComparison.Ordinal) && dataType.Length > 13 ? dataType[..^13] : dataType;
-        var flags = (_s.Value(c, kind, "Flags") as JsonArray)?.Select(f => ReportSession.Str(f) ?? "").Where(f => f.Length > 0).ToList() ?? new List<string>();
-        string runOn = ReportSession.Str(_s.Value(data, dataType, "RunOnType")) ?? "Subject";
+        var flags = (ReportSession.Value(_schema, c, kind, "Flags") as JsonArray)?.Select(f => ReportSession.Str(f) ?? "").Where(f => f.Length > 0).ToList() ?? new List<string>();
+        string runOn = ReportSession.Str(ReportSession.Value(_schema, data, dataType, "RunOnType")) ?? "Subject";
         string? reference = ReportSession.IsLink(data["Reference"], out var rk) ? ReportSession.Canon(rk) : null;
         var value = c["ComparisonValue"];
         string? global = ReportSession.IsLink(value, out var gk) ? ReportSession.Canon(gk) : null;
@@ -106,7 +109,7 @@ public sealed class ConditionReader
         var info = new ConditionInfo
         {
             Function = function, RunOn = runOn, Reference = reference, ReferenceLabel = reference == null ? null : _label(reference),
-            Operator = ReportSession.Str(_s.Value(c, kind, "CompareOperator")) ?? "EqualTo",
+            Operator = ReportSession.Str(ReportSession.Value(_schema, c, kind, "CompareOperator")) ?? "EqualTo",
             Value = global == null ? number ?? 0 : null, Global = global, GlobalLabel = global == null ? null : _label(global),
             Or = flags.Contains("OR"), Flags = flags,
         };

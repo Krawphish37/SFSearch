@@ -320,11 +320,14 @@ public sealed class ReportSession : IDisposable
     }
 
     /// <summary>A field of an object as the JSON has it, or its default where the schema says the field is always there.</summary>
-    public JsonNode? Value(JsonObject o, string objectType, string name)
+    public JsonNode? Value(JsonObject o, string objectType, string name) => Value(Schema, o, objectType, name);
+
+    /// <summary>The same beside a schema alone (no session).</summary>
+    public static JsonNode? Value(RecordSchema schema, JsonObject o, string objectType, string name)
     {
         if (o.TryGetPropertyValue(name, out var v)) return v;
-        var prop = Schema.Prop(objectType, name);
-        return prop is { Main.Nullable: false } ? FieldLookup.DefaultOf(Schema, prop.Main).Json : null;
+        var prop = schema.Prop(objectType, name);
+        return prop is { Main.Nullable: false } ? FieldLookup.DefaultOf(schema, prop.Main).Json : null;
     }
 
     public static string? Str(JsonNode? n) => n is JsonValue v ? (v.TryGetValue<string>(out var s) ? s : v.ToJsonString()) : null;

@@ -80,7 +80,7 @@ The first call starts SFSearch's service, which is ready for questions in about 
   ```powershell
   winget install Microsoft.DotNet.SDK.10
   ```
-- **About 1 to 2 GB of disk space** for working files while the service runs. They are deleted at every service start.
+- **Disk space: about 1 GB that stays, and 1 to 2 GB that comes and goes.** The indexes SFSearch keeps between starts take about 0.8 GB for 370 plugins (keeping them is your choice: see [What is on disk](#what-is-on-disk)). Working files take 1 to 2 GB while the service runs and are deleted at every service start.
 - **For the `scripts2` report only:** [Champollion](https://github.com/Orvid/Champollion/releases) 1.3.2 or newer. Put `Champollion.exe` in `SFSearch\tools\champollion\`, or set its path in `sfsearch.json`.
 
 ## Install
@@ -157,6 +157,11 @@ Until the link index is ready, tools still answer; they say what isn't there yet
 
 ## What is on disk
 Everything is in the `SFSearch` folder (the "home").
+
+**The one choice you have here is the indexes.** They are lists of what is in your plugins: which records exist, which plugin holds each, what points at what, and in-game names. They never hold a record's values (those are always read from the plugin file), and they are what lets a question start in a fraction of a second.
+- **Kept on disk (the default):** about 0.8 GB for 370 plugins, and a service start is ready in about 2.5 s. Only a new or changed plugin's part is made again.
+- **Not kept** (`"keepStartupIndexes": false` in `sfsearch.json`): nothing stays on disk between starts, and every service start makes them again, about 20 s.
+- `sfs.cmd indexes` shows what is kept, how big it is and how long each would take to make again. `sfs.cmd indexes drop all` deletes them; SFSearch makes them again when it needs them.
 
 | Folder or file | What it is |
 |---|---|
@@ -256,7 +261,7 @@ git clone -b fixes/1.38.6-fixes.7 https://github.com/Krawphish37/Mutagen.Bethesd
 (GitHub often times out showing pages of the Mutagen repository, which is very large; cloning always works.) SFSearch 1.0.x used `0.55.0-fixes.5`, from the `starfield-fixes5` branch.
 
 ## Status
-Version `2.3.0` (its release notes list what changed since 2.2.0), with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
+Version `2.3.1` (its release notes list what changed since 2.3.0), with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
 - **455 real past commands** recorded from agent sessions: 452 run (3 name files that no longer exist), and all 452 answer line for line as before the new tools were added. Since the removal each of them is held to the call that answers it now, and each old command's name to its pointer line (`sfsharness mapping`).
 - **The 16 traps of the 1.x agent guide** (wrong answers with no error): each now can't happen, or gives a clear error or warning. All 16 have a tested case, and all pass.
 - **The MCP server's own test** (with the author's calls of every tool): 98 calls of the 12 tools, 102 of 102 checks pass. The 12 tool definitions are 8,796 characters (the 25 older ones, removed in 2.0, were 14,789).

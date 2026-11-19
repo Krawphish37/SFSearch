@@ -115,6 +115,8 @@ public sealed partial class QueryEngine
                 if (statements.Count == 0) throw new QueryException("the SQL is empty", "write a SELECT");
                 for (int i = 0; i < statements.Count; i++)
                     if (!RunStatement(statements[i], i == statements.Count - 1, statements.Count)) break;
+                // A field at its default isn't in the JSON: say which of the fields the SQL reads from the JSON that holds for
+                if (_answer.Error == null && JsonDefaultNotes.For(_e._schema, SqlText.Tokenize(_req.Sql)) is { } leftOut) Note(leftOut);
                 Finish();
             }
             catch (QueryException e) { Fail(e.Message, e.Fix); }

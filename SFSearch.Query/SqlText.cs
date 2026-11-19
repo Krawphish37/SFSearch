@@ -80,6 +80,58 @@ static class SqlText
         return list;
     }
 
+    /// <summary>
+    /// The names a statement gives its own WITH parts: <c>WITH a AS (…), b(x, y) AS (…)</c> gives a and b. A name
+    /// counts when it follows WITH, RECURSIVE or a comma and is followed by AS ( or by a column list and AS (.
+    /// </summary>
+    public static HashSet<string> WithNames(List<Tok> toks)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i + 2 < toks.Count; i++)
+        {
+            if (!toks[i].IsName || !(toks[i - 1].Is("WITH") || toks[i - 1].Is("RECURSIVE") || toks[i - 1].IsPunct(","))) continue;
+            int j = i + 1;
+            if (toks[j].IsPunct("("))
+            {
+                // a column list: to its closing bracket
+                int level = 0;
+                for (; j < toks.Count; j++)
+                {
+                    if (toks[j].IsPunct("(")) level++;
+                    else if (toks[j].IsPunct(")") && --level == 0) { j++; break; }
+                }
+            }
+            if (j + 1 < toks.Count && toks[j].Is("AS") && (toks[j + 1].IsPunct("(") || toks[j + 1].Is("MATERIALIZED") || toks[j + 1].Is("NOT"))) names.Add(toks[i].Text);
+        }
+        return names;
+    }
+
+    /// <summary>The names that stand where a table stands: after FROM or JOIN, and after each comma of a FROM list. A bracket there is a subquery, not a name.</summary>
+    public static List<string> TableNames(List<Tok> toks)
+    {
+        var names = new List<string>();
+        for (int i = 0; i + 1 < toks.Count; i++)
+        {
+            if (!(toks[i].Is("FROM") || toks[i].Is("JOIN"))) continue;
+            int j = i + 1;
+            while (j < toks.Count && toks[j].IsName)
+            {
+                // schema.name: the name is the last part
+                if (j + 2 < toks.Count && toks[j + 1].IsPunct(".") && toks[j + 2].IsName) j += 2;
+                names.Add(toks[j].Text);
+                j++;
+                if (j < toks.Count && toks[j].Is("AS")) j++;
+                if (j < toks.Count && toks[j].IsName && !IsClauseWord(toks[j])) j++;   // the alias
+                if (j < toks.Count && toks[j].IsPunct(",") && toks[i].Is("FROM")) { j++; continue; }
+                break;
+            }
+        }
+        return names;
+    }
+
+    static bool IsClauseWord(Tok t) => t.Kind == TokKind.Word && (t.Is("WHERE") || t.Is("JOIN") || t.Is("LEFT") || t.Is("INNER") || t.Is("CROSS") || t.Is("NATURAL") || t.Is("ON") || t.Is("USING")
+        || t.Is("GROUP") || t.Is("ORDER") || t.Is("LIMIT") || t.Is("UNION") || t.Is("EXCEPT") || t.Is("INTERSECT") || t.Is("HAVING") || t.Is("WINDOW") || t.Is("RIGHT") || t.Is("FULL") || t.Is("OUTER"));
+
     /// <summary>The statements of a SQL text, cut at each <c>;</c> that is outside strings, names and comments.</summary>
     public static List<string> SplitStatements(string sql)
     {

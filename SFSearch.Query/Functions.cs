@@ -183,6 +183,8 @@ sealed class Functions
 
     /// <summary>What text() and the text columns met that the answer must say (a language a text doesn't have, …).</summary>
     public TextNotes Notes { get; } = new();
+    /// <summary>The engine's built-in forms (Starfield.esm below 000800) a statement asked edid(), name() or type() about: in no file, so nothing was given (GAPS S210).</summary>
+    public HashSet<string> BuiltInAsked { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The functions that need no plugin: registered on every connection, the reading threads' too.
     /// <paramref name="notes"/> hears of a language a text doesn't have; the reading threads pass none.</summary>
@@ -218,7 +220,7 @@ sealed class Functions
         c.CreateFunction("sfs_flagnames", (string? sig, long? f) => f is long v ? flags.Names(sig, unchecked((uint)v)) : null, isDeterministic: true);
         // Added for stored queries (M10): what kind of record a FormKey is, from the header index
         c.CreateFunction("sig", (string? fk) => Signature(fk), isDeterministic: true);
-        c.CreateFunction("type", (string? fk) => Signature(fk) is { } s ? Label?.Invoke(s) ?? s : null, isDeterministic: true);
+        c.CreateFunction("type", (string? fk) => TypeOf(fk), isDeterministic: true);
         c.CreateFunction("formkey", (string? text) => FormKeyOf(text), isDeterministic: true);
         c.CreateFunction("display", (string? name) => Display(name), isDeterministic: true);
     }
@@ -268,11 +270,39 @@ sealed class Functions
     /// <summary>The signature of a record (WEAP), from the header index. Null when no plugin in Data holds the FormKey.</summary>
     public string? Signature(string? formKey) => Pick(formKey, out _) is { } r ? _index.Describe(r).Signature : null;
 
+    readonly Dictionary<string, string?> _types = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A record's type (Weapon), from the header index. A signature that several types share (OMOD: WeaponModification,
+    /// ArmorModification, …; GMST: the game settings by kind) doesn't say which: the record is opened once to know,
+    /// so type() gives what the record's own view gives in its Type column, not the name of the signature's union view
+    /// (GAPS S205: an OMOD's type() was ObjectModification, and a comparison with 'WeaponModification' matched nothing).
+    /// </summary>
+    public string? TypeOf(string? formKey)
+    {
+        if (Pick(formKey, out _) is not { } r) return null;
+        var info = _index.Describe(r);
+        string sig = info.Signature;
+        if (_records.Schema.TypesOf(sig).Count <= 1 || info.Unresolved) return Label?.Invoke(sig) ?? sig;
+        string key = info.Plugin + "|" + info.FormKey;
+        if (_types.TryGetValue(key, out var have)) return have;
+        string? type;
+        try
+        {
+            _records.Sessions.Get(info.Plugin);
+            PluginsRead.Add(info.Plugin);
+            type = _records.Load(r).Type;
+        }
+        catch (RecordException) { type = Label?.Invoke(sig) ?? sig; }
+        return _types[key] = type;
+    }
+
     RecordRef? Pick(string? formKey, out RecordVersions? versions)
     {
         versions = null;
         if (formKey == null || !HeaderIndex.TryParseFormKey(formKey, out var plugin, out var id)) return null;
         versions = _index.Versions(plugin, id);
+        if (versions == null && id < 0x800 && plugin.Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase)) lock (BuiltInAsked) BuiltInAsked.Add($"{id:X6}:Starfield.esm");
         if (versions == null) return null;
         return versions.Winner >= 0 ? versions.Holders[versions.Winner] : versions.Holders[0];
     }

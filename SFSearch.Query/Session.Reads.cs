@@ -120,7 +120,10 @@ public sealed partial class QueryEngine
                     }
                 }
             }
-            if (probed.Special.Contains("Forms"))
+            // Forms read only by FormKey, and not all of it in a table yet: the lines of those records alone (Session.Keyed.cs)
+            if (probed.Special.Contains("Forms") && (_keyedForms != null || _keyedFormsEditorIds != null) && _files.Any(f => !_done[f].ContainsKey(FormsDone))) MakeKeyedForms();
+            else { _keyedForms = null; _keyedFormsEditorIds = null; }
+            if (probed.Special.Contains("Forms") && !_keyedFormsMade)
                 foreach (var file in _files)
                 {
                     if (_done[file].ContainsKey(FormsDone)) { _usedLabels.Add("Forms"); continue; }
@@ -165,7 +168,7 @@ public sealed partial class QueryEngine
                 + (CostModel.IsMeasured(j.Sig) ? " (rates measured on Starfield.esm's whole " + _e.LabelOf(j.Sig) + ", 2026-11-12)" : ""),
             Route.Projection => $"{_e.LabelOf(j.Sig)} in {Where(j)} is {Count(j.Records)} ({AnswerSource.Size(j.Bytes)}): {Seconds(j.Estimate.Seconds)} and {Memory(j.Estimate.MemoryMB)} to read "
                 + (j.Columns.Count == 0 ? "(no record is opened: the query needs only what the header index has)" : $"(only the column{(j.Columns.Count == 1 ? "" : "s")} the query names: {string.Join(", ", j.Columns)}{(j.Raw ? ", from the records' own bytes" : "")}{JsonWords(j)})"),
-            Route.Forms => $"Forms for {Where(j)} is {j.Records:N0} records of the header index: {Seconds(j.Estimate.Seconds)} to put in a table",
+            Route.Forms => $"Forms for {Where(j)} is {j.Records:N0} records of the header index: {Seconds(j.Estimate.Seconds)} to put in a table (who holds a few records and who wins is answered at once, without this table, by sfs_find with their FormKeys or EditorIDs; a statement that reads Forms only by FormKey = '…' or EditorID = '…' (or IN (…)) reads those records' lines alone)",
             Route.ListProjection => $"{j.View!.Name}: {j.Records:N0} {_e.LabelOf(j.Sig)} record{(j.Records == 1 ? "" : "s")} of {Where(j)} that hold its subrecords: {Seconds(j.Estimate.Seconds)} and {Memory(j.Estimate.MemoryMB)} to read ({(j.Columns.Count == 0 ? "no column of the entries, only their places" : j.List != null ? $"only the column{(j.Columns.Count == 1 ? "" : "s")} the query names: {string.Join(", ", j.Columns)}, straight from the records" : $"{string.Join(", ", j.Columns.Select(c => c == ViewBuilder.EntryColumn ? "each entry" : c))}, out of each record's JSON, one record at a time")})",
             Route.KeyedEstimate when j.Filter != null => $"{j.View!.Name} in {Where(j)} is {Count(j.Records)} ({AnswerSource.Size(j.Bytes)}): {Seconds(j.Estimate.Seconds)} and {Memory(j.Estimate.MemoryMB)} to read "
                 + $"(only the column{(j.Columns.Count == 1 ? "" : "s")} the query names: {string.Join(", ", j.Columns)}{(j.Raw ? ", from the records' own bytes" : "")}{JsonWords(j)}; only the records with {FilterText(j.Filter)} kept)",
@@ -716,6 +719,14 @@ public sealed partial class QueryEngine
                     continue;
                 }
                 var selects = new List<string>();
+                if (special == "Forms" && _keyedFormsMade)
+                {
+                    ScratchFile.Exec(_con, "CREATE TEMP VIEW Forms AS SELECT r.FormKey AS FormKey, r.Sig AS Sig, (SELECT t.Type FROM temp.sfs_sigtype t WHERE t.Sig = r.Sig) AS Type, r.EditorID AS EditorID, r.Plugin AS Plugin, r.Parent AS Parent, "
+                        + "CASE WHEN r.IsSet = 1 THEN r.IsWinner ELSE sfs_iswinner(r.FormKey, r.Plugin) END AS IsWinner, r.IsOverride AS IsOverride, r.Pos AS Pos, r.LoadOrder AS LoadOrder, r.Size AS Size, r.DataSize AS DataSize, "
+                        + $"r.Compressed AS Compressed, r.Flags AS Flags, sfs_flagnames(r.Sig, r.Flags) AS FlagNames FROM temp.{KeyedFormsTable} r{(_winners ? " WHERE r.IsSet = 0 OR r.IsWinner = 1" : "")}");
+                    _ownViews.Add(special);
+                    continue;
+                }
                 foreach (var f in _files)
                 {
                     string plugin = PluginExpr(f, "r");

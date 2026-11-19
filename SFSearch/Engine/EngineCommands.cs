@@ -47,6 +47,9 @@ namespace SFSearch.Engine
         };
 
         /// <summary>Runs the verb when it is one of the engine's. False when it isn't.</summary>
+        /// <summary>The verb being run, for an error that should name an add-on's command of the same name (GAPS S212).</summary>
+        internal static string? CurrentVerb;
+
         public static bool TryRun(string command, List<string> args)
         {
             if (command == "__index") { IndexJob(args); return true; }
@@ -54,6 +57,7 @@ namespace SFSearch.Engine
             if (command == "__materialpaths") { Console.WriteLine(ReportTools.WarmMaterialPaths()); return true; }
             var verb = Verbs.FirstOrDefault(v => v.Verb == command);
             if (verb == null) return false;
+            CurrentVerb = command;
             // Before this program's first SQLite connection (the schema is one)
             EngineLibs.TuneSqlite();
             // --json, taken off the command line with the other global options: the answer's parts as one JSON object

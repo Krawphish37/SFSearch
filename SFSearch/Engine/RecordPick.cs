@@ -163,6 +163,10 @@ namespace SFSearch.Engine
                 {
                     var seg = p.Segment;
                     string top = seg != null && seg.FirstUnresolved > seg.FirstOwn ? $", its own IDs go up to {seg[seg.FirstUnresolved - 1].LocalId:X6}" : "";
+                    if (fid < 0x800 && p.Name.Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase))
+                        answer.Fail($"{fid:X6}:Starfield.esm is one of the forms built into the game{(fid == 0x14 ? " (PlayerRef, the player's reference)" : fid == 0x7 ? " (Player)" : "")}: the engine's own forms (Starfield.esm IDs below 000800) are in no plugin file, so there is no record to show",
+                            $"refs2 {fid:X6}:Starfield.esm lists the records that link to it");
+                    else
                     answer.Fail($"no plugin holds {fid:X6}:{p.Name} ({p.Name} has {seg?.Count ?? 0:N0} records{top})", "check the ID: find shows what an ID or EditorID is");
                     return null;
                 }

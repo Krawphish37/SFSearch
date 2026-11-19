@@ -328,7 +328,7 @@ namespace SFSearch.Engine
             if (JsonEach.Match(plain) is { Success: true } each)
             {
                 string list = each.Groups["list"].Success ? each.Groups["list"].Value : "Keywords";
-                answer.Note($"json_{each.Groups[1].Value.ToLowerInvariant()} over a record's Json is run once for every row of the table, which is what makes such a query slow on a big type. Each list of a record type is a list view with its own rows, ready to join: for $.{list} that is <Type>_{list} (Weapon_{list}: FormKey, EditorID, Plugin, Idx, Value). describe <type> lists a type's fields.");
+                answer.Note($"json_{each.Groups[1].Value.ToLowerInvariant()} over a record's Json is run once for every row of the table, which is what makes such a query slow on a big type. Each list of a record type is a list view with its own rows, ready to join: for $.{list} that is <Type>_{list} (Weapon_{list}: FormKey, EditorID, Plugin, Idx, then Value for a list of links or plain values, or a column for each field of an item for a list of objects). describe <type> lists a type's fields.");
             }
             // With no rows the SQL layer's own "No rows: Records holds only …" note already says it
             bool saidByEmpty = result.Notes.Any(n => n.StartsWith("No rows:", StringComparison.Ordinal) && n.Contains("Records holds only", StringComparison.Ordinal));

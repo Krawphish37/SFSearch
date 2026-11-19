@@ -75,6 +75,15 @@ namespace SFSearch.Service
         /// </summary>
         public bool KeepStartupIndexes { get; set; } = true;
         /// <summary>
+        /// Whether heavy work (estimated over 10 s or over heavyMinMB) answers with its cost first and runs only when
+        /// asked again with allow_heavy. False, the default since 2026-11-19 (the user: "Remove the warning if the numbers
+        /// support it"): it runs. Measured on 21 big asks: the 9 that were stopped took 4 to 46 s when allowed, and what
+        /// can hurt a PC (memory, disk) has checks of its own that stay: a heavy command runs alone, starts only when
+        /// Windows has its memory and the disk has room for its scratch files, and else says what is missing. True: as
+        /// before, "Not run. … Call again with allow_heavy".
+        /// </summary>
+        public bool AskBeforeHeavy { get; set; }
+        /// <summary>
         /// The index parts of plugins no longer in Data (taken out, or the copy a changed plugin replaced), in MB (J43,
         /// from J42/S71, 2026-11-15). 0, the default: deleted when SFSearch notices (the next idle check, command or
         /// service start), as before; the user's decision for 2.1 ("Let's keep the current behavior now but listen for
@@ -321,6 +330,7 @@ namespace SFSearch.Service
                 HistoryLook = f.HistoryLook,
                 PluginCheckSeconds = Math.Clamp(f.PluginCheckSeconds, MinPluginCheckSeconds, MaxPluginCheckSeconds),
                 KeepStartupIndexes = f.KeepStartupIndexes,
+                AskBeforeHeavy = Environment.GetEnvironmentVariable("SFSEARCH_ASK_BEFORE_HEAVY") is string ask && ask.Trim().Length > 0 ? ask.Trim() is "1" or "true" or "True" : f.AskBeforeHeavy,
                 KeepRemovedPluginIndexMB = Math.Max(0, f.KeepRemovedPluginIndexMB),
                 WorkerGarbageCollector = f.WorkerGarbageCollector ?? "auto",
                 Champollion = Environment.GetEnvironmentVariable("SFSEARCH_CHAMPOLLION") is string chx && chx.Trim().Length > 0 ? chx : f.Champollion,

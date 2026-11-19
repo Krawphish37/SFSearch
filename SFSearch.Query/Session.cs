@@ -25,6 +25,9 @@ public sealed partial class QueryEngine
         /// <summary>SQLite's plan for the statement over the stand-ins, with an index on each view's FormKey; null when
         /// the statement compares no FormKey with a text (Session.Keyed.cs).</summary>
         public List<string>? Plan;
+        /// <summary>SQLite's plan for the statement with an index on Forms' EditorID, when it reads Forms and compares an
+        /// EditorID only with literals (Forms by EditorID, GAPS S214); else null.</summary>
+        public List<string>? FormsEditorIdPlan;
         /// <summary>Each column of a typed view the statement compares only with literals: the literals, and SQLite's
         /// plan over the stand-ins with an index on that column (Session.Filter.cs).</summary>
         public Dictionary<string, (List<object> Literals, List<string> Plan)> ColumnPlans = new(StringComparer.OrdinalIgnoreCase);
@@ -116,7 +119,8 @@ public sealed partial class QueryEngine
                 for (int i = 0; i < statements.Count; i++)
                     if (!RunStatement(statements[i], i == statements.Count - 1, statements.Count)) break;
                 // A field at its default isn't in the JSON: say which of the fields the SQL reads from the JSON that holds for
-                if (_answer.Error == null && JsonDefaultNotes.For(_e._schema, SqlText.Tokenize(_req.Sql)) is { } leftOut) Note(leftOut);
+                // (not for a stored query: its caller wrote no SQL)
+                if (_answer.Error == null && !_req.NoAutoReads) foreach (string jsonNote in JsonDefaultNotes.For(_e._schema, SqlText.Tokenize(_req.Sql))) Note(jsonNote);
                 Finish();
             }
             catch (QueryException e) { Fail(e.Message, e.Fix); }
@@ -480,7 +484,7 @@ public sealed partial class QueryEngine
             // The names that stand for the plugins' records in this statement: it may read them, never change them
             var guarded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var firstToks = SqlText.Tokenize(sql);
-            List<string>? plan = null;
+            List<string>? plan = null, formsEditorIdPlan = null;
             Dictionary<string, (List<object>, List<string>)>? columnPlans = null;
             string firstWord = firstToks.Count > 0 && firstToks[0].Kind == TokKind.Word ? firstToks[0].Text.ToUpperInvariant() : "";
             try
@@ -529,22 +533,100 @@ public sealed partial class QueryEngine
                                 continue;
                             }
                         }
+                        // SQLite names one of the statement's own WITH names when a table that part reads (two or more
+                        // WITH parts down, past a recursive one) isn't there yet: it is the table that is missing, not
+                        // the name (GAPS S201). Give it the next record table the statement names in a table's place.
+                        if (SqlText.WithNames(firstToks).Contains(name))
+                        {
+                            bool gave = false;
+                            foreach (string t in SqlText.TableNames(firstToks))
+                            {
+                                if (stubs.ContainsKey(t) || SqlText.WithNames(firstToks).Contains(t)) continue;
+                                if (Special.Columns(t, _versions) is { } sp)
+                                {
+                                    ScratchFile.Exec(_con, ViewBuilder.StubSql(Special.Canonical(t), sp));
+                                    stubs[t] = Special.Canonical(t); guarded.Add(Special.Canonical(t)); gave = true; break;
+                                }
+                                if (_e.Views.Find(t) is { } tv)
+                                {
+                                    ScratchFile.Exec(_con, ViewBuilder.StubSql(tv.Name, ViewBuilder.ColumnNames(tv, _versions)));
+                                    stubs[t] = tv; guarded.Add(tv.Name); gave = true; break;
+                                }
+                            }
+                            if (gave) continue;
+                            throw new QueryException($"SQLite can't see the WITH name \"{name}\" where the statement uses it",
+                                "a WITH name can be used after its own part, in the parts that follow and in the statement's main SELECT; check where it is used, and that no table it reads is misspelled");
+                        }
                         throw UnknownTable(name);
                     }
+                    // A WITH part named as a record type (npc AS (… FROM Npc …)): inside it the name means the part itself
+                    var circular = Regex.Match(message, @"circular reference: (.+)$");
+                    if (circular.Success && circular.Groups[1].Value.Trim().Trim('"') is var withName
+                        && (_e.Views.Find(withName) is not null || Special.Columns(withName, _versions) != null))
+                    {
+                        string real = _e.Views.Find(withName)?.Name ?? Special.Canonical(withName);
+                        throw new QueryException($"the WITH name \"{withName}\" is also the table {real}: names don't tell capitals apart, so where the WITH parts read {real} they read \"{withName}\" itself, in a circle",
+                            $"give the WITH part another name (not {real})");
+                    }
                     m = Regex.Match(message, @"no such column: (?:""([^""]+)""|(\S+))");
-                    if (m.Success) throw UnknownColumn(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value, stubs.Values.OfType<ViewSpec>().ToList(), stubs.Values.OfType<string>().ToList());
+                    if (m.Success)
+                    {
+                        // Every unknown column in one answer, not one a round trip (GAPS S214): the stand-ins are given each
+                        // missing column in turn, so SQLite goes on to the next one
+                        var unknown = new List<string> { m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value };
+                        var views = stubs.Values.OfType<ViewSpec>().ToList();
+                        var specials = stubs.Values.OfType<string>().ToList();
+                        var stubNames = stubs.Values.Select(st => st is ViewSpec sv ? sv.Name : (string)st).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        for (int more = 0; more < 6 && stubNames.Count > 0; more++)
+                        {
+                            string last = unknown[^1], bare = last[(last.LastIndexOf('.') + 1)..];
+                            string? next = null;
+                            foreach (string table in stubNames)
+                            {
+                                try { ScratchFile.Exec(_con, $"ALTER TABLE temp.{SqlText.Name(table)} ADD COLUMN {SqlText.Name(bare)}"); }
+                                catch (Microsoft.Data.Sqlite.SqliteException) { continue; }
+                                int rc2 = raw.sqlite3_prepare_v2(_con.Handle!, sql, out var stmt2);
+                                string message2 = rc2 == raw.SQLITE_OK ? "" : raw.sqlite3_errmsg(_con.Handle!).utf8_to_string();
+                                stmt2?.Dispose();
+                                var m2 = Regex.Match(message2, @"no such column: (?:""([^""]+)""|(\S+))");
+                                if (!m2.Success) { next = ""; break; }
+                                string found = m2.Groups[1].Success ? m2.Groups[1].Value : m2.Groups[2].Value;
+                                if (!found.Equals(last, StringComparison.OrdinalIgnoreCase)) { next = found; break; }
+                            }
+                            if (string.IsNullOrEmpty(next) || unknown.Contains(next, StringComparer.OrdinalIgnoreCase)) break;
+                            unknown.Add(next);
+                        }
+                        var errors = unknown.Select(u => UnknownColumn(u, views, specials)).ToList();
+                        if (errors.Count == 1) throw errors[0];
+                        throw new QueryException(errors[0].Message + " Also: " + string.Join(" ", errors.Skip(1).Select(e => e.Message)), errors[0].Fix);
+                    }
+                    // A function SQL had before 2.0
+                    var noFunction = Regex.Match(message, @"no such function: (\S+)");
+                    if (noFunction.Success && OldNames.Function(noFunction.Groups[1].Value) is { } oldFunction)
+                        throw new QueryException($"there is no function {noFunction.Groups[1].Value}(): {oldFunction}", "the functions are listed in references\\sql.md");
+                    // A column whose name is also a word of SQL (a list view's Default): SQLite reads the word, not the name
+                    var near = Regex.Match(message, @"near ""([A-Za-z_]+)"": syntax error");
+                    if (near.Success)
+                    {
+                        string word = near.Groups[1].Value;
+                        foreach (string t in SqlText.TableNames(firstToks))
+                            if (_e.Views.Find(t) is { } wv && ViewBuilder.ColumnNames(wv, _versions).Contains(word, StringComparer.OrdinalIgnoreCase))
+                                throw new QueryException($"\"{word}\" is a column of {wv.Name} and also a word of SQL, which SQLite reads as the word", $"write the column in double quotes: \"{word}\"");
+                    }
                     throw new QueryException("SQLite: " + message, "check the SQL");
                 }
                 columnPlans = ColumnPlans(sql, firstToks, stubs.Values.OfType<ViewSpec>(), reads);
                 if (FormKeyLiterals(firstToks) is { Count: > 0 })
-                    plan = PlanLines(sql, stubs.Values.OfType<ViewSpec>());
+                    plan = PlanLines(sql, stubs.Values.OfType<ViewSpec>(), stubs.Values.OfType<string>().Contains("Forms", StringComparer.OrdinalIgnoreCase));
+                if (stubs.Values.OfType<string>().Contains("Forms", StringComparer.OrdinalIgnoreCase) && ColumnLiterals(firstToks, "EditorID", numbers: false) is { Count: > 0 })
+                    formsEditorIdPlan = FormsEditorIdPlanLines(sql);
             }
             finally
             {
                 _guard.Current = Guard.Mode.Off; _guard.Reads = null; _guard.Protected = null;
                 foreach (var s in stubs.Values) ScratchFile.Exec(_con, $"DROP TABLE IF EXISTS temp.{SqlText.Name(s is ViewSpec v ? v.Name : (string)s)}");
             }
-            var probed = new Probed { Plan = plan };
+            var probed = new Probed { Plan = plan, FormsEditorIdPlan = formsEditorIdPlan };
             if (columnPlans != null) foreach (var (k, v) in columnPlans) probed.ColumnPlans[k] = v;
             foreach (var (name, target) in stubs)
             {

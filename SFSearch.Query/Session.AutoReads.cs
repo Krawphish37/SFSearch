@@ -147,6 +147,43 @@ public sealed partial class QueryEngine
             // J33: for each world type, the plugins whose world link index covers it: a statement that names it with a
             // ToKey (and no OR) gets its records that link to the key from the index, not by reading the type whole
             var worldCovered = new Dictionary<string, HashSet<IndexedPlugin>>(StringComparer.Ordinal);
+            // Links joined to a view by what the links point at (JOIN Keyword k ON k.FormKey = l.ToKey): the links of
+            // the types read so far would give a short answer, or none (GAPS S208)
+            bool linksByTarget = links && probed.Views.Count > 0 && probed.SpecialColumns.TryGetValue("Links", out var linkColumns) && linkColumns.Contains("ToKey");
+            // The types whose records link to one record: from the link index of each plugin, the schema for what the
+            // index doesn't cover, the world link index or a byte search for world data (the ToKey = '…' rule)
+            void LinkTarget(string value)
+            {
+                if (_functions.Signature(value) is not { } targetSig) { Note($"No plugin in Data holds {value}, so no type is read for it."); return; }
+                var schemaSigs = _e.CanLinkTo(targetSig);
+                bool fromIndex = false, fromSchema = false;
+                foreach (var p in _members)
+                {
+                    var held = p.Segment == null ? null : _e.LinkIndex?.Invoke(p, value);
+                    if (held != null)
+                    {
+                        fromIndex = true;
+                        wanted.UnionWith(held.Signatures);
+                        foreach (var s in held.NotIndexed) if (schemaSigs.Contains(s)) { wanted.Add(s); fromSchema = true; }
+                        if (held.WorldEntries != null)
+                        {
+                            fromWorld.Add((p, value, held.WorldEntries));
+                            foreach (var ws in held.WorldTypes ?? Array.Empty<string>())
+                                if (!held.NotIndexed.Contains(ws)) { if (!worldCovered.TryGetValue(ws, out var by)) worldCovered[ws] = by = new HashSet<IndexedPlugin>(); by.Add(p); }
+                        }
+                        else if (held.WorldTypes is { Count: > 0 } worldSigs && worldSigs.Any(schemaSigs.Contains))
+                        {
+                            // Its world records would come from its world link index, if the user made one (J33)
+                            _worldHelpPlugins.Add(p);
+                            foreach (var ws in worldSigs) if (schemaSigs.Contains(ws)) _worldHelpSigs.Add(ws);
+                        }
+                    }
+                    else if (p.Segment != null) byBytes.Add((p, value, schemaSigs));
+                }
+                if (fromIndex)
+                    why.Add(!fromSchema ? $"the types whose records link to {value}, from the link index"
+                        : $"the types whose records link to {value} (link index), and those the index doesn't cover that can (schema)");
+            }
             bool narrowed = false;
             foreach (var (col, value) in Comparisons(toks).Distinct())
             {
@@ -166,39 +203,13 @@ public sealed partial class QueryEngine
                     foreach (var r in refs)
                         if (_members.Contains(Index.Plugins[r.Plugin])) wanted.Add(Index.Describe(r).Signature);
                     if (wanted.Count > before) why.Add($"the type of {value}");
+                    if (linksByTarget)
+                        foreach (string key in refs.Select(r => Index.Describe(r).FormKey).Distinct(StringComparer.OrdinalIgnoreCase).Take(64)) LinkTarget(key);
                 }
                 else if (col.Equals("ToKey", StringComparison.OrdinalIgnoreCase) && links && probed.Views.Count == 0)
                 {
                     narrowed = true;
-                    if (_functions.Signature(value) is not { } targetSig) { Note($"No plugin in Data holds {value}, so no type is read for it."); continue; }
-                    var schemaSigs = _e.CanLinkTo(targetSig);
-                    bool fromIndex = false, fromSchema = false;
-                    foreach (var p in _members)
-                    {
-                        var held = p.Segment == null ? null : _e.LinkIndex?.Invoke(p, value);
-                        if (held != null)
-                        {
-                            fromIndex = true;
-                            wanted.UnionWith(held.Signatures);
-                            foreach (var s in held.NotIndexed) if (schemaSigs.Contains(s)) { wanted.Add(s); fromSchema = true; }
-                            if (held.WorldEntries != null)
-                            {
-                                fromWorld.Add((p, value, held.WorldEntries));
-                                foreach (var ws in held.WorldTypes ?? Array.Empty<string>())
-                                    if (!held.NotIndexed.Contains(ws)) { if (!worldCovered.TryGetValue(ws, out var by)) worldCovered[ws] = by = new HashSet<IndexedPlugin>(); by.Add(p); }
-                            }
-                            else if (held.WorldTypes is { Count: > 0 } worldSigs && worldSigs.Any(schemaSigs.Contains))
-                            {
-                                // Its world records would come from its world link index, if the user made one (J33)
-                                _worldHelpPlugins.Add(p);
-                                foreach (var ws in worldSigs) if (schemaSigs.Contains(ws)) _worldHelpSigs.Add(ws);
-                            }
-                        }
-                        else if (p.Segment != null) byBytes.Add((p, value, schemaSigs));
-                    }
-                    if (fromIndex)
-                        why.Add(!fromSchema ? $"the types whose records link to {value}, from the link index"
-                            : $"the types whose records link to {value} (link index), and those the index doesn't cover that can (schema)");
+                    LinkTarget(value);
                 }
             }
             _narrowed = narrowed;
@@ -209,15 +220,18 @@ public sealed partial class QueryEngine
             foreach (string u in unknownTypes.Distinct(StringComparer.OrdinalIgnoreCase))
                 Note($"'{u}' isn't a record type, so nothing is read for it.{SFSearch.SchemaGen.NearNames.DidYouMean(_e.Views.RootNames.Where(r => r.Contains(u, StringComparison.OrdinalIgnoreCase) || u.Contains(r, StringComparison.OrdinalIgnoreCase)).Take(4).ToList())}");
 
-            if (!narrowed && probed.Views.Count == 0)
+            // Joined by ToKey with no record named: any type may hold such a link, so every type is read, as for Links alone
+            if (!narrowed && (probed.Views.Count == 0 || linksByTarget))
             {
                 bool anyRead = _files.Any(f => _done[f].Keys.Any(k => k != FormsDone && candidate(k)));
                 var unread = inScope.Keys.Where(s => candidate(s) && _e._schema.TypesOf(s).Count > 0 && _files.Any(f => !_done[f].ContainsKey(s))).ToList();
                 if (unread.Count == 0) return null;
-                if (anyRead && !_req.AllowHeavy)
+                // Some of it read already: the rest is read too, so the answer doesn't depend on what an earlier query
+                // happened to read (GAPS S208). Only a heavy rest, not allowed, is said instead of read.
+                var est = Estimate.None;
+                foreach (var f in _files) foreach (string s in unread) foreach (var l in Loads(f, s)) est += CostModel.Full(l.Load);
+                if (anyRead && !_req.AllowHeavy && Heavy(est))
                 {
-                    var est = Estimate.None;
-                    foreach (var f in _files) foreach (string s in unread) foreach (var l in Loads(f, s)) est += CostModel.Full(l.Load);
                     Note($"{table} {(several ? "hold" : "holds")} only the record types read so far for {(_winners || _versions ? "the load order" : "these plugins")}. {unread.Count:N0} more type(s) of them aren't read ({string.Join(", ", unread.Select(_e.LabelOf).OrderBy(x => x, StringComparer.Ordinal).Take(8))}{(unread.Count > 8 ? ", …" : "")}): " +
                         $"{Seconds(est.Seconds)} and {Memory(est.MemoryMB)} to read them all. Narrow to what you need and it is read first (WHERE Type = 'Armor', WHERE FormKey = '…', WHERE EditorID = '…'{(links ? ", WHERE ToKey = '…'" : "")}), or call again with allow_heavy=true to read every type. "
                         + $"No saved index would make reading every type faster{(links ? " (the link indexes answer WHERE ToKey = '…')" : "")}.");

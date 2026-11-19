@@ -111,6 +111,10 @@ namespace SFSearch.Service
                 "0: deleted when SFSearch notices (the next idle check, command or service start), so a plugin you put back is indexed again (a mod's part takes a fraction of a second to about 1 s, Starfield.esm's about 15 s). A number from 1 up: kept up to that many MB; over it, the parts of the plugin out of Data longest are deleted first, its segment and link file together (at the service's start and its hourly check), so switching between mod lists doesn't index the same plugins again.",
                 "0: deleted, as in SFSearch 2.0 (kept so by the user's decision for 2.1: please say in an issue if switching mod lists makes your starts slow).", null, "0",
                 c => c.KeepRemovedPluginIndexMB == 0 ? "0 (deleted)" : MB(c.KeepRemovedPluginIndexMB) + (c.KeepStartupIndexes ? "" : " (not used: keepStartupIndexes is false)")),
+            new("askBeforeHeavy", "SFSEARCH_ASK_BEFORE_HEAVY",
+                "whether heavy work (a command estimated at over 10 s, or at heavyMinMB of memory or more) answers with what it would cost and runs only when asked again with allow_heavy (--allow-heavy).",
+                "false: it runs. A heavy command still runs alone, starts only when Windows has its estimate plus heavySpareMB available and the disk has room for its scratch files, and says what is missing when they aren't there; its cost is in the answer's [cost] line. true: it answers \"Not run. …\" with the cost first, as SFSearch did up to 2.3.",
+                "false.", null, "false", c => c.AskBeforeHeavy ? "true" : "false"),
             new("queueLimit", "SFSEARCH_QUEUE_LIMIT",
                 "more waiting commands than this are turned away at once with \"busy, try again\".",
                 "a number from 1 up (0 or less counts as 1).",
@@ -242,7 +246,7 @@ namespace SFSearch.Service
             foreach (var (name, value, from) in outside ?? Array.Empty<(string, string, string)>()) sb.Append($"| {name} | {value} | {from} |\n");
             sb.Append($@"Workers: {c.Workers} at once. Each command may take {c.JobTimeoutMinutes} min. A worker is replaced after {c.WorkerRecycleCommands} commands or {c.WorkerRecycleMB} MB, and stopped above {c.WorkerMaxMB} MB.
 {c.MemoryLines()}
-Heavy commands (estimated at {c.HeavyMinMB} MB or more): one at a time, each may take {c.HeavyJobTimeoutMinutes} min, and one starts only when Windows has its estimate plus {c.HeavySpareMB} MB available.
+Heavy commands (estimated at {c.HeavyMinMB} MB or more): one at a time, each may take {c.HeavyJobTimeoutMinutes} min, and one starts only when Windows has its estimate plus {c.HeavySpareMB} MB available. {(c.AskBeforeHeavy ? "Heavy work answers with its cost first and runs when asked again with allow_heavy (askBeforeHeavy is true)." : "Heavy work runs without asking first (askBeforeHeavy is false).")}
 Indexes: {(c.KeepStartupIndexes ? $"the header index and the link index are kept between service starts in {Path.Combine(home, "indexes")} and brought up to date plugin by plugin (keepStartupIndexes)" : "the header index and the link index are emptied at every service start and built again (keepStartupIndexes is false)")}. {(c.KeepsRemovedParts ? $"The parts of plugins no longer in Data are kept up to {c.KeepRemovedPluginIndexMB:N0} MB, the plugin out of Data longest deleted first (keepRemovedPluginIndexMB)" : "The parts of plugins no longer in Data are deleted at the next start (keepRemovedPluginIndexMB 0)")}. 'indexes' shows them and their size.
 Changed plugins: while idle, the service checks the plugins in Data {EveryText(c.PluginCheckSeconds)} (pluginCheckSeconds); changes2's history: {(c.HistoryLook ? "the service looks by itself, at its start and at each of those checks (historyLook)" : "only changes2 looks (historyLook is off)")}.
 Queue limit: {c.QueueLimit}.{UnusedLines(home)}");

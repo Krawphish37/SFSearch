@@ -67,10 +67,15 @@ static class ConditionTests
         Check(cols.Contains("LoadOrder") && cols.Contains("IsWinner") && !c.Engine.ColumnsOf("Conditions", ScopeKind.Plugins)!.Contains("IsWinner"), $"the versions scope's columns: {string.Join(", ", cols)}");
         said.Add($"WHERE Type = 'Perk' reads Perk alone ({perks})");
 
-        // 4. With some types read and the rest not, a statement that narrows to nothing says what isn't read
+        // 4. With some types read and the rest not, a statement that narrows to nothing reads the rest (GAPS S208: the
+        //    answer doesn't depend on what an earlier statement read): the count is a fresh engine's
         var note = Must(n.Run(new QueryRequest { Sql = "SELECT count(*) FROM Conditions", Plugins = new[] { "sfta01.esm" }, PageRows = 100 }), "unnarrowed");
-        Check(note.Notes.Any(x => x.StartsWith("Conditions holds only the record types read so far", StringComparison.Ordinal)), $"the note on what isn't read: {string.Join(" / ", note.Notes)}");
-        said.Add("unread types said");
+        var freshAll = Must(Fresh(c, "sql-cond-all").Run(new QueryRequest { Sql = "SELECT count(*) FROM Conditions", Plugins = new[] { "sfta01.esm" }, PageRows = 100 }), "unnarrowed, fresh");
+        Check(note.Notes.Any(x => x.StartsWith("Read first, because Conditions holds only the record types read", StringComparison.Ordinal))
+            && Convert.ToInt64(note.Rows[0][0], CultureInfo.InvariantCulture) == Convert.ToInt64(freshAll.Rows[0][0], CultureInfo.InvariantCulture)
+            && Convert.ToInt64(note.Rows[0][0], CultureInfo.InvariantCulture) > perks,
+            $"after Perk alone was read, an unnarrowed count reads the rest: {note.Rows[0][0]} against a fresh engine's {freshAll.Rows[0][0]}; {string.Join(" / ", note.Notes)}");
+        said.Add("the rest is read after one type was");
         return string.Join("; ", said);
     }
 

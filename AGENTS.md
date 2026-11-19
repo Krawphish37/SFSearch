@@ -15,7 +15,7 @@ The rules:
 2. **Don't guess field names.** `sfs_describe` gives them, with xEdit's name beside each.
 3. **Read the `[notes]` lines** under an answer (a missing master, a patch built for an older master, a part that wasn't searched) and pass on what matters. `[source]` says which copy of which plugins was read.
 4. **`[more]` means the answer was cut:** repeat the call with its cursor.
-5. **`Not run. …` means the work is heavy** and states its cost. Repeat with `allow_heavy` when the cost is acceptable; ask the user first when it is many GB.
+5. **Heavy work runs without asking.** Reading millions of records or a whole plugin takes seconds to a minute; what it cost is in `[cost]`. It starts only when the PC has the memory and the disk for it, and says what is missing when it hasn't. Only where the user set `askBeforeHeavy` does an answer `Not run. …` state the cost first: then repeat with `allow_heavy`.
 6. **A call that returns a job number is still working:** collect it with `sfs_job`.
 7. **Links are FormKeys.** In SQL, match one by name with `edid(column) = '…'`.
 8. On the command line, quote FormIDs, and end inline SQL with `;` (or use `--file`).

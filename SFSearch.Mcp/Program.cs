@@ -33,7 +33,7 @@ public static class Program
         var server = builder.Services
             .AddMcpServer(o =>
             {
-                o.ServerInfo = new Implementation { Name = "sfsearch", Version = "2.3" };
+                o.ServerInfo = new Implementation { Name = "sfsearch", Version = "2.4" };
                 o.ServerInstructions = NewTools.Instructions;
             })
             .WithStdioServerTransport();

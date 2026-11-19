@@ -538,13 +538,14 @@ sealed class RecordReader : IDisposable
 
     /// <summary>Every record of a plugin as the header index has it, in file order: what the Forms table is made of.
     /// No record is read.</summary>
-    public IEnumerable<ReadRow> ReadIndex(IndexedPlugin plugin, bool winners, CancellationToken cancel)
+    public IEnumerable<ReadRow> ReadIndex(IndexedPlugin plugin, bool winners, CancellationToken cancel, int[]? only = null)
     {
         var seg = plugin.Segment!;
-        int n = seg.Count;
+        int n = only?.Length ?? seg.Count;
         if (n == 0) yield break;
+        // Every record, or only the given ones (Forms narrowed by FormKey), in file order
         var entries = new int[n]; var offsets = new long[n];
-        for (int i = 0; i < n; i++) { entries[i] = i; offsets[i] = seg[i].Offset; }
+        for (int i = 0; i < n; i++) { entries[i] = only?[i] ?? i; offsets[i] = seg[entries[i]].Offset; }
         Array.Sort(offsets, entries);
         var index = _engine.Index;
         foreach (var row in RecordPipeline.Read<ReadRow>(new[] { new ReadSet { Plugin = plugin, Entries = entries } }, (in PipelineRecord p, List<ReadRow> output) =>

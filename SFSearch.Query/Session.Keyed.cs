@@ -12,6 +12,7 @@
 // The rows go into temporary tables of the query's own connection, never into the scratch files: a scratch file holds
 // whole types only (its Done table says so). The statement's views read them instead of the scratch table.
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using SFSearch.Index;
 using SFSearch.Records;
@@ -51,7 +52,75 @@ public sealed partial class QueryEngine
             _keyedJobs.Clear();
             _keyedRoots = new(StringComparer.OrdinalIgnoreCase);
             _filterRoots = new(StringComparer.OrdinalIgnoreCase);
+            if (_keyedFormsMade) ScratchFile.Exec(_con, $"DROP TABLE IF EXISTS temp.{KeyedFormsTable}");
+            _keyedForms = null; _keyedFormsEditorIds = null; _keyedFormsMade = false;
             DropKeyedProjections();
+        }
+
+        // ---- Forms narrowed by FormKey (GAPS S204): the header index's lines of those records only, in a table of
+        // the query's own. Forms for a load order is millions of lines put in a table (about 14 s for 223 plugins),
+        // which a question about a handful of records never needs.
+        const string KeyedFormsTable = "sfs_forms_keyed";
+        const string FormsKeyIndex = "sfs_fk_Forms";
+        /// <summary>For the statement being run: the FormKeys it reads Forms by, when it reads Forms only by them.</summary>
+        HashSet<string>? _keyedForms;
+        /// <summary>The same by EditorID: the EditorIDs the statement reads Forms by, when it reads Forms only by them.</summary>
+        HashSet<string>? _keyedFormsEditorIds;
+        const string FormsEditorIdIndex = "sfs_ed_Forms";
+
+        /// <summary>SQLite's plan for the statement over the stand-ins with an index on Forms' EditorID (dropped again).</summary>
+        List<string> FormsEditorIdPlanLines(string sql)
+        {
+            ScratchFile.Exec(_con, $"CREATE INDEX temp.{FormsEditorIdIndex} ON Forms(EditorID)");
+            var lines = new List<string>();
+            if (raw.sqlite3_prepare_v2(_con.Handle!, "EXPLAIN QUERY PLAN " + sql, out var stmt) == raw.SQLITE_OK)
+                using (stmt)
+                    while (raw.sqlite3_step(stmt) == raw.SQLITE_ROW) lines.Add(raw.sqlite3_column_text(stmt, 3).utf8_to_string());
+            else stmt?.Dispose();
+            ScratchFile.Exec(_con, $"DROP INDEX IF EXISTS temp.{FormsEditorIdIndex}");
+            return lines;
+        }
+        bool _keyedFormsMade;
+
+        /// <summary>Makes the keyed Forms table for this statement: each holder of each FormKey in the scope's plugins, as the header index has it.</summary>
+        void MakeKeyedForms()
+        {
+            var clock = Stopwatch.StartNew();
+            ScratchFile.Exec(_con, $"DROP TABLE IF EXISTS temp.{KeyedFormsTable}; CREATE TEMP TABLE {KeyedFormsTable}(FormKey TEXT COLLATE NOCASE, Sig TEXT, EditorID TEXT, Plugin TEXT COLLATE NOCASE, Parent TEXT, IsOverride INT, Pos INT, LoadOrder INT, IsWinner INT, IsSet INT, Size INT, DataSize INT, Compressed INT, Flags INT)");
+            _keyedFormsMade = true;
+            long rows = 0;
+            bool byEditorId = _keyedForms == null;
+            var keys = (_keyedForms ?? _keyedFormsEditorIds)!.Where(k => k.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            using (var ins = new BulkInsert(_con, $"INSERT INTO temp.{KeyedFormsTable}(FormKey, Sig, EditorID, Plugin, Parent, IsOverride, Pos, LoadOrder, IsWinner, IsSet, Size, DataSize, Compressed, Flags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"))
+                foreach (var file in _files)
+                {
+                    var members = file.Members.ToDictionary(m => m.Plugin, m => m, StringComparer.OrdinalIgnoreCase);
+                    var byPlugin = new Dictionary<int, List<int>>();
+                    foreach (string key in keys)
+                    {
+                        // Every record of that EditorID (letter case aside: the statement's own comparison then decides), or every holder of that FormKey
+                        IEnumerable<RecordRef> refs = byEditorId ? Index.FindEditorId(key) : Index.Versions(key) is { } v ? v.Holders : Array.Empty<RecordRef>();
+                        foreach (var r in refs)
+                            if (members.ContainsKey(Index.Plugins[r.Plugin].Name))
+                                (byPlugin.TryGetValue(r.Plugin, out var l) ? l : byPlugin[r.Plugin] = new List<int>()).Add(r.Entry);
+                    }
+                    foreach (var (pluginAt, entries) in byPlugin)
+                    {
+                        var plugin = Index.Plugins[pluginAt];
+                        var member = members[plugin.Name];
+                        foreach (var row in _e._reader.ReadIndex(plugin, file.IsSet, _req.Cancel, entries.Distinct().ToArray()))
+                        {
+                            ins.Text(1, row.FormKey); ins.Text(2, row.Sig); ins.Text(3, row.EditorId); ins.Text(4, plugin.Name);
+                            ins.Text(5, row.Parent); ins.Int(6, row.IsOverride ? 1 : 0); ins.Int(7, row.Pos);
+                            if (member.LoadOrder is int lo) ins.Int(8, lo); else ins.Null(8);
+                            ins.Int(9, row.IsWinner ? 1 : 0); ins.Int(10, file.IsSet ? 1 : 0);
+                            ins.Int(11, row.Size); ins.Int(12, row.DataSize); ins.Int(13, row.Compressed ? 1 : 0); ins.Int(14, row.Flags);
+                            ins.Step();
+                            rows++;
+                        }
+                    }
+                }
+            _answer.Cost.Read.Add($"Forms by {(byEditorId ? "EditorID" : "FormKey")} ({rows:N0} line{(rows == 1 ? "" : "s")} of the header index for {keys.Count:N0} {(byEditorId ? "EditorID" : "FormKey")}{(keys.Count == 1 ? "" : "s")}) in {Took(clock.Elapsed.TotalSeconds)}");
         }
 
         Keyed KeyedOf(ScratchFile f)
@@ -226,9 +295,15 @@ public sealed partial class QueryEngine
         /// </summary>
         void FindKeyedRoots(Probed probed, List<Tok> toks)
         {
-            if (probed.Plan == null || probed.Views.Count == 0) return;
+            // Forms read only by EditorID = '…' or EditorID IN (…): the lines of the records of those EditorIDs
+            if (probed.Special.Contains("Forms") && probed.FormsEditorIdPlan != null && ColumnLiterals(toks, "EditorID", numbers: false) is { Count: > 0 } editorIds
+                && editorIds.All(e => e is string) && OnlyThrough(toks, "Forms", probed.FormsEditorIdPlan, $" INDEX {FormsEditorIdIndex} (EditorID=?)"))
+                _keyedFormsEditorIds = editorIds.Cast<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (probed.Plan == null) return;
             var keys = FormKeyLiterals(toks);
             if (keys == null || keys.Count == 0) return;
+            // Forms read only by FormKey, every one a literal: the lines of those records are all it needs
+            if (probed.Special.Contains("Forms") && OnlyThrough(toks, "Forms", probed.Plan, $" INDEX {FormsKeyIndex} (FormKey=?)")) { _keyedForms = keys; _keyedFormsEditorIds = null; }
             foreach (var group in probed.Views.Keys.GroupBy(v => v.Root, StringComparer.OrdinalIgnoreCase))
             {
                 if (group.All(v => OnlyThrough(toks, v, probed.Plan, $" INDEX {KeyIndexName(v)} (FormKey=?)"))) _keyedRoots[group.Key] = keys;
@@ -240,10 +315,11 @@ public sealed partial class QueryEngine
         /// <summary>The plan SQLite makes for the statement over the empty stand-in tables, with an index on each view's
         /// FormKey: one line each (SCAN …, SEARCH … USING INDEX …). Run through SQLite's own calls, so a parameter that
         /// isn't given yet is simply NULL.</summary>
-        List<string> PlanLines(string sql, IEnumerable<ViewSpec> views)
+        List<string> PlanLines(string sql, IEnumerable<ViewSpec> views, bool forms = false)
         {
             foreach (var v in views.Distinct())
                 ScratchFile.Exec(_con, $"CREATE INDEX temp.{SqlText.Name(KeyIndexName(v))} ON {SqlText.Name(v.Name)}(FormKey)");
+            if (forms) ScratchFile.Exec(_con, $"CREATE INDEX temp.{FormsKeyIndex} ON Forms(FormKey)");
             var lines = new List<string>();
             var db = _con.Handle!;
             if (raw.sqlite3_prepare_v2(db, "EXPLAIN QUERY PLAN " + sql, out var stmt) != raw.SQLITE_OK) { stmt?.Dispose(); return lines; }

@@ -829,7 +829,7 @@ namespace SFSearch.Service
                 else DenyHeavy(w, job, estimateMB, "no_memory");
                 return;
             }
-            if (!job.AllowHeavy) { DenyHeavy(w, job, estimateMB, "not_allowed"); return; }
+            if (!job.AllowHeavy && Cfg.AskBeforeHeavy) { DenyHeavy(w, job, estimateMB, "not_allowed"); return; }
             if (_heavy != null)
             {
                 w.Blocked = true;

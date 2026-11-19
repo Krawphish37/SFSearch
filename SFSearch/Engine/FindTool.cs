@@ -928,6 +928,10 @@ namespace SFSearch.Engine
                     nothing = scope.All
                         ? $"no plugin has a record of its own with the ID {t.LocalId:X6} ({scope.Records:N0} records in {scope.Words} looked at)"
                         : $"no record has the ID {t.LocalId:X6} in {scope.Words} ({scope.Records:N0} records looked at)";
+                    // The engine's own forms (Starfield.esm below 000800: 000014 is the player's reference, 000007 the player):
+                    // in no plugin file, so there is no record, but records link to them
+                    if (t.LocalId < 0x800 && candidates.Count == 0)
+                        nothing += $". {t.LocalId:X6}:Starfield.esm is one of the forms built into the game{(t.LocalId == 0x14 ? " (PlayerRef, the player's reference)" : t.LocalId == 0x7 ? " (Player)" : "")}: the engine's own forms (Starfield.esm IDs below 000800) are in no plugin file, so there is no record to show; refs2 {t.LocalId:X6}:Starfield.esm lists the records that link to it";
                     if (t.AlsoEditorId) nothing += $", and no EditorID is \"{t.Text}\"";
                     break;
                 case Kind.Runtime:
@@ -960,6 +964,8 @@ namespace SFSearch.Engine
                             var seg = owner?.Segment;
                             string top = seg != null && seg.FirstUnresolved > seg.FirstOwn ? $", its own IDs go up to {seg[seg.FirstUnresolved - 1].LocalId:X6}" : "";
                             nothing = $"no plugin holds {t.LocalId:X6}:{owner?.Name ?? t.Plugin} ({owner?.Name ?? t.Plugin} has {seg?.Count ?? 0:N0} records{top})";
+                            if (t.LocalId < 0x800 && (owner?.Name ?? t.Plugin).Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase))
+                                nothing = $"{t.LocalId:X6}:Starfield.esm is one of the forms built into the game{(t.LocalId == 0x14 ? " (PlayerRef, the player's reference)" : t.LocalId == 0x7 ? " (Player)" : "")}: the engine's own forms (Starfield.esm IDs below 000800) are in no plugin file, so there is no record to show; refs2 {t.LocalId:X6}:Starfield.esm lists the records that link to it";
                         }
                         break;
                     }

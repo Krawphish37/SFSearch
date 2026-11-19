@@ -144,6 +144,13 @@ public sealed partial class QueryEngine
                 if (s.TagTextsMade is { } made && Interlocked.Read(ref made.Given) > _tagGiven.GetValueOrDefault(s.Name))
                     lock (_functions.Notes.Lock) _functions.Notes.FromTables.Add(_language);
             foreach (var line in Languages.NoteLines(_functions.Notes, _language)) Note(line);
+            lock (_functions.BuiltInAsked)
+                if (_functions.BuiltInAsked.Count > 0)
+                {
+                    var asked = _functions.BuiltInAsked.OrderBy(k => k, StringComparer.Ordinal).ToList();
+                    Note($"{string.Join(", ", asked.Take(4))}{(asked.Count > 4 ? $" and {asked.Count - 4:N0} more" : "")} {(asked.Count == 1 ? "is a form" : "are forms")} built into the game (Starfield.esm IDs below 000800, such as 000014, the player's reference): in no plugin file, so edid(), name() and type() give nothing for {(asked.Count == 1 ? "it" : "them")}.");
+                    _functions.BuiltInAsked.Clear();
+                }
         }
     }
 }

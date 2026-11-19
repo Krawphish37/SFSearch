@@ -13,6 +13,8 @@ public sealed partial class QueryEngine
         QueryException UnknownTable(string name)
         {
             var schema = _e._schema;
+            // A table SQL had before 2.0: what answers for it now
+            if (OldNames.Table(name) is { } old) return new QueryException($"there is no table \"{name}\": {old}", "the old tables and what replaced each are in references\\old-tools.md, \"Old SQL\"");
             // A signature in place of the record type
             var bySig = schema.TypesOf(name.ToUpperInvariant());
             if (bySig.Count > 0)
@@ -43,6 +45,10 @@ public sealed partial class QueryEngine
         QueryException UnknownColumn(string asked, List<ViewSpec> views, List<string> specials)
         {
             string column = asked[(asked.LastIndexOf('.') + 1)..];
+            // A column SQL had before 2.0, when no view of the statement has one of that name: what answers for it now
+            if (OldNames.Column(column) is { } old && !views.Any(v => v.FixedColumns.Concat(v.Columns.Select(c => c.Name)).Contains(column, StringComparer.OrdinalIgnoreCase)))
+                return new QueryException($"{string.Join(", ", views.Select(v => v.Name).Concat(specials).Take(4))} {(views.Count + specials.Count > 1 ? "have" : "has")} no column \"{column}\": {old}",
+                    "the old names and what replaced each are in references\\old-tools.md, \"Old SQL\"");
             var candidates = new List<Candidate>();
             foreach (var v in views)
             {
@@ -72,7 +78,11 @@ public sealed partial class QueryEngine
             string fix = tables.Count > 0 && views.Count > 0
                 ? $"every field of a type is in SELECT Path, Kind, Readable FROM schema.Fields WHERE Type = '{views[0].Types[0]}'; a field that isn't a column can be read with Json ->> '$.Path'"
                 : "check the column's name";
-            return new QueryException($"{who} {(several ? "have" : "has")} no column \"{column}\"." + (near.Count > 0 ? $" Did you mean: {list}?" : ""), fix);
+            // A list view has few columns, and they differ by list (a list of links has Value; a list of objects has a
+            // column for each field of an item): say them, so the right one isn't a second guess (GAPS S202)
+            string own = string.Concat(views.Where(v => v.IsList).Take(2).Select(v =>
+                $" {v.Name} has the columns {string.Join(", ", ViewBuilder.ColumnNames(v, _versions).Take(24))}{(ViewBuilder.ColumnNames(v, _versions).Count > 24 ? ", …" : "")}."));
+            return new QueryException($"{who} {(several ? "have" : "has")} no column \"{column}\"." + (near.Count > 0 ? $" Did you mean: {list}?" : "") + own, fix);
         }
 
         // -------------------------------------------------------------- EditorID literals
@@ -171,15 +181,28 @@ public sealed partial class QueryEngine
                 foreach (var p in _members.Where(p => have.All(h => h.Plugin != p.Name)).Take(3))
                     if (_members.Count <= 8) reasons.Add($"{p.Name} has no {typed.Name} records");
             }
+            // Records, Links and Conditions hold the record types read: say how many of the scope's that is. With all of
+            // them read the empty answer is complete, and a note about narrowing would put that in doubt.
+            var readTypes = _files.SelectMany(f => _done[f].Keys).Where(k => k != FormsDone).ToHashSet(StringComparer.Ordinal);
+            var notRead = ScopeSignatures().Keys.Where(s => _e._schema.TypesOf(s).Count > 0 && !_files.All(f => _done[f].ContainsKey(s))).Select(_e.LabelOf).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
+            string Held(string table, string of, string narrow) =>
+                _req.NoAutoReads ? "nothing among what this stored query read matched what was asked"
+                : notRead.Count == 0 ? $"the filter matched nothing among {of} of every record type of this scope ({readTypes.Count:N0} types read)"
+                : $"the filter matched nothing among {of} of the {readTypes.Count:N0} record type(s) read so far; {table} doesn't hold the other {notRead.Count:N0} of this scope ({string.Join(", ", notRead.Take(6))}{(notRead.Count > 6 ? ", …" : "")}): {narrow}";
             foreach (string s in _specialUsed)
                 reasons.Add(s switch
                 {
-                    "Records" => $"Records holds only the record types read so far in this scope ({string.Join(", ", _files.SelectMany(f => _done[f].Keys).Where(k => k != FormsDone).Select(_e.LabelOf).Distinct().Take(8).DefaultIfEmpty("none yet"))}): narrow it (WHERE Type = '…', FormKey = '…' or EditorID = '…') and that type is read first, or name a type's own table",
-                    "Links" => "Links holds only the links of the record types read so far in this scope: narrow it (WHERE ToKey = '…', FromKey = '…' or FromType = '…') and the types that needs are read first",
-                    "Conditions" => "Conditions holds only the conditions of the record types read so far in this scope: narrow it (WHERE Type = '…', FormKey = '…' or EditorID = '…') and that type is read first",
+                    "Records" => Held("Records", "the records", "narrow it (WHERE Type = '…', FormKey = '…' or EditorID = '…') and that type is read first, or name a type's own table"),
+                    "Links" => Held("Links", "the links", "narrow it (WHERE ToKey = '…', FromKey = '…' or FromType = '…') and the types that needs are read first"),
+                    "Conditions" => Held("Conditions", "the conditions", "narrow it (WHERE Type = '…', FormKey = '…' or EditorID = '…') and that type is read first"),
                     _ => $"the filter matched nothing among the {_members.Sum(p => (long)p.Segment!.Count):N0} records of the header index for this scope",
                 });
-            if (reasons.Count == 0) reasons.Add("the query names no record table");
+            if (reasons.Count == 0 && toks.Any(t => t.Is("Meta") || t.Is("Masters")))
+                reasons.Add("Meta and Masters were tables of the old databases (a plugin's source stamp, its masters): a plugin's header is in the table Plugins now (SELECT Plugin, Masters, Version, NumRecords FROM Plugins), and loadorder2 <plugin> shows it");
+            if (reasons.Count == 0)
+                reasons.Add(toks.Any(t => t.IsName && (t.Text.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase) || t.Text.StartsWith("pragma_", StringComparison.OrdinalIgnoreCase)))
+                    ? "the record tables aren't in SQLite's own list of tables: a type's view is made when a query names it. The record types are in SELECT Sig, Type FROM schema.RecordTypes, a type's fields and lists in SELECT Path, Kind, Readable FROM schema.Fields WHERE Type = '…' (a list's view is Type_List: Npc_Factions), and SELECT * FROM <view> LIMIT 1 shows a view's columns"
+                    : "the query names no record table");
 
             // A plugin named in the SQL that isn't there, or isn't part of the scope
             foreach (var t in toks)

@@ -30,7 +30,7 @@ public sealed class NewTools
         "Start with sfs_find (what is this?), sfs_record (one record), sfs_describe (field names: never guess them), then sfs_query (SQL). " +
         "Every answer ends with [notes] (warnings: read them), [source] (which copy of which plugins) and [cost]. " +
         "A [more] line gives a cursor: repeat the call with the same arguments and cursor set. " +
-        "\"Not run\" (and a line about what was left out to save time) states the cost and three answers: allow_heavy=true runs it now; leaving it out runs nothing; " +
+        "Heavy work runs without asking; its cost is in [cost]. Where the user turned asking on, \"Not run\" states the cost; it, and a line about what was left out to save time, give three answers: allow_heavy=true runs it now; leaving it out runs nothing; " +
         "allow_heavy=\"save_index\" (sfs_refs: world \"save_index\") runs it and then saves the index the answer offers, with its size, the time to make it and how fast later questions of that kind get; it is made in the background and kept (sfs_run [\"indexes\"] shows it, [\"indexes\", \"drop\", \"world\"] deletes it). " +
         "Where no index would help, the answer says so. Saving one is the user's choice: tell them the options and costs. " +
         "Shared arguments: limit or rows (rows a page, default 40), max_chars (characters a page, default 24000), language (default English), format=json (the answer's parts as fields).";

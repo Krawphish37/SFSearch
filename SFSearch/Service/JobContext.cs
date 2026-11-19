@@ -145,7 +145,7 @@ namespace SFSearch.Service
             if (!ServiceWorker.Connected)
             {
                 // A plain run: nothing to queue behind, so only the caller's OK and the PC's memory count
-                if (!AllowHeavyLocal) return Refuse(new HeavyInfo { EstimateMB = estimateMB, What = what, Reason = "not_allowed", AvailableMB = MemoryInfo.AvailableMB() }, 0);
+                if (!AllowHeavyLocal && cfg.AskBeforeHeavy) return Refuse(new HeavyInfo { EstimateMB = estimateMB, What = what, Reason = "not_allowed", AvailableMB = MemoryInfo.AvailableMB() }, 0);
                 long avail = MemoryInfo.AvailableMB();
                 if (avail >= 0 && avail < estimateMB + (long)cfg.HeavySpareMB)
                     return Refuse(new HeavyInfo { EstimateMB = estimateMB, What = what, Reason = "no_memory", AvailableMB = avail }, estimateMB + (long)cfg.HeavySpareMB);
@@ -194,7 +194,7 @@ namespace SFSearch.Service
         }
 
         /// <summary>True when the caller said yes to heavy work: on the command line, or as the job's own setting in the service.</summary>
-        public static bool HeavyAllowed => AllowHeavyLocal || _allowed;
+        public static bool HeavyAllowed => AllowHeavyLocal || _allowed || !ServiceConfig.Load(Home.Dir).AskBeforeHeavy;
         static bool _allowed;
 
         static bool Refuse(HeavyInfo h, long needMB)

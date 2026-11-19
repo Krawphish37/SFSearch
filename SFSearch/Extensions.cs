@@ -141,6 +141,14 @@ namespace SFSearch
             return true;
         }
 
+        /// <summary>The add-on commands whose short name is this one, as "AddOn.Command": a verb of SFSearch's own of the same
+        /// name comes first, so the add-on's answers only to its full name.</summary>
+        public static List<string> SameName(string verb)
+        {
+            try { return All().SelectMany(a => a.Commands.Where(c => c.Name.Equals(verb, StringComparison.OrdinalIgnoreCase)).Select(c => $"{a.Name}.{c.Name}")).ToList(); }
+            catch (Exception e) when (e is not OutOfMemoryException) { return new List<string>(); }
+        }
+
         /// <summary>The short names of every add-on command (for the nearest names when a command isn't known).</summary>
         public static List<string> CommandNames() => All().SelectMany(a => a.Commands.Select(c => c.Name)).ToList();
 

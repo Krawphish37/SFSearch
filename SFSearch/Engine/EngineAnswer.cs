@@ -119,6 +119,10 @@ namespace SFSearch.Engine
             _body.Clear();
             HeaderLines = 0; More = null;
             _failWhat = what; _failFix = fix; _failCode = code;
+            // An add-on has a command of this verb's name (the patcher add-on's Profile beside the verb profile): the verb
+            // comes first, so the caller may have meant the other one (GAPS S212)
+            if (EngineCommands.CurrentVerb is { } verb && Extensions.SameName(verb) is { Count: > 0 } addOns)
+                _failFix = fix.TrimEnd('.', ' ') + $". If you meant the add-on's command of the same name, call it by its full name: {string.Join(", ", addOns)}";
         }
         string _failWhat = "", _failFix = "";
         int _failCode = ErrorCode;

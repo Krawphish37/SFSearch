@@ -79,13 +79,16 @@ public sealed partial class QueryEngine
         }
 
         /// <summary>True when SQLite's plan reads the view only through the given index (FindKeyedRoots' rule).</summary>
-        static bool OnlyThrough(List<Tok> toks, ViewSpec v, List<string> plan, string byIndex)
+        static bool OnlyThrough(List<Tok> toks, ViewSpec v, List<string> plan, string byIndex) => OnlyThrough(toks, v.Name, plan, byIndex);
+
+        /// <summary>The same for a table by its name (Forms).</summary>
+        static bool OnlyThrough(List<Tok> toks, string table, List<string> plan, string byIndex)
         {
             // The names a plan line can give this view by: its own and each alias the statement gives it
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { v.Name };
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { table };
             for (int i = 0; i < toks.Count; i++)
             {
-                if (!toks[i].IsName || !toks[i].Text.Equals(v.Name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!toks[i].IsName || !toks[i].Text.Equals(table, StringComparison.OrdinalIgnoreCase)) continue;
                 if (i + 1 < toks.Count && toks[i + 1].IsName) names.Add(toks[i + 1].Text);
                 if (i + 2 < toks.Count && toks[i + 1].Is("AS") && toks[i + 2].IsName) names.Add(toks[i + 2].Text);
             }

@@ -564,6 +564,31 @@ public sealed class StoredQueries
     /// <summary>The record types the last run had read for its query, for the note of an empty answer. One caller at a time, like the engine.</summary>
     List<string> _readRoots = new();
 
+    /// <summary>
+    /// record= is one record by its whole EditorID or its FormKey (the old "q &lt;name&gt; &lt;plugin&gt; &lt;text&gt;" took a part of
+    /// one): the note says so, names the pattern parameter where the query has one, and the EditorIDs of the scope that
+    /// hold the text.
+    /// </summary>
+    static string NoSuchRecord(StoredQuery q, ScopeKind scope, List<string> plugins, List<IndexedPlugin> members, string text)
+    {
+        string where = scope == ScopeKind.Plugins ? string.Join(", ", plugins) : "the loaded plugins";
+        var holding = new List<string>(); long more = 0;
+        if (!HeaderIndex.TryParseFormKey(text, out _, out _) && text.Length >= 3 && members.Sum(p => (long)p.Segment!.Count) <= 2_000_000)
+            foreach (var p in members)
+            {
+                var seg = p.Segment!;
+                for (int i = 0; i < seg.Count; i++)
+                    if (seg.EditorId(i) is { } e && e.Contains(text, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (holding.Contains(e)) continue;
+                        if (holding.Count < 5) holding.Add(e); else more++;
+                    }
+            }
+        return $"The header index has no record with the EditorID or FormKey \"{text}\" in {where}: record= takes one record's whole EditorID or its FormKey."
+            + (q.Param("pattern") != null ? $" For a part of an EditorID use pattern=*{text}*." : "")
+            + (holding.Count > 0 ? $" EditorIDs there that hold \"{text}\": {string.Join(", ", holding)}{(more > 0 ? $" and {more:N0} more" : "")}." : "");
+    }
+
     string? PreRead(StoredQuery q, ScopeKind scope, List<string> plugins, Dictionary<string, string> given, Dictionary<string, object?> values, StoredAnswer answer, bool needed)
     {
         var index = _engine.Records.Index;
@@ -576,6 +601,17 @@ public sealed class StoredQueries
             var sigs = SigsOfRoot(namedRoot);
             values["type"] = sigs.Count > 0 ? sigs[0] : typeArg.ToUpperInvariant();
             answer.Arguments["type"] = values["type"];
+        }
+        // record= that names no record of the scope: said for every stored query that takes it (GAPS S213)
+        if (q.Param("record") != null && given.ContainsKey("record") && values.GetValueOrDefault("record") is string wanted && wanted.Length > 0)
+        {
+            var inScope = scope == ScopeKind.Plugins
+                ? plugins.Select(index.Plugin).Where(p => p?.Segment != null).Select(p => p!).ToList()
+                : index.Plugins.Where(p => p.Order.Enabled && p.Segment != null).ToList();
+            bool held = HeaderIndex.TryParseFormKey(wanted, out _, out _)
+                ? index.Versions(wanted) is { } wv && wv.Holders.Any(r => inScope.Contains(index.Plugins[r.Plugin]))
+                : index.FindEditorId(wanted).Any(r => inScope.Contains(index.Plugins[r.Plugin]));
+            if (!held && (scope != ScopeKind.Plugins || inScope.Count == plugins.Count)) answer.Notes.Add(NoSuchRecord(q, scope, plugins, inScope, wanted));
         }
         _readRoots = new List<string>();
         if (q.Reads == null || !needed) return null;
@@ -610,8 +646,6 @@ public sealed class StoredQueries
             else refs.AddRange(index.FindEditorId(record));
             foreach (var r in refs)
                 if (members.Contains(index.Plugins[r.Plugin])) sigsWanted.Add(index.Describe(r).Signature);
-            if (sigsWanted.Count == 0)
-                answer.Notes.Add($"The header index has no record with the EditorID or FormKey \"{record}\" in {(scope == ScopeKind.Plugins ? string.Join(", ", plugins) : "the loaded plugins")}.");
         }
         else if (namedRoot == null && q.Params.FirstOrDefault(p => p.Kind == StoredParamKind.Pattern && given.ContainsKey(p.Name)) is { } pp)
         {

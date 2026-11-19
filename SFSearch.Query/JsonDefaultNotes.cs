@@ -9,6 +9,12 @@
 // types the SQL names and is named when it ends in such a field in any of them. A path read from anything else (an
 // item of json_each, a list view's Value) may start at any object that has its first field, and is named only when
 // every place it can end is such a field.
+//
+// A path read from a record's own Json that the schema doesn't have at all (GAPS S211: an old path such as
+// "$.Model.File.GivenPath", a guessed field) is NULL for every record, and looked like "no record has it". Where the
+// path stops in every record type the SQL names, the note says where: the object that has no such field (with the
+// nearest names), or the field that is one value with nothing below it. A shape this doesn't follow (a translated
+// text's Value and Tables, a dictionary, the two halves of a gendered value) is left alone.
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using SFSearch.Records;
@@ -63,8 +69,10 @@ static class JsonDefaultNotes
     /// default. A path inside coalesce() or ifnull() has its default given already and isn't named; json_each's and
     /// json_tree's path names a list, not a value.
     /// </summary>
-    public static string? For(RecordSchema schema, List<Tok> toks)
+    public static List<string> For(RecordSchema schema, List<Tok> toks)
     {
+        var notes = new List<string>();
+        var nowhere = new List<string>();
         var look = For(schema);
         List<string>? named = null; // the record types the SQL names, found on the first path that needs them
         var found = new List<(string Name, List<string> Defaults)>();
@@ -83,17 +91,76 @@ static class JsonDefaultNotes
             bool strict = !ofRecord || named.Count == 0;
             IEnumerable<string> roots = strict ? look.Owners.GetValueOrDefault(path[0]) ?? new List<string>() : named;
             foreach (string root in roots) Walk(schema, root, path, 0, ends, seen);
-            if (ends.Count == 0) continue;
+            if (ends.Count == 0)
+            {
+                // In no record type the SQL names: where it stops, when it stops for a reason this can say in every one
+                if (!strict && !path.Contains("MutagenObjectType") && nowhere.Count < 4 && !nowhere.Any(n => n.StartsWith("'" + t.Text + "'", StringComparison.Ordinal)))
+                {
+                    var stops = named.Select(root => Follow(schema, root, path, 0, new HashSet<(string, int)>())).ToList();
+                    if (stops.All(st => !st.Ok && st.Reason != null)) nowhere.Add($"'{t.Text}': {stops[0].Reason}");
+                }
+                continue;
+            }
             var defaults = ends.Select(e => LeftOutDefault(schema, e)).ToList();
             if (strict ? defaults.Any(d => d == null) : defaults.All(d => d == null)) continue;
             found.Add((path[^1], defaults.Where(d => d != null).Select(d => d!).Distinct(StringComparer.Ordinal).ToList()));
         }
-        if (found.Count == 0) return null;
+        if (nowhere.Count > 0)
+            notes.Add($"A JSON path that names no field gives NULL for every record: {string.Join("; ", nowhere)}. describe <Type> lists a type's fields with their paths.");
+        if (found.Count == 0) return notes;
         static string One((string Name, List<string> Defaults) f) =>
             $"{f.Name} (default {(f.Defaults.Count == 1 ? f.Defaults[0] : string.Join(" or ", f.Defaults.Take(3)) + (f.Defaults.Count > 3 ? ", …" : "") + ", by type")})";
         string list = string.Join(", ", found.Take(Most).Select(One)) + (found.Count > Most ? $" and {found.Count - Most} more" : "");
-        return $"A record's JSON leaves out a field that holds its default, so reading it from the JSON gives NULL there, not the default: {list}. "
-             + "A NULL is the default, not \"nothing there\": write coalesce(<the read>, <the default>), or read the type's column of that name (or the Conditions table), which gives the default.";
+        notes.Add($"A record's JSON leaves out a field that holds its default, so reading it from the JSON gives NULL there, not the default: {list}. "
+             + "A NULL is the default, not \"nothing there\": write coalesce(<the read>, <the default>), or read the type's column of that name (or the Conditions table), which gives the default.");
+        return notes;
+    }
+
+    // Kinds that are one value in the JSON: nothing is below them
+    static readonly HashSet<string> OneValue = new(Plain, StringComparer.Ordinal) { "AssetLink", "FormKey", "RecordType", "TimeOnly" };
+
+    /// <summary>
+    /// Follows a path from an object: Ok when some kind of the object reaches its end, or when it meets a shape this
+    /// doesn't follow (then nothing is said). Else the deepest place it stopped, in words.
+    /// </summary>
+    static (bool Ok, int Depth, string? Reason) Follow(RecordSchema schema, string obj, List<string> path, int at, HashSet<(string, int)> seen)
+    {
+        if (!seen.Add((obj, at)) || seen.Count > 4000) return (true, at, null);
+        (int Depth, string? Reason) best = (-1, null);
+        bool any = false;
+        foreach (string kind in new[] { obj }.Concat(schema.Model.Variants(obj)))
+        {
+            if (!schema.Model.Objects.ContainsKey(kind)) continue;
+            var props = schema.Props(kind);
+            if (props.Count == 0) return (true, at, null);
+            any = true;
+            if (schema.Prop(kind, path[at]) is not { } p)
+            {
+                if (at > best.Depth)
+                {
+                    var near = Nearest.Pick(path[at], props.Select(x => x.Name), n => new[] { n }, 3, always: false);
+                    best = (at, $"{kind} has no field {path[at]}{(near.Count > 0 ? $" (nearest: {string.Join(", ", near)})" : "")}");
+                }
+                continue;
+            }
+            if (at == path.Count - 1) return (true, at, null);
+            var f = p.Main;
+            if (f.Translated || p.Parts.Count > 0 || p.PartItems.Count > 0 || f.Kind is "Dictionary" or "Gendered" or "CustomLogic" or "Color" or "Array2D") return (true, at, null);
+            var below = new[] { p.Item?.RefObject, f.RefObject }.Where(x => x != null).Select(x => x!).Distinct(StringComparer.Ordinal).ToList();
+            if (below.Count == 0)
+            {
+                if (p.Item != null || !OneValue.Contains(f.Kind)) return (true, at, null);
+                if (at + 1 > best.Depth) best = (at + 1, $"{path[at]} is one value{(f.Kind == "AssetLink" ? " (a file's path)" : f.Kind == "FormLink" ? " (a link)" : "")}, so nothing is below it ({path[at + 1]} isn't there)");
+                continue;
+            }
+            foreach (string next in below)
+            {
+                var r = Follow(schema, next, path, at + 1, seen);
+                if (r.Ok) return r;
+                if (r.Depth > best.Depth) best = (r.Depth, r.Reason);
+            }
+        }
+        return any ? (false, best.Depth, best.Reason) : (true, at, null);
     }
 
     /// <summary>Every field the path can end in, starting at an object (and, where the object is one of several kinds, at each kind).</summary>

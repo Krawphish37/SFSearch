@@ -284,7 +284,7 @@ static class Tests
         var off = c.Index.Plugins.FirstOrDefault(p => !p.Order.Enabled && p.Segment != null);
         if (off != null) Why(c.Lo($"SELECT * FROM Weapon WHERE Plugin = '{off.Name}'", ScopeKind.Winners), $"{off.Name} is in Data but not in the load order", "a plugin that isn't loaded, in the winners scope");
         // A multi-type signature with none of the type asked
-        Why(c.Sql("SELECT * FROM Records WHERE Type = 'NoSuchType'", SF), "Records holds only the record types read so far", "Records");
+        Why(c.Sql("SELECT * FROM Records WHERE Type = 'NoSuchType'", SF), "Records doesn't hold the other", "Records");
         Why(c.Sql("SELECT 1 WHERE 0", SF), "the query names no record table", "a query with no table");
         c.Save("empty-answers.txt", said);
         return $"{said.Count} kinds of empty answer, each with its reason (type not in the plugin: \"{Cut(said[0], 120)}\"; filter: \"{Cut(said[2], 120)}\"; a plugin that isn't in Data, isn't in the scope, isn't loaded{(off != null ? $" ({off.Name})" : " (none found in Data)")}); a scope plugin that isn't in Data stops with the nearest name";

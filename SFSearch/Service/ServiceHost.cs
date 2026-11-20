@@ -1316,7 +1316,7 @@ namespace SFSearch.Service
                 {
                     sb.AppendLine($"Header index job: {_indexState}");
                     sb.AppendLine($"Link index job: {_linksState}");
-                    sb.AppendLine($"Open plugins (Mutagen overlays the new tools keep open), by worker: {(_workers.Count == 0 ? "no worker" : string.Join(", ", _workers.OrderBy(w => w.Id).Select(w => $"worker {w.Id}: {w.OpenPlugins}")))}.");
+                    sb.AppendLine($"Open plugins (the game's own plugins a worker has read stay open; a mod's or a patch's file is let go when its command ends), by worker: {(_workers.Count == 0 ? "no worker" : string.Join(", ", _workers.OrderBy(w => w.Id).Select(w => $"worker {w.Id}: {w.OpenPlugins}")))}.");
                 }
             }
             sb.AppendLine($"Log: {LogFile}");

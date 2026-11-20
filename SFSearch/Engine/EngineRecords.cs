@@ -71,6 +71,19 @@ namespace SFSearch.Engine
         public static List<string> OpenNames() { lock (_gate) return _engines.Values.SelectMany(e => e.Sessions.Open.Select(s => s.Name)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList(); }
 
         /// <summary>
+        /// After a command, in a program that goes on running (a service worker): every open plugin that isn't one of
+        /// the game's own (PluginSets.IsOfficial: Starfield.esm, the expansions, Bethesda's Creations) is let go, so a
+        /// mod manager, xEdit or a patcher that wants a mod's or a patch's file for itself alone gets it (GAPS S215: the
+        /// All-in-One Patcher's exclusive-open test of its old patch was refused after a check of that patch). The
+        /// game's own plugins stay open: they are the big ones (0.5 s to open again) and nothing rewrites them while
+        /// the service runs. The next command opens what it needs again (0.05 s or so for a mod).
+        /// </summary>
+        public static int ReleaseOthers()
+        {
+            lock (_gate) return _engines.Values.Sum(e => e.Sessions.Release(SFSearch.Index.PluginSets.IsOfficial));
+        }
+
+        /// <summary>
         /// After a command: a program that holds more than 1.5 GB closes the plugins it has open and gives the memory
         /// back. The next command opens what it needs again (0.05 to 0.5 s a plugin). This keeps a worker under the
         /// service's recycle limit (3 GB) however many plugins a search has read.

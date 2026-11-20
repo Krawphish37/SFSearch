@@ -137,6 +137,8 @@ sfs.cmd Service start      # also: stop | restart | status | config
 ```
 While it runs, every `sfs.cmd` command goes to it. With no service, a command still works: it reads what it needs by itself and is slower, because nothing is held open between commands.
 
+**Your mods' files stay yours.** The service holds a mod's or a patch's file only while a command reads it, so a mod manager, SF1Edit or a patcher can replace, rename or delete the file between commands, even a program that asks Windows for the file all to itself. The next command reads the file as it is then. Only the game's own plugins (Starfield.esm, the expansions, Bethesda's Creations) stay open while the service runs: `sfs.cmd Service stop` lets go of those too, before a game update or a file check by Steam.
+
 **What the first question costs.** No record data is prepared ahead and kept: the service reads the plugin files. It keeps only indexes between starts (`indexes\`, below): its two start-up indexes, ready in a few seconds after the first start with only the parts of new or changed plugins made, and the world link index when you ask for it. Measured on a Data folder of 370 plugins (3.96 GB, 12.2 million records):
 
 | Step | Time |
@@ -262,7 +264,7 @@ git clone -b fixes/1.38.6-fixes.7 https://github.com/Krawphish37/Mutagen.Bethesd
 (GitHub often times out showing pages of the Mutagen repository, which is very large; cloning always works.) SFSearch 1.0.x used `0.55.0-fixes.5`, from the `starfield-fixes5` branch.
 
 ## Status
-Version `2.4.0` (its release notes list what changed since 2.3.1), with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
+Version `2.4.1` (its release notes list what changed since 2.4.0), with the older commands and tools removed. Tested on one PC (Steam install, 370 plugins, 224 loaded). The numbers below were taken before the removal:
 - **455 real past commands** recorded from agent sessions: 452 run (3 name files that no longer exist), and all 452 answer line for line as before the new tools were added. Since the removal each of them is held to the call that answers it now, and each old command's name to its pointer line (`sfsharness mapping`).
 - **The 16 traps of the 1.x agent guide** (wrong answers with no error): each now can't happen, or gives a clear error or warning. All 16 have a tested case, and all pass.
 - **The MCP server's own test** (with the author's calls of every tool): 98 calls of the 12 tools, 102 of 102 checks pass. The 12 tool definitions are 8,796 characters (the 25 older ones, removed in 2.0, were 14,789).

@@ -7,7 +7,7 @@ description: Read this before any lookup in a Starfield plugin (.esm, .esp). SFS
 
 SFSearch reads Starfield plugins live through Mutagen and answers questions about them. Nothing about a record is stored, so no answer is stale. Use it for every plugin lookup, comparison and check; don't write a parser.
 
-It never changes a plugin. Use the `sfsearch` MCP tools when they are loaded; otherwise the command line (below). The first call starts the SFSearch service by itself.
+It never changes a plugin, and it holds a mod's or a patch's file only while a command reads it: a patcher or SF1Edit can write that file between your calls, and the next call reads it as it is then (only the game's own plugins stay open while the service runs). Use the `sfsearch` MCP tools when they are loaded; otherwise the command line (below). The first call starts the SFSearch service by itself.
 
 ## Which tool answers which question
 Each example call was run as written. `references/research.md` shows what the tools print.

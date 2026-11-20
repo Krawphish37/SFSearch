@@ -1,6 +1,6 @@
 # SFSearch: instructions for coding agents
 
-SFSearch reads Starfield plugins (`.esm`, `.esp`) live and answers lookups, load-order questions, comparisons, asset checks and patch checks. Use it for all Starfield plugin data instead of writing a parser. It never changes a plugin.
+SFSearch reads Starfield plugins (`.esm`, `.esp`) live and answers lookups, load-order questions, comparisons, asset checks and patch checks. Use it for all Starfield plugin data instead of writing a parser. It never changes a plugin, and it holds a mod's or a patch's file only while a command reads it: another program can write that file between your calls.
 
 **Use the `sfsearch` MCP tools when they're loaded:** `sfs_find`, `sfs_record`, `sfs_describe`, `sfs_query`, `sfs_refs`, `sfs_compare`, `sfs_loadorder`, `sfs_check`, `sfs_saved`, `sfs_run`, `sfs_job`, `sfs_status`. Otherwise run the command line from any folder:
 ```powershell

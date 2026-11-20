@@ -680,7 +680,7 @@ Lines of the scripts of atom74.esm that contain "AddForm": 26 in 2 scripts (2 sc
 
 ## sfs_job and sfs_status
 - **`sfs_job`** (`job`, `wait_seconds`, `cancel`): a call that takes over 45 s answers `Still working on it (job …)`. `sfs_job` with that number collects the answer, says it is still working, or cancels it. An answer is kept for an hour, and not across a service restart.
-- **`sfs_status`**: the service's workers, queue and heavy lane; both start-up indexes and the indexes kept on disk (`indexes` says more); how many plugins each worker holds open; the scratch folder's size; the kept files; memory. The lines to look at when something seems slow or missing:
+- **`sfs_status`**: the service's workers, queue and heavy lane; both start-up indexes and the indexes kept on disk (`indexes` says more); how many plugins each worker holds open (the game's own; a mod's or a patch's file is let go when its command ends); the scratch folder's size; the kept files; memory. The lines to look at when something seems slow or missing:
 ```text
 > sfs_status {}
 …

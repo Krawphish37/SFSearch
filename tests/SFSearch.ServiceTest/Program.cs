@@ -62,6 +62,7 @@ public static partial class T
             case "idleworkers": await IdleWorkers(); break;
             case "historylook": await HistoryLook(Opt("--data")); break;
             case "keptindexes": await KeptIndexes(); break;
+            case "letgo": await LetGo(); break;
             case "keptremoved": await KeptRemoved(); break;
             case "worldindex": await WorldIndex(); break;
             case "saveindex": await SaveIndex(); break;

@@ -8,7 +8,10 @@
 //  - Files are opened for reading with every kind of sharing, so a held plugin never stands in the way of the game,
 //    xEdit or a mod manager: Mutagen opens them with the sharing SFSearch asks for (BinaryReadParameters.FileShare,
 //    C175). For the same reason a plugin is never kept memory-mapped: Windows refuses to overwrite a file that has a
-//    mapped view.
+//    mapped view. That lets another program replace or delete a held file, but not open it for itself alone: a
+//    patcher that tests its old patch with an exclusive open is refused while any handle is on it (GAPS S215). So
+//    a program that goes on running lets go of every plugin that isn't the game's own when a command ends
+//    (PluginSessions.Release): a mod's or a patch's file is held only while a command reads it.
 //  - One record is read on its own (no group walked) by Mutagen's MajorRecordReader (C176), from bytes the session
 //    reads itself.
 //  - A record's own bytes are read through PluginSession.ReadAt, which several threads can call at once. Each
@@ -574,6 +577,23 @@ public sealed class PluginSessions : IDisposable
         }
         foreach (var name in plugins) Get(name);
         return use;
+    }
+
+    /// <summary>
+    /// Closes every open plugin that <paramref name="keep"/> doesn't name, and says how many. For the end of a
+    /// command in a program that goes on running (GAPS S215): the next command opens what it needs again.
+    /// </summary>
+    public int Release(Func<string, bool> keep)
+    {
+        int closed = 0;
+        foreach (var s in _open.Values.ToList())
+        {
+            if (keep(s.Name)) continue;
+            s.Dispose();
+            _open.Remove(s.Name);
+            closed++;
+        }
+        return closed;
     }
 
     /// <summary>Call at the end of a command: a plugin that changed while the command read it makes the answer

@@ -123,6 +123,8 @@ namespace SFSearch.Service
                     Thread.Sleep(250);
                     (o, e, code) = RunOnce(order, stdout, stderr);
                 }
+                // A mod's or a patch's file is held only while a command reads it (GAPS S215)
+                try { Engine.EngineRecords.ReleaseOthers(); } catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
                 long mem;
                 using (var me = Process.GetCurrentProcess()) mem = me.PrivateMemorySize64 / 1048576;
                 var done = new WorkerEvent { Evt = "done", Job = order.Job, Out = o.ToString(), Err = e.ToString(), Code = code, Ms = clock.ElapsedMilliseconds, MemMB = mem };
